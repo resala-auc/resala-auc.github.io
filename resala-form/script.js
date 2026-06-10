@@ -1,4 +1,4 @@
-const API_URL = "https://<SUPABASE_FUNCTION_URL>/submit";
+const API_URL = "https://ptdsilftfeomcsidpdto.functions.supabase.co/submit";
 
 const form = document.getElementById('resalaForm');
 const sections = [...document.querySelectorAll('.form-section')];
