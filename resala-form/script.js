@@ -1,4 +1,4 @@
-const API_URL = "/api/submit";
+const API_URL = "https://<SUPABASE_FUNCTION_URL>/submit";
 
 const form = document.getElementById('resalaForm');
 const sections = [...document.querySelectorAll('.form-section')];
