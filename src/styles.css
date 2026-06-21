@@ -2201,6 +2201,22 @@ h3 {
   font-size: 1.18rem;
 }
 
+.success-processing {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(39, 50, 138, 0.14);
+  border-radius: var(--radius);
+  background: rgba(248, 250, 252, 0.84);
+  color: var(--color-muted);
+  font-weight: 800;
+}
+
+.success-processing-error {
+  border-color: rgba(154, 46, 23, 0.32);
+  background: #fff8f5;
+  color: #842a16;
+}
+
 [hidden] {
   display: none !important;
 }

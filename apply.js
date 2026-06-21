@@ -13,6 +13,7 @@ import {
 const form = document.querySelector                 ("[data-application-form]");
 const successState = document.querySelector             ("[data-success-state]");
 const successSlot = document.querySelector             ("[data-success-slot]");
+const successProcessing = document.querySelector             ("[data-success-processing]");
 const errorSummary = document.querySelector             ("[data-error-summary]");
 const submitButton = document.querySelector                   ("[data-submit-button]");
 const roleDescriptionTitle = document.querySelector             ("[data-role-description-title]");
@@ -252,29 +253,44 @@ form?.addEventListener("submit", async (event) => {
     return;
   }
 
-  submitButton.disabled = true;
-  submitButton.textContent = "Submitting...";
+  let payload                    ;
 
   try {
-    const payload = buildPayload(role);
-    await submitApplication(payload);
-
+    payload = buildPayload(role);
     form.hidden = true;
     if (successSlot) successSlot.textContent = payload.interviewSlot;
+    if (successProcessing) {
+      successProcessing.textContent = "Your confirmation email and calendar invite are being prepared in the background.";
+      successProcessing.classList.remove("success-processing-error");
+    }
     if (successState) {
       successState.hidden = false;
       successState.focus();
       successState.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+
+    await submitApplication(payload);
+
+    if (successProcessing) {
+      successProcessing.textContent = "Your confirmation email and calendar invite are on their way.";
+    }
   } catch (error) {
-    if (errorSummary) {
+    if (successState && successState.hidden && errorSummary) {
       errorSummary.hidden = false;
       errorSummary.textContent =
         error instanceof Error ? error.message : "We could not submit the form right now. Please try again.";
+      submitButton.disabled = false;
+      submitButton.textContent = "Submit application";
+      return;
     }
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = "Submit application";
+
+    if (successProcessing) {
+      successProcessing.textContent =
+        error instanceof Error
+          ? `We could not finish the backend submission: ${error.message}`
+          : "We could not finish the backend submission. Please contact the team.";
+      successProcessing.classList.add("success-processing-error");
+    }
   }
 });
 

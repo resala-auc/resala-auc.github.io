@@ -138,6 +138,7 @@ export function SuccessState(): string {
         <span>Your selected interview slot is:</span>
         <strong data-success-slot>[INTERVIEW_SLOT]</strong>
       </div>
+      <p class="success-processing" data-success-processing>Your confirmation email and calendar invite are being prepared in the background.</p>
       <p>We'll contact you by email with your confirmation and what you should prepare for the interview.</p>
       <a class="button button-secondary" href="../">Back to recruitment page</a>
     </section>
