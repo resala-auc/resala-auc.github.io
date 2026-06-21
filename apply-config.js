@@ -28,6 +28,7 @@
                          
                         
                           
+                           
                       
                             
                       
@@ -183,7 +184,7 @@ export function createConfirmationEmailTemplate(payload                    )    
     body: [
       `Hi ${payload.fullName},`,
       "",
-      `Thanks for applying to Resala AUC for ${payload.roleAppliedFor}.`,
+      `Thanks for applying to Resala AUC. Your first preference is ${payload.roleAppliedFor}, and your second preference is ${payload.secondPreference}.`,
       "",
       `Your interview slot is: ${payload.interviewSlotLabel || payload.interviewSlot}.`,
       "",

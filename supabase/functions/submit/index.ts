@@ -32,7 +32,8 @@ const HEADERS = [
   "Previous Resala Experience",
   "Interview Slot",
   "Created At",
-  "Status"
+  "Status",
+  "Second Preference"
 ];
 
 const SLOT_HEADERS = [
@@ -89,6 +90,7 @@ type ApplicationPayload = {
   roleAppliedFor: string;
   roleStepTitle: string;
   roleDescription: string;
+  secondPreference: string;
   whyThisRole: string;
   whyChooseYourself: string;
   hopeToLearn?: string;
@@ -213,6 +215,7 @@ function validateApplication(payload: ApplicationPayload): void {
     "roleAppliedFor",
     "roleStepTitle",
     "roleDescription",
+    "secondPreference",
     "whyThisRole",
     "whyChooseYourself",
     "interviewSlot",
@@ -231,14 +234,26 @@ function validateApplication(payload: ApplicationPayload): void {
   if (!String(payload.interviewSlotId ?? "").trim()) {
     throw new Error("Missing required fields: interviewSlotId.");
   }
+
+  if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
+    throw new Error("Second preference must be different from the first role preference.");
+  }
 }
 
 async function ensureHeaders(token: string, sheetName: string): Promise<void> {
-  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, "A1:Q1")}`);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, "A1:R1")}`);
   const currentValues = (await response.json()).values?.[0] ?? [];
 
   if (currentValues.length === 0) {
-    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, "A1:Q1")}?valueInputOption=RAW`, {
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, "A1:R1")}?valueInputOption=RAW`, {
+      values: [HEADERS]
+    });
+    return;
+  }
+
+  const oldHeadersMatch = HEADERS.slice(0, -1).every((header, index) => currentValues[index] === header);
+  if (oldHeadersMatch && !currentValues[HEADERS.length - 1]) {
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, "A1:R1")}?valueInputOption=RAW`, {
       values: [HEADERS]
     });
     return;
@@ -251,7 +266,7 @@ async function ensureHeaders(token: string, sheetName: string): Promise<void> {
 }
 
 async function ensureNotDuplicate(token: string, payload: ApplicationPayload, sheetName: string): Promise<void> {
-  const response = await sheetsFetch(token, "GET", sheetRange(sheetName, "A2:Q"));
+  const response = await sheetsFetch(token, "GET", sheetRange(sheetName, "A2:R"));
   const rows = (await response.json()).values ?? [];
   const submittedEmail = normalize(payload.aucEmail);
   const submittedStudentId = normalize(payload.studentId);
@@ -268,7 +283,7 @@ async function ensureNotDuplicate(token: string, payload: ApplicationPayload, sh
 }
 
 async function appendApplication(token: string, payload: ApplicationPayload, sheetName: string): Promise<void> {
-  await sheetsFetch(token, "POST", `${sheetRange(sheetName, "A:Q")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+  await sheetsFetch(token, "POST", `${sheetRange(sheetName, "A:R")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     values: [
       [
         payload.timestamp,
@@ -287,7 +302,8 @@ async function appendApplication(token: string, payload: ApplicationPayload, she
         payload.previousResalaExperience ?? "",
         payload.interviewSlot,
         payload.createdAt,
-        "Pending"
+        "Pending",
+        payload.secondPreference
       ]
     ]
   });
@@ -347,7 +363,7 @@ function buildConfirmationEmailTemplate(payload: ApplicationPayload, reservation
   const body = [
     `Hi ${payload.fullName},`,
     "",
-    `Thanks for applying to Resala AUC for ${payload.roleAppliedFor}.`,
+    `Thanks for applying to Resala AUC. Your first preference is ${payload.roleAppliedFor}, and your second preference is ${payload.secondPreference}.`,
     "",
     `Your interview slot is: ${slot}.`,
     `Google Meet link: ${reservation.meetLink}`,
@@ -370,6 +386,7 @@ function buildConfirmationEmailTemplate(payload: ApplicationPayload, reservation
     html: buildConfirmationEmailHtml({
       fullName: payload.fullName,
       roleAppliedFor: payload.roleAppliedFor,
+      secondPreference: payload.secondPreference,
       slot,
       prepLine,
       meetLink: reservation.meetLink
@@ -380,12 +397,14 @@ function buildConfirmationEmailTemplate(payload: ApplicationPayload, reservation
 function buildConfirmationEmailHtml({
   fullName,
   roleAppliedFor,
+  secondPreference,
   slot,
   prepLine,
   meetLink
 }: {
   fullName: string;
   roleAppliedFor: string;
+  secondPreference: string;
   slot: string;
   prepLine: string;
   meetLink: string;
@@ -410,7 +429,7 @@ function buildConfirmationEmailHtml({
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong> for <strong>${escapeHtml(roleAppliedFor)}</strong>. We received your application and reserved your interview slot.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. We received your application and reserved your interview slot.</p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
@@ -870,6 +889,7 @@ async function createCalendarEvent(
         description: [
           `Applicant: ${payload.fullName}`,
           `Role: ${payload.roleAppliedFor}`,
+          `Second preference: ${payload.secondPreference}`,
           `AUC Email: ${payload.aucEmail}`,
           `Student ID: ${payload.studentId}`
         ].join("\n"),

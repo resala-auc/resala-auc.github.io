@@ -28,6 +28,7 @@ export type ApplicationPayload = {
   roleAppliedFor: string;
   roleStepTitle: string;
   roleDescription: string;
+  secondPreference: string;
   whyThisRole: string;
   whyChooseYourself: string;
   hopeToLearn: string;
@@ -183,7 +184,7 @@ export function createConfirmationEmailTemplate(payload: ApplicationPayload): Co
     body: [
       `Hi ${payload.fullName},`,
       "",
-      `Thanks for applying to Resala AUC for ${payload.roleAppliedFor}.`,
+      `Thanks for applying to Resala AUC. Your first preference is ${payload.roleAppliedFor}, and your second preference is ${payload.secondPreference}.`,
       "",
       `Your interview slot is: ${payload.interviewSlotLabel || payload.interviewSlot}.`,
       "",

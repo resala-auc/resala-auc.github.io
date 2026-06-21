@@ -35,6 +35,11 @@ function getSelectedRole()                    {
   return roles.find((role) => role.id === selected?.value) ?? null;
 }
 
+function getSecondPreferenceRole()                    {
+  const selectedRoleId = getValue("secondPreference");
+  return roles.find((role) => role.id === selectedRoleId) ?? null;
+}
+
 function getSelectedInterviewSlot()                                       {
   const selected = form?.querySelector                  ('input[name="interviewSlot"]:checked');
 
@@ -87,7 +92,14 @@ function validateForm()             {
   if (!getValue("major")) errors.major = "Major is required.";
   if (!getValue("yearLevel")) errors.yearLevel = "Year / level is required.";
   if (!getValue("phone")) errors.phone = "Phone number / WhatsApp is required.";
-  if (!getSelectedRole()) errors.roleAppliedFor = "Choose the role you are applying for.";
+  const selectedRole = getSelectedRole();
+  const secondPreferenceRole = getSecondPreferenceRole();
+  if (!selectedRole) errors.roleAppliedFor = "Choose the role you are applying for.";
+  if (!secondPreferenceRole) {
+    errors.secondPreference = "Choose your second preference.";
+  } else if (selectedRole && secondPreferenceRole.id === selectedRole.id) {
+    errors.secondPreference = "Choose a different role for your second preference.";
+  }
   if (!getValue("whyThisRole")) errors.whyThisRole = "Tell us why you are applying for this role.";
   if (!getValue("whyChooseYourself")) errors.whyChooseYourself = "Tell us why you would choose yourself for this role.";
   if (!getSelectedInterviewSlot()) errors.interviewSlot = "Choose one interview slot.";
@@ -99,6 +111,7 @@ function validateForm()             {
     "major",
     "yearLevel",
     "phone",
+    "secondPreference",
     "whyThisRole",
     "whyChooseYourself"
   ].forEach((fieldName) => setFieldError(fieldName, errors[fieldName] ?? ""));
@@ -135,12 +148,30 @@ function updateRoleDescription()       {
   }
 }
 
+function updateSecondPreferenceOptions()       {
+  const selectedRole = getSelectedRole();
+  const secondPreferenceSelect = getInput("secondPreference")                            ;
+  if (!secondPreferenceSelect) return;
+
+  for (const option of secondPreferenceSelect.options) {
+    option.disabled = Boolean(selectedRole && option.value === selectedRole.id);
+  }
+
+  if (selectedRole && secondPreferenceSelect.value === selectedRole.id) {
+    secondPreferenceSelect.value = "";
+  }
+}
+
 function buildPayload(role            )                     {
   const now = new Date().toISOString();
   const interviewSlot = getSelectedInterviewSlot();
+  const secondPreference = getSecondPreferenceRole();
 
   if (!interviewSlot) {
     throw new Error("Choose one interview slot.");
+  }
+  if (!secondPreference || secondPreference.id === role.id) {
+    throw new Error("Choose a different role for your second preference.");
   }
 
   return {
@@ -154,6 +185,7 @@ function buildPayload(role            )                     {
     roleAppliedFor: role.name,
     roleStepTitle: role.stepTitle,
     roleDescription: role.description,
+    secondPreference: secondPreference.name,
     whyThisRole: getValue("whyThisRole"),
     whyChooseYourself: getValue("whyChooseYourself"),
     hopeToLearn: getValue("hopeToLearn"),
@@ -178,7 +210,13 @@ function showErrorSummary(errors            )       {
 form?.addEventListener("change", (event) => {
   if (event.target instanceof HTMLInputElement && event.target.name === "roleAppliedFor") {
     updateRoleDescription();
+    updateSecondPreferenceOptions();
     setRadioGroupError("roleAppliedFor", "");
+    setFieldError("secondPreference", "");
+  }
+
+  if (event.target instanceof HTMLSelectElement && event.target.name === "secondPreference") {
+    setFieldError("secondPreference", "");
   }
 
   if (event.target instanceof HTMLInputElement && event.target.name === "interviewSlot") {
@@ -473,6 +511,7 @@ function preselectRoleFromUrl()       {
 
 preselectRoleFromUrl();
 updateRoleDescription();
+updateSecondPreferenceOptions();
 renderInterviewSlots().catch(() => {
   slotsReady = false;
 });

@@ -113,6 +113,7 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 - The landing page links directly to `/apply/`.
 - Role cards deep-link to `/apply/?role=<role-id>` and preselect that role.
 - Submission status is stored as `Pending` in the sheet.
+- Applications store the applicant's first role preference and second role preference.
 - Duplicate checking uses AUC email or Student ID.
 - Interview slots are live and reserved through the sheet-backed booking list.
 - Past interview slots are automatically hidden based on their start time in the configured calendar timezone.

@@ -70,6 +70,9 @@ export function RoleSelector(): string {
       `
     )
     .join("");
+  const secondPreferenceOptions = roles
+    .map((role) => `<option value="${role.id}">${role.name}</option>`)
+    .join("");
 
   return `
     <section class="apply-card apply-role-section" aria-labelledby="role-section-title">
@@ -84,6 +87,15 @@ export function RoleSelector(): string {
         ${roleCards}
       </div>
       <p class="field-error" id="roleAppliedFor-error" data-error-for="roleAppliedFor"></p>
+      <div class="apply-field role-second-preference" data-field="secondPreference">
+        <label for="secondPreference">Second preference <span aria-hidden="true">*</span></label>
+        <select id="secondPreference" name="secondPreference" required>
+          <option value="">Select another role</option>
+          ${secondPreferenceOptions}
+        </select>
+        <p class="field-helper">Choose the role you would most want after your first choice.</p>
+        <p class="field-error" id="secondPreference-error" data-error-for="secondPreference"></p>
+      </div>
     </section>
   `;
 }

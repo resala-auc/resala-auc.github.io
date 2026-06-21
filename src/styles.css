@@ -1811,6 +1811,11 @@ h3 {
   gap: 12px;
 }
 
+.role-second-preference {
+  margin-top: 18px;
+  max-width: 420px;
+}
+
 .slot-picker {
   display: grid;
   gap: 18px;
