@@ -32,7 +32,14 @@ Required Supabase secrets:
 
 `GOOGLE_SERVICE_ACCOUNT_KEY` can be the full Google service account JSON or its base64-encoded JSON. The Google Sheet must be shared with that service account's `client_email`.
 
-For Gmail confirmation emails, the function uses OAuth refresh-token flow against the Gmail API. You still need to generate the refresh token from a Google OAuth consent flow, using a redirect URI that matches the callback route you register in Google Cloud.
+For Gmail confirmation emails and applicant Calendar invites, the function uses OAuth refresh-token flow with the Gmail sender account. The refresh token must include both scopes:
+
+```text
+https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/calendar.events
+```
+
+If the existing refresh token was generated with only Gmail access, regenerate it with both scopes and update `GMAIL_REFRESH_TOKEN`.
 
 The function will also create and use two sheet tabs if they do not already exist:
 
@@ -54,10 +61,10 @@ slot-2026-06-22-2030 | 2026-06-22 | 8:30 PM | 9:00 PM | 2026-06-22 at 8:30 PM | 
 
 The generated sheet includes those six rows for every date through `2026-07-15`. Once a slot's start time passes in the `Africa/Cairo` timezone, the backend automatically hides it from the form.
 
-The service account calendar setup must also be completed:
+Calendar setup:
 
 - Enable Google Calendar API and Google Meet/conferencing for the Google project.
-- Share the target Google Calendar with the service account email and give it permission to make changes to events.
+- Make sure the Gmail sender account can create events on the target calendar.
 - Set `CALENDAR_ID` to that calendar ID if it is not the same as `GMAIL_SENDER_EMAIL`.
 
 Reminder emails:
@@ -109,8 +116,7 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 - Duplicate checking uses AUC email or Student ID.
 - Interview slots are live and reserved through the sheet-backed booking list.
 - Past interview slots are automatically hidden based on their start time in the configured calendar timezone.
-- Each reservation creates a Google Calendar event on the organization calendar, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
-- Service-account Calendar events do not invite applicants as attendees because Google blocks service accounts from inviting attendees without Workspace domain-wide delegation.
+- Each reservation creates a Google Calendar event from the Gmail sender account, invites the applicant as an attendee, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
 - A separate scheduled Supabase function sends a direct Gmail reminder 30 minutes before the interview and marks the reminder as `Sent`.
 - `Interview Reservations` includes an `Interview Status` column seeded as `Not Done`; update it to `Done` after the interview.
 - The Edge Function is deployed with JWT verification disabled so GitHub Pages can post to it directly.
