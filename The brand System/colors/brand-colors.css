@@ -1,0 +1,11 @@
+/* Resala AUC Brand Colors - Design System */
+
+:root {
+  /* Primary Brand Colors */
+  --color-primary:        #27328a;   /* Deep Blue */
+  --color-primary-light:  #afb8db;   /* Soft Blue */
+  --color-primary-pale:   #d9dce4;   /* Light Gray-Blue */
+  --color-white:          #ffffff;   /* Pure White */
+  --color-accent-mauve:   #ac8795;   /* Dusty Rose */
+  --color-accent-orange:  #ff9933;   /* Vibrant Orange */
+}

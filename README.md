@@ -1,64 +1,125 @@
 # Resala AUC Recruitment
 
-This repo contains the Resala AUC recruitment website front-end and a Supabase Edge Function backend for Google Sheets integration.
+This repo contains the Resala AUC recruitment landing page, application form, and a Supabase Edge Function that writes applications to Google Sheets.
 
 ## What is included
 
-- `resala-form/` — static HTML/CSS/JS form UI (unchanged design)
-- `supabase/functions/submit/` — Supabase Edge Function that validates submissions and writes to Google Sheets
-- `src/` — existing Express backend source for local development or alternate hosting
+- `src/` — static site source for the landing page and application form
+- `supabase/functions/submit/` — public form submission endpoint for the static GitHub Pages site
+- `supabase/functions/send-interview-reminders/` — scheduled reminder email job for upcoming interviews
+- `dist/` — generated static site output after `npm run build`
 
-## Supabase deployment
+## Supabase setup
 
-### 1. Deploy the Edge Function
+The static form posts to:
 
-1. Install Supabase CLI:
-   ```bash
-   npm install -g supabase
-   ```
-2. Log in and link your project:
-   ```bash
-   supabase login
-   supabase link --project-ref <your-project-ref>
-   ```
-3. Add required secrets:
-   ```bash
-   supabase secrets set SHEET_ID='1NLoCaUWODnfywMzphfPvch8sPvwDPFEUFd6FMVWArMM'
-   supabase secrets set GOOGLE_SERVICE_ACCOUNT_KEY='{"type":"service_account", ...}'
-   ```
-   If the JSON is hard to quote, base64-encode it first and then provide the encoded string.
-4. Deploy the function:
-   ```bash
-   supabase functions deploy submit
-   ```
-
-### 2. Point the form to the function URL
-
-Update `resala-form/script.js`:
 ```js
-const API_URL = "https://<project>.functions.supabase.co/submit";
+window.RESALA_APPLICATIONS_ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 ```
 
-### 3. Share the Google Sheet
-
-Make sure the Google Sheet is shared with the service account email inside `resala-499016-c892d158deba.json`.
-
-## Environment variables for Supabase
+Required Supabase secrets:
 
 - `SHEET_ID`
 - `GOOGLE_SERVICE_ACCOUNT_KEY`
+- `GMAIL_CLIENT_ID`
+- `GMAIL_CLIENT_SECRET`
+- `GMAIL_REFRESH_TOKEN`
+- `GMAIL_SENDER_EMAIL`
+- `GMAIL_SENDER_NAME` is optional
+- `EMAIL_LOGO_URL` is optional and defaults to the public Supabase Storage Resala logo at `https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png`
+- `CALENDAR_ID` is optional if it is the same as `GMAIL_SENDER_EMAIL`
+- `CALENDAR_TIME_ZONE` is optional and defaults to `Africa/Cairo`
+
+`GOOGLE_SERVICE_ACCOUNT_KEY` can be the full Google service account JSON or its base64-encoded JSON. The Google Sheet must be shared with that service account's `client_email`.
+
+For Gmail confirmation emails, the function uses OAuth refresh-token flow against the Gmail API. You still need to generate the refresh token from a Google OAuth consent flow, using a redirect URI that matches the callback route you register in Google Cloud.
+
+The function will also create and use two sheet tabs if they do not already exist:
+
+- `Interview Slots`
+- `Interview Reservations`
+
+The `Interview Slots` tab seeds editable rows for `3:00 PM`, `3:30 PM`, `7:00 PM`, `7:30 PM`, `8:00 PM`, and `8:30 PM`. Only dated, active, non-full, future slots appear on the form.
+
+Recruitment slots run from Monday, June 22, 2026 through Wednesday, July 15, 2026. The backend generates one row per date/time, with a unique `Slot ID` for every row:
+
+```text
+slot-2026-06-22-1500 | 2026-06-22 | 3:00 PM | 3:30 PM | 2026-06-22 at 3:00 PM | 1 | TRUE
+slot-2026-06-22-1530 | 2026-06-22 | 3:30 PM | 4:00 PM | 2026-06-22 at 3:30 PM | 1 | TRUE
+slot-2026-06-22-1900 | 2026-06-22 | 7:00 PM | 7:30 PM | 2026-06-22 at 7:00 PM | 1 | TRUE
+slot-2026-06-22-1930 | 2026-06-22 | 7:30 PM | 8:00 PM | 2026-06-22 at 7:30 PM | 1 | TRUE
+slot-2026-06-22-2000 | 2026-06-22 | 8:00 PM | 8:30 PM | 2026-06-22 at 8:00 PM | 1 | TRUE
+slot-2026-06-22-2030 | 2026-06-22 | 8:30 PM | 9:00 PM | 2026-06-22 at 8:30 PM | 1 | TRUE
+```
+
+The generated sheet includes those six rows for every date through `2026-07-15`. Once a slot's start time passes in the `Africa/Cairo` timezone, the backend automatically hides it from the form.
+
+The service account calendar setup must also be completed:
+
+- Enable Google Calendar API and Google Meet/conferencing for the Google project.
+- Share the target Google Calendar with the service account email and give it permission to make changes to events.
+- Set `CALENDAR_ID` to that calendar ID if it is not the same as `GMAIL_SENDER_EMAIL`.
+
+Reminder emails:
+
+- Each reservation stores `Reminder Send At`, `Reminder Sent At`, and `Reminder Status` in `Interview Reservations`.
+- Deploy `send-interview-reminders` with `--no-verify-jwt` and schedule it to run every few minutes from Supabase.
+- The reminder function sends from the configured Gmail account when `Reminder Send At` is due, skips rows marked `Done`, and avoids stale reminders older than `REMINDER_STALE_MINUTES` minutes.
+- The scheduler authenticates with `REMINDER_JOB_SECRET` in the `x-reminder-secret` header.
+
+Schedule the reminder worker from the Supabase SQL editor:
+
+```sql
+create extension if not exists pg_cron with schema extensions;
+create extension if not exists pg_net with schema extensions;
+
+select vault.create_secret('https://upnmxdgqdkvgzfwqaicb.supabase.co', 'project_url');
+select vault.create_secret('YOUR_PRIVATE_REMINDER_JOB_SECRET', 'reminder_job_secret');
+
+select cron.schedule(
+  'send-interview-reminders-every-5-minutes',
+  '*/5 * * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/send-interview-reminders',
+    headers := jsonb_build_object(
+      'Content-type', 'application/json',
+      'x-reminder-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminder_job_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+```
+
+Deploy:
+
+```bash
+supabase secrets set --project-ref upnmxdgqdkvgzfwqaicb SHEET_ID='1AIoEVXGc6I_SZcvndvum4GadrbF_HIpyGHqL5BJW2C8'
+supabase secrets set --project-ref upnmxdgqdkvgzfwqaicb GOOGLE_SERVICE_ACCOUNT_KEY='<service-account-json-or-base64>'
+supabase functions deploy submit --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api
+supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api
+```
 
 ## Notes
 
-- The form UI remains the same.
+- The landing page links directly to `/apply/`.
+- Role cards deep-link to `/apply/?role=<role-id>` and preselect that role.
 - Submission status is stored as `Pending` in the sheet.
-- Duplicate checking uses AUC ID or Email.
-- The function supports CORS for `POST` and `OPTIONS`.
+- Duplicate checking uses AUC email or Student ID.
+- Interview slots are live and reserved through the sheet-backed booking list.
+- Past interview slots are automatically hidden based on their start time in the configured calendar timezone.
+- Each reservation creates a Google Calendar event, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
+- Calendar events include a 30-minute email reminder and a 30-minute popup reminder for the applicant.
+- A separate scheduled Supabase function sends a direct Gmail reminder 30 minutes before the interview and marks the reminder as `Sent`.
+- `Interview Reservations` includes an `Interview Status` column seeded as `Not Done`; update it to `Done` after the interview.
+- The Edge Function is deployed with JWT verification disabled so GitHub Pages can post to it directly.
 
 ## Local testing
 
-If you want to test locally you can still run the Node backend:
+Build and serve locally:
+
 ```bash
-npm install
-SHEET_ID=... GOOGLE_SERVICE_ACCOUNT_KEY_PATH=... npm run dev
+npm run build
+npm run dev
 ```
