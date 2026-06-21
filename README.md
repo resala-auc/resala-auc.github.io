@@ -109,8 +109,8 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 - Duplicate checking uses AUC email or Student ID.
 - Interview slots are live and reserved through the sheet-backed booking list.
 - Past interview slots are automatically hidden based on their start time in the configured calendar timezone.
-- Each reservation creates a Google Calendar event, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
-- Calendar events include a 30-minute email reminder and a 30-minute popup reminder for the applicant.
+- Each reservation creates a Google Calendar event on the organization calendar, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
+- Service-account Calendar events do not invite applicants as attendees because Google blocks service accounts from inviting attendees without Workspace domain-wide delegation.
 - A separate scheduled Supabase function sends a direct Gmail reminder 30 minutes before the interview and marks the reminder as `Sent`.
 - `Interview Reservations` includes an `Interview Status` column seeded as `Not Done`; update it to `Done` after the interview.
 - The Edge Function is deployed with JWT verification disabled so GitHub Pages can post to it directly.

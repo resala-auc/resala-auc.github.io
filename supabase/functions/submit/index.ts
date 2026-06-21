@@ -351,7 +351,7 @@ function buildConfirmationEmailTemplate(payload: ApplicationPayload, reservation
     "",
     `Your interview slot is: ${slot}.`,
     `Google Meet link: ${reservation.meetLink}`,
-    "You will also receive a Google Calendar reminder 30 minutes before the interview.",
+    "We will send you a reminder email 30 minutes before the interview.",
     "",
     "Please prepare one simple idea for the role:",
     "",
@@ -424,7 +424,7 @@ function buildConfirmationEmailHtml({
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
                       <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">You will also receive a Google Calendar reminder 30 minutes before the interview.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">We will send you a reminder email 30 minutes before the interview.</div>
                     </td>
                   </tr>
                 </table>
@@ -857,7 +857,7 @@ async function createCalendarEvent(
 
   const requestId = `resala-${payload.studentId}-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 100);
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`,
     {
       method: "POST",
       headers: {
@@ -880,12 +880,6 @@ async function createCalendarEvent(
           dateTime: slot.endDateTime,
           timeZone: CALENDAR_TIME_ZONE
         },
-        attendees: [
-          {
-            email: payload.aucEmail,
-            displayName: payload.fullName
-          }
-        ],
         reminders: {
           useDefault: false,
           overrides: [
