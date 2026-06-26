@@ -1542,6 +1542,7 @@ async function rescheduleInterview(
   const fullName = String(reservationValues[3] ?? "").trim();
   const aucEmail = String(reservationValues[4] ?? "").trim();
   const studentId = String(reservationValues[5] ?? "").trim();
+  const oldSlotId = String(reservationValues[1] ?? "").trim();
   const oldCalendarEventId = String(reservationValues[6] ?? "").trim();
   const roleAppliedFor = String(reservationValues[12] ?? "").trim();
   const secondPreference = String(reservationValues[13] ?? "").trim();
@@ -1550,7 +1551,6 @@ async function rescheduleInterview(
     throw new Error("Reservation is missing applicant email.");
   }
 
-  // Build slot directly from date + 24h time — no slots sheet lookup needed
   const [sh, sm] = rawStartTime.split(":").map(Number);
   const startDateTime = `${date}T${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}:00`;
 
@@ -1565,8 +1565,7 @@ async function rescheduleInterview(
   const meridiem = sh >= 12 ? "PM" : "AM";
   const slotLabel = `${date} at ${displayHour}:${String(sm).padStart(2, "0")} ${meridiem}`;
   const slotId = `admin-${date}-${String(sh).padStart(2, "0")}${String(sm).padStart(2, "0")}`;
-
-  const newSlot: InterviewSlotOption = {
+  const fallbackSlot: InterviewSlotOption = {
     id: slotId,
     label: slotLabel,
     date,
@@ -1580,6 +1579,17 @@ async function rescheduleInterview(
     remaining: 1,
     full: false
   };
+
+  const newSlot = await resolveRescheduleSlot(token, {
+    date,
+    startTime24: `${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}`,
+    currentReservationRowIndex: reservationRowIndex,
+    fallbackSlot
+  });
+
+  if (newSlot.full) {
+    throw new Error("That interview slot is already full. Please choose another slot.");
+  }
 
   let deletedOldEvent = false;
   if (oldCalendarEventId) {
@@ -1612,6 +1622,7 @@ async function rescheduleInterview(
 
   const calendarToken = await getGmailAccessToken();
   const newCalendarEvent = await createCalendarEvent(calendarToken, applicantPayload, newSlot);
+  await updateSlotCalendarFields(token, newSlot, newCalendarEvent);
 
   const newReminderSendAt = subtractMinutesFromLocalDateTime(newSlot.startDateTime, 30);
 
@@ -1624,6 +1635,10 @@ async function rescheduleInterview(
   await sheetsFetch(token, "PUT", `${sheetRange(RESERVATION_SHEET_NAME, `J${reservationRowIndex}:L${reservationRowIndex}`)}?valueInputOption=RAW`, {
     values: [[newReminderSendAt, "", "Pending"]]
   });
+
+  if (oldSlotId && oldSlotId !== newSlot.id) {
+    await clearFreedSlotCalendarFields(token, new Set([oldSlotId]));
+  }
 
   const sheetName = await getSheetName(token);
   const applicationWidth = columnLetter(HEADERS.length);
@@ -1653,6 +1668,71 @@ async function rescheduleInterview(
   }
 
   return { updatedReservation: true, updatedApplication, deletedOldEvent, createdNewEvent: true, emailSent };
+}
+
+async function resolveRescheduleSlot(
+  token: string,
+  {
+    date,
+    startTime24,
+    currentReservationRowIndex,
+    fallbackSlot
+  }: {
+    date: string;
+    startTime24: string;
+    currentReservationRowIndex: number;
+    fallbackSlot: InterviewSlotOption;
+  }
+): Promise<InterviewSlotOption> {
+  const [slotResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:B")}`)
+  ]);
+  const slotRows = (await slotResponse.json()).values ?? [];
+  const reservationRows = (await reservationResponse.json()).values ?? [];
+
+  const match = slotRows
+    .map((row: string[], index: number) => ({ row, rowIndex: index + 2 }))
+    .find(({ row }) => String(row[1] ?? "").trim() === date && normalizeTime24(row[2]) === startTime24);
+
+  if (!match) {
+    return fallbackSlot;
+  }
+
+  const row = match.row;
+  const id = String(row[0] ?? "").trim();
+  const startTime = String(row[2] ?? "").trim();
+  const endTime = String(row[3] ?? "").trim() || addMinutesToTime(startTime, 30);
+  const label = String(row[4] ?? "").trim() || buildSlotLabel(date, startTime);
+  const capacity = Number(row[5] ?? 1) || 1;
+  const active = String(row[6] ?? "TRUE").toLowerCase() !== "false";
+  const reservedCount = reservationRows.reduce((count: number, reservationRow: string[], index: number) => {
+    const sheetRow = index + 2;
+    if (sheetRow === currentReservationRowIndex) return count;
+    return normalize(reservationRow[1]) === normalize(id) ? count + 1 : count;
+  }, 0);
+  const remaining = Math.max(capacity - reservedCount, 0);
+  const startDateTime = buildLocalDateTime(date, startTime);
+  const endDateTime = buildLocalDateTime(date, endTime);
+  const past = isPastLocalDateTime(startDateTime, CALENDAR_TIME_ZONE);
+
+  return {
+    id,
+    label,
+    date,
+    startTime,
+    endTime,
+    startDateTime,
+    endDateTime,
+    capacity,
+    active,
+    reservedCount,
+    remaining,
+    full: !active || !date || !startTime || !startDateTime || !endDateTime || past || remaining <= 0,
+    calendarEventId: String(row[7] ?? "").trim(),
+    meetLink: String(row[8] ?? "").trim(),
+    rowIndex: match.rowIndex
+  };
 }
 
 async function sendRescheduleEmail(payload: ApplicationPayload, reservation: ReservationDetails): Promise<void> {
@@ -2361,6 +2441,21 @@ function buildLocalDateTime(date: string, time: string): string {
   }
 
   return `${date}T${parsedTime}:00`;
+}
+
+function normalizeTime24(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  const twentyFourHourMatch = raw.match(/^(\d{1,2}):(\d{2})$/);
+
+  if (twentyFourHourMatch) {
+    const hour = Number(twentyFourHourMatch[1]);
+    const minute = Number(twentyFourHourMatch[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+  }
+
+  return parseTime(raw);
 }
 
 function isPastLocalDateTime(value: string, timeZone: string): boolean {
