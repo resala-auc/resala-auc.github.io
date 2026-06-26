@@ -15,6 +15,7 @@ const EMAIL_LOGO_URL =
 const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
+const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
 
 const APPLICATION_BASE_HEADERS = [
   "Timestamp",
@@ -87,7 +88,7 @@ const DAILY_SLOT_TIMES = [
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-admin-reset-secret",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Max-Age": "86400"
 };
@@ -122,6 +123,11 @@ type TaskSubmissionPayload = {
   secondPreferenceTaskLink: string;
   taskNotes?: string;
   submittedAt: string;
+};
+
+type AdminResetPayload = {
+  mode: "admin-reset-test";
+  aucEmail: string;
 };
 
 type ConfirmationEmailTemplate = {
@@ -221,6 +227,20 @@ Deno.serve(async (request) => {
   try {
     const payload = await parsePayload(request);
 
+    if (isAdminResetPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const sheetName = await getSheetName(token);
+      const result = await resetTestApplicant(token, payload.aucEmail, sheetName);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isTaskSubmissionPayload(payload)) {
       validateTaskSubmission(payload);
 
@@ -265,17 +285,27 @@ Deno.serve(async (request) => {
   }
 });
 
-async function parsePayload(request: Request): Promise<ApplicationPayload> {
+async function parsePayload(request: Request): Promise<ApplicationPayload | TaskSubmissionPayload | AdminResetPayload> {
   const text = await request.text();
   if (!text.trim()) {
     throw new Error("Missing submission body.");
   }
 
-  return JSON.parse(text) as ApplicationPayload;
+  return JSON.parse(text) as ApplicationPayload | TaskSubmissionPayload | AdminResetPayload;
 }
 
-function isTaskSubmissionPayload(payload: ApplicationPayload | TaskSubmissionPayload): payload is TaskSubmissionPayload {
+function isTaskSubmissionPayload(payload: ApplicationPayload | TaskSubmissionPayload | AdminResetPayload): payload is TaskSubmissionPayload {
   return (payload as TaskSubmissionPayload).mode === "task-submission";
+}
+
+function isAdminResetPayload(payload: ApplicationPayload | TaskSubmissionPayload | AdminResetPayload): payload is AdminResetPayload {
+  return (payload as AdminResetPayload).mode === "admin-reset-test";
+}
+
+function authorizeAdminReset(request: Request): void {
+  if (!ADMIN_RESET_SECRET || request.headers.get("x-admin-reset-secret") !== ADMIN_RESET_SECRET) {
+    throw new Error("Unauthorized admin reset request.");
+  }
 }
 
 function validateApplication(payload: ApplicationPayload): void {
@@ -1053,6 +1083,191 @@ async function ensureSheetHeaders(token: string, sheetName: string, headers: str
       values: [headers]
     });
   }
+}
+
+async function resetTestApplicant(token: string, aucEmail: string, applicationSheetName: string): Promise<{
+  deletedReservations: number;
+  deletedApplications: number;
+  clearedSlots: number;
+  deletedCalendarEvents: number;
+}> {
+  const email = String(aucEmail ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Invalid AUC email.");
+  }
+
+  await ensureSlotSheets(token);
+  await ensureHeaders(token, applicationSheetName);
+
+  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
+  const reservationRows = (await reservationResponse.json()).values ?? [];
+  const reservationMatches = reservationRows
+    .map((row: string[], index: number) => ({ row, rowIndex: index + 2 }))
+    .filter(({ row }) => normalize(row[4]) === normalize(email));
+
+  const slotIdsToReview = new Set(reservationMatches.map(({ row }) => String(row[1] ?? "").trim()).filter(Boolean));
+  const calendarEventIds = [
+    ...new Set(reservationMatches.map(({ row }) => String(row[6] ?? "").trim()).filter(Boolean))
+  ];
+
+  const applicationWidth = columnLetter(HEADERS.length);
+  const applicationResponse = await sheetsFetch(token, "GET", `${sheetRange(applicationSheetName, `A2:${applicationWidth}`)}`);
+  const applicationRows = (await applicationResponse.json()).values ?? [];
+  const applicationMatches = applicationRows
+    .map((row: string[], index: number) => ({ row, rowIndex: index + 2 }))
+    .filter(({ row }) => normalize(row[2]) === normalize(email));
+
+  const sheetIds = await getSpreadsheetSheetIds(token);
+  const reservationSheetId = sheetIds.get(RESERVATION_SHEET_NAME);
+  const applicationSheetId = sheetIds.get(applicationSheetName);
+
+  if (reservationMatches.length && reservationSheetId === undefined) {
+    throw new Error(`Could not find sheet ID for ${RESERVATION_SHEET_NAME}.`);
+  }
+
+  if (applicationMatches.length && applicationSheetId === undefined) {
+    throw new Error(`Could not find sheet ID for ${applicationSheetName}.`);
+  }
+
+  const deleteRequests = [
+    ...buildDeleteRowRequests(reservationSheetId, reservationMatches.map((match) => match.rowIndex)),
+    ...buildDeleteRowRequests(applicationSheetId, applicationMatches.map((match) => match.rowIndex))
+  ];
+
+  if (deleteRequests.length) {
+    await batchUpdateSpreadsheet(token, deleteRequests);
+  }
+
+  let clearedSlots = 0;
+  if (slotIdsToReview.size) {
+    clearedSlots = await clearFreedSlotCalendarFields(token, slotIdsToReview);
+  }
+
+  let deletedCalendarEvents = 0;
+  for (const eventId of calendarEventIds) {
+    if (await deleteCalendarEvent(eventId)) {
+      deletedCalendarEvents += 1;
+    }
+  }
+
+  return {
+    deletedReservations: reservationMatches.length,
+    deletedApplications: applicationMatches.length,
+    clearedSlots,
+    deletedCalendarEvents
+  };
+}
+
+async function getSpreadsheetSheetIds(token: string): Promise<Map<string, number>> {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties(sheetId,title)`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets metadata request failed: ${errorText}`);
+  }
+
+  const body = await response.json();
+  const sheetIds = new Map<string, number>();
+
+  for (const sheet of body?.sheets ?? []) {
+    const title = sheet?.properties?.title;
+    const sheetId = sheet?.properties?.sheetId;
+    if (typeof title === "string" && typeof sheetId === "number") {
+      sheetIds.set(title, sheetId);
+    }
+  }
+
+  return sheetIds;
+}
+
+function buildDeleteRowRequests(sheetId: number | undefined, rowIndexes: number[]): Array<Record<string, unknown>> {
+  if (sheetId === undefined) return [];
+
+  return [...rowIndexes]
+    .sort((a, b) => b - a)
+    .map((rowIndex) => ({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: "ROWS",
+          startIndex: rowIndex - 1,
+          endIndex: rowIndex
+        }
+      }
+    }));
+}
+
+async function batchUpdateSpreadsheet(token: string, requests: Array<Record<string, unknown>>): Promise<void> {
+  if (!requests.length) return;
+
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}:batchUpdate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ requests })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets batch update failed: ${errorText}`);
+  }
+}
+
+async function clearFreedSlotCalendarFields(token: string, slotIds: Set<string>): Promise<number> {
+  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:B")}`);
+  const remainingReservationRows = (await reservationResponse.json()).values ?? [];
+  const stillReservedSlotIds = new Set(
+    remainingReservationRows.map((row: string[]) => String(row[1] ?? "").trim()).filter(Boolean).map((slotId: string) => normalize(slotId))
+  );
+
+  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
+  const slotRows = (await slotResponse.json()).values ?? [];
+  let cleared = 0;
+
+  for (const [index, row] of slotRows.entries()) {
+    const slotId = String(row[0] ?? "").trim();
+    if (!slotIds.has(slotId) || stillReservedSlotIds.has(normalize(slotId))) continue;
+
+    const rowIndex = index + 2;
+    await sheetsFetch(token, "PUT", `${sheetRange(SLOT_SHEET_NAME, `H${rowIndex}:I${rowIndex}`)}?valueInputOption=RAW`, {
+      values: [["", ""]]
+    });
+    cleared += 1;
+  }
+
+  return cleared;
+}
+
+async function deleteCalendarEvent(eventId: string): Promise<boolean> {
+  if (!CALENDAR_ID || !gmailConfigured()) return false;
+
+  const token = await getGmailAccessToken();
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    }
+  );
+
+  if (response.status === 404 || response.status === 410) {
+    return false;
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Calendar event delete failed: ${errorText}`);
+  }
+
+  return true;
 }
 
 async function ensureSheetSeed(
