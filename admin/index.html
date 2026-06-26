@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Admin — Resala AUC</title>
+  <script src="../spreadsheet-config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f7f3ea;
+      color: #172033;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #0d2b45;
+      color: #fff;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header img { width: 48px; height: 48px; border-radius: 50%; }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    header span {
+      font-size: 13px;
+      color: #f5c46b;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 16px;
+    }
+
+    .auth-card {
+      background: #fff;
+      border: 1px solid #eadfca;
+      border-radius: 18px;
+      padding: 28px;
+      max-width: 480px;
+      margin: 0 auto 32px;
+    }
+
+    .auth-card h2 {
+      font-size: 18px;
+      font-weight: bold;
+      color: #0d2b45;
+      margin-bottom: 18px;
+    }
+
+    .field { margin-bottom: 14px; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: bold;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 6px;
+    }
+
+    input[type="password"], input[type="text"] {
+      width: 100%;
+      border: 1px solid #e6edf2;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 15px;
+      color: #172033;
+      background: #f8fafc;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    input:focus { border-color: #0d2b45; background: #fff; }
+
+    .btn {
+      display: inline-block;
+      padding: 11px 22px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:not(:disabled):hover { opacity: 0.88; }
+
+    .btn-primary { background: #0d2b45; color: #fff; }
+    .btn-accent  { background: #f5c46b; color: #0d2b45; }
+    .btn-sm      { padding: 7px 14px; font-size: 13px; }
+
+    .notice {
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+
+    .notice-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .notice-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .notice-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+
+    .table-wrap {
+      background: #fff;
+      border: 1px solid #eadfca;
+      border-radius: 18px;
+      overflow: hidden;
+    }
+
+    .table-head {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #eadfca;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .table-head h2 {
+      font-size: 17px;
+      font-weight: bold;
+      color: #0d2b45;
+    }
+
+    .table-head .count {
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    thead th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e6edf2;
+      white-space: nowrap;
+    }
+
+    tbody tr { border-bottom: 1px solid #f0ede8; }
+    tbody tr:last-child { border-bottom: none; }
+
+    tbody td {
+      padding: 12px 16px;
+      vertical-align: middle;
+      color: #172033;
+    }
+
+    .name { font-weight: bold; }
+    .email { color: #64748b; font-size: 13px; }
+    .role { font-size: 13px; color: #0d2b45; font-weight: bold; }
+    .second { font-size: 12px; color: #94a3b8; }
+
+    .slot-badge {
+      display: inline-block;
+      background: #fff7e8;
+      border: 1px solid #f0d7a5;
+      color: #8a4706;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 13px;
+      font-weight: bold;
+      white-space: nowrap;
+    }
+
+    select {
+      border: 1px solid #e6edf2;
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 13px;
+      color: #172033;
+      background: #f8fafc;
+      outline: none;
+      width: 100%;
+      min-width: 180px;
+      max-width: 260px;
+    }
+
+    select:focus { border-color: #0d2b45; background: #fff; }
+
+    .row-status {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-block;
+      font-weight: bold;
+      white-space: nowrap;
+    }
+
+    .row-status.pending  { background: #fef9c3; color: #854d0e; }
+    .row-status.done     { background: #dcfce7; color: #166534; }
+    .row-status.notdone  { background: #fee2e2; color: #991b1b; }
+
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #0d2b4530;
+      border-top-color: #0d2b45;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty {
+      text-align: center;
+      padding: 48px 24px;
+      color: #94a3b8;
+      font-size: 15px;
+    }
+
+    .filter-bar {
+      padding: 14px 24px;
+      border-bottom: 1px solid #eadfca;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-bar input[type="text"] {
+      max-width: 260px;
+      padding: 7px 12px;
+      font-size: 13px;
+    }
+
+    @media (max-width: 768px) {
+      table { display: block; overflow-x: auto; }
+      header { padding: 14px 16px; }
+      .container { padding: 16px 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="Resala AUC" onerror="this.style.display='none'">
+  <div>
+    <h1>Admin Dashboard</h1>
+    <span>Resala AUC · Reschedule Interviews</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="auth-card">
+    <h2>Authentication</h2>
+    <div class="field">
+      <label for="secret">Admin Secret</label>
+      <input type="password" id="secret" placeholder="Enter admin secret" autocomplete="off">
+    </div>
+    <button class="btn btn-primary" id="load-btn" onclick="loadDashboard()">Load Reservations</button>
+  </div>
+
+  <div id="global-notice"></div>
+
+  <div id="dashboard" style="display:none;">
+    <div class="table-wrap">
+      <div class="table-head">
+        <div>
+          <h2>Interview Reservations</h2>
+          <div class="count" id="reservation-count"></div>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="loadDashboard()">↺ Refresh</button>
+      </div>
+      <div class="filter-bar">
+        <input type="text" id="search" placeholder="Search by name, email, or role…" oninput="filterTable()">
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Applicant</th>
+            <th>Role</th>
+            <th>Current Slot</th>
+            <th>Status</th>
+            <th>New Slot</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="reservations-body"></tbody>
+      </table>
+      <div id="empty-state" class="empty" style="display:none;">No reservations found.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const ENDPOINT = (typeof window !== 'undefined' && window.RESALA_APPLICATIONS_ENDPOINT) || '';
+
+  let allReservations = [];
+  let availableSlots = [];
+
+  function getSecret() {
+    return document.getElementById('secret').value.trim();
+  }
+
+  function showNotice(msg, type = 'info') {
+    const el = document.getElementById('global-notice');
+    el.innerHTML = `<div class="notice notice-${type}">${escHtml(msg)}</div>`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function clearNotice() {
+    document.getElementById('global-notice').innerHTML = '';
+  }
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function statusBadge(val) {
+    const v = String(val || '').toLowerCase();
+    if (v === 'done') return `<span class="row-status done">Done</span>`;
+    if (v === 'not done') return `<span class="row-status notdone">Not done</span>`;
+    return `<span class="row-status pending">${escHtml(val || 'Pending')}</span>`;
+  }
+
+  function buildSlotOptions(currentSlotId) {
+    if (!availableSlots.length) return '<option value="">No slots available</option>';
+    return availableSlots.map(slot => {
+      const remaining = slot.remaining > 0 ? ` (${slot.remaining} left)` : ' (full)';
+      const selected = slot.id === currentSlotId ? ' selected' : '';
+      return `<option value="${escHtml(slot.id)}"${selected}>${escHtml(slot.label)}${remaining}</option>`;
+    }).join('');
+  }
+
+  function renderTable(rows) {
+    const tbody = document.getElementById('reservations-body');
+    const empty = document.getElementById('empty-state');
+
+    if (!rows.length) {
+      tbody.innerHTML = '';
+      empty.style.display = '';
+      return;
+    }
+
+    empty.style.display = 'none';
+    tbody.innerHTML = rows.map(r => `
+      <tr id="row-${r.rowIndex}">
+        <td>
+          <div class="name">${escHtml(r.fullName)}</div>
+          <div class="email">${escHtml(r.aucEmail)}</div>
+          <div class="email">${escHtml(r.studentId)}</div>
+        </td>
+        <td>
+          <div class="role">${escHtml(r.roleAppliedFor)}</div>
+          <div class="second">2nd: ${escHtml(r.secondPreference)}</div>
+        </td>
+        <td><span class="slot-badge">${escHtml(r.slotLabel || r.slotId)}</span></td>
+        <td>${statusBadge(r.interviewStatus)}</td>
+        <td>
+          <select id="new-slot-${r.rowIndex}">
+            ${buildSlotOptions(r.slotId)}
+          </select>
+        </td>
+        <td>
+          <button class="btn btn-accent btn-sm" id="btn-${r.rowIndex}" onclick="reschedule(${r.rowIndex})">Reschedule</button>
+          <div id="row-notice-${r.rowIndex}" style="margin-top:6px;font-size:12px;"></div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  function filterTable() {
+    const q = document.getElementById('search').value.toLowerCase();
+    const rows = q
+      ? allReservations.filter(r =>
+          r.fullName.toLowerCase().includes(q) ||
+          r.aucEmail.toLowerCase().includes(q) ||
+          r.roleAppliedFor.toLowerCase().includes(q) ||
+          r.slotLabel.toLowerCase().includes(q)
+        )
+      : allReservations;
+    renderTable(rows);
+    document.getElementById('reservation-count').textContent = `${rows.length} of ${allReservations.length} shown`;
+  }
+
+  async function loadDashboard() {
+    const secret = getSecret();
+    if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
+    if (!ENDPOINT) { showNotice('RESALA_APPLICATIONS_ENDPOINT is not configured.', 'error'); return; }
+
+    clearNotice();
+    const btn = document.getElementById('load-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading…';
+
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+          'x-admin-reset-secret': secret
+        },
+        body: JSON.stringify({ mode: 'admin-load' })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || 'Load failed.');
+      }
+
+      allReservations = data.reservations ?? [];
+      availableSlots = (data.slots ?? []).filter(s => !s.full);
+
+      document.getElementById('dashboard').style.display = '';
+      document.getElementById('reservation-count').textContent = `${allReservations.length} reservation${allReservations.length !== 1 ? 's' : ''}`;
+      filterTable();
+
+    } catch (err) {
+      showNotice(err.message || 'Could not load reservations.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Load Reservations';
+    }
+  }
+
+  async function reschedule(rowIndex) {
+    const secret = getSecret();
+    if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
+
+    const slotId = document.getElementById(`new-slot-${rowIndex}`)?.value;
+    if (!slotId) { showRowNotice(rowIndex, 'Select a new slot.', 'error'); return; }
+
+    const reservation = allReservations.find(r => r.rowIndex === rowIndex);
+    if (reservation && reservation.slotId === slotId) {
+      showRowNotice(rowIndex, 'That is already the current slot.', 'error');
+      return;
+    }
+
+    const btn = document.getElementById(`btn-${rowIndex}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Rescheduling…';
+    clearRowNotice(rowIndex);
+
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+          'x-admin-reset-secret': secret
+        },
+        body: JSON.stringify({ mode: 'admin-reschedule', reservationRowIndex: rowIndex, slotId })
+      });
+
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || 'Reschedule failed.');
+      }
+
+      const parts = [];
+      if (data.updatedReservation) parts.push('reservation updated');
+      if (data.updatedApplication) parts.push('application updated');
+      if (data.deletedOldEvent) parts.push('old calendar event deleted');
+      if (data.createdNewEvent) parts.push('new calendar event created');
+      if (data.emailSent) parts.push('email sent');
+
+      showRowNotice(rowIndex, '✓ ' + (parts.join(', ') || 'Done'), 'success');
+
+      // Refresh after short delay so updated data is visible
+      setTimeout(() => loadDashboard(), 1200);
+
+    } catch (err) {
+      showRowNotice(rowIndex, err.message || 'Reschedule failed.', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Reschedule';
+    }
+  }
+
+  function showRowNotice(rowIndex, msg, type) {
+    const el = document.getElementById(`row-notice-${rowIndex}`);
+    if (!el) return;
+    const colors = {
+      error: '#991b1b',
+      success: '#166534',
+      info: '#1e40af'
+    };
+    el.style.color = colors[type] || colors.info;
+    el.textContent = msg;
+  }
+
+  function clearRowNotice(rowIndex) {
+    const el = document.getElementById(`row-notice-${rowIndex}`);
+    if (el) el.textContent = '';
+  }
+</script>
+</body>
+</html>

@@ -16,6 +16,7 @@ await cp("src/styles.css", "dist/styles.css");
 await cp("src/app.js", "dist/app.js");
 await cp("src/spreadsheet-config.js", "dist/spreadsheet-config.js");
 await cp("The brand System", "dist/The brand System", { recursive: true });
+await cp("admin", "dist/admin", { recursive: true });
 
 const applyConfigSource = await readFile("src/apply-config.ts", "utf8");
 const applySource = await readFile("src/apply.ts", "utf8");

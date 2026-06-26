@@ -139,6 +139,16 @@ type AdminAddTestSlotPayload = {
   label?: string;
 };
 
+type AdminLoadPayload = {
+  mode: "admin-load";
+};
+
+type AdminReschedulePayload = {
+  mode: "admin-reschedule";
+  reservationRowIndex: number;
+  slotId: string;
+};
+
 type ConfirmationEmailTemplate = {
   subject: string;
   body: string;
@@ -263,6 +273,32 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminLoadPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await loadAdminDashboard(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isAdminReschedulePayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await rescheduleInterview(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isTaskSubmissionPayload(payload)) {
       validateTaskSubmission(payload);
 
@@ -309,31 +345,79 @@ Deno.serve(async (request) => {
 
 async function parsePayload(
   request: Request
-): Promise<ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload> {
+): Promise<ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload | AdminLoadPayload | AdminReschedulePayload> {
   const text = await request.text();
   if (!text.trim()) {
     throw new Error("Missing submission body.");
   }
 
-  return JSON.parse(text) as ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload;
+  return JSON.parse(text) as
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload;
 }
 
 function isTaskSubmissionPayload(
-  payload: ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload
+  payload:
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload
 ): payload is TaskSubmissionPayload {
   return (payload as TaskSubmissionPayload).mode === "task-submission";
 }
 
 function isAdminResetPayload(
-  payload: ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload
+  payload:
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload
 ): payload is AdminResetPayload {
   return (payload as AdminResetPayload).mode === "admin-reset-test";
 }
 
 function isAdminAddTestSlotPayload(
-  payload: ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload
+  payload:
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload
 ): payload is AdminAddTestSlotPayload {
   return (payload as AdminAddTestSlotPayload).mode === "admin-add-test-slot";
+}
+
+function isAdminLoadPayload(
+  payload:
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload
+): payload is AdminLoadPayload {
+  return (payload as AdminLoadPayload).mode === "admin-load";
+}
+
+function isAdminReschedulePayload(
+  payload:
+    | ApplicationPayload
+    | TaskSubmissionPayload
+    | AdminResetPayload
+    | AdminAddTestSlotPayload
+    | AdminLoadPayload
+    | AdminReschedulePayload
+): payload is AdminReschedulePayload {
+  return (payload as AdminReschedulePayload).mode === "admin-reschedule";
 }
 
 function authorizeAdminReset(request: Request): void {
@@ -1244,6 +1328,278 @@ async function addTestInterviewSlot(
     label,
     rowIndex
   };
+}
+
+async function loadAdminDashboard(token: string): Promise<{
+  reservations: Array<Record<string, string | number>>;
+  slots: InterviewSlotOption[];
+}> {
+  await ensureSlotSheets(token);
+
+  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
+  const reservationRows = (await reservationResponse.json()).values ?? [];
+
+  const reservations = reservationRows.map((row: string[], index: number) => ({
+    rowIndex: index + 2,
+    timestamp: row[0] ?? "",
+    slotId: row[1] ?? "",
+    slotLabel: row[2] ?? "",
+    fullName: row[3] ?? "",
+    aucEmail: row[4] ?? "",
+    studentId: row[5] ?? "",
+    calendarEventId: row[6] ?? "",
+    meetLink: row[7] ?? "",
+    interviewStatus: row[8] ?? "",
+    reminderSendAt: row[9] ?? "",
+    reminderSentAt: row[10] ?? "",
+    reminderStatus: row[11] ?? "",
+    roleAppliedFor: row[12] ?? "",
+    secondPreference: row[13] ?? ""
+  }));
+
+  const slots = await getInterviewSlots(token);
+
+  return { reservations, slots };
+}
+
+async function rescheduleInterview(
+  token: string,
+  payload: AdminReschedulePayload
+): Promise<{
+  updatedReservation: boolean;
+  updatedApplication: boolean;
+  deletedOldEvent: boolean;
+  createdNewEvent: boolean;
+  emailSent: boolean;
+}> {
+  const { reservationRowIndex, slotId } = payload;
+
+  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, `A${reservationRowIndex}:N${reservationRowIndex}`)}`);
+  const reservationValues = (await reservationResponse.json()).values?.[0] ?? [];
+
+  if (!reservationValues.length) {
+    throw new Error(`No reservation found at row ${reservationRowIndex}.`);
+  }
+
+  const fullName = String(reservationValues[3] ?? "").trim();
+  const aucEmail = String(reservationValues[4] ?? "").trim();
+  const studentId = String(reservationValues[5] ?? "").trim();
+  const oldCalendarEventId = String(reservationValues[6] ?? "").trim();
+  const roleAppliedFor = String(reservationValues[12] ?? "").trim();
+  const secondPreference = String(reservationValues[13] ?? "").trim();
+
+  if (!aucEmail) {
+    throw new Error("Reservation is missing applicant email.");
+  }
+
+  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
+  const slotRows = (await slotResponse.json()).values ?? [];
+  const slotRowIndex = slotRows.findIndex((row: string[]) => normalize(row[0]) === normalize(slotId));
+
+  if (slotRowIndex === -1) {
+    throw new Error(`Slot not found: ${slotId}.`);
+  }
+
+  const slotRow = slotRows[slotRowIndex];
+  const date = String(slotRow[1] ?? "").trim();
+  const startTime = String(slotRow[2] ?? "").trim();
+  const endTime = String(slotRow[3] ?? "").trim() || addMinutesToTime(startTime, 30);
+  const startDateTime = buildLocalDateTime(date, startTime);
+  const endDateTime = buildLocalDateTime(date, endTime);
+
+  if (!startDateTime || !endDateTime) {
+    throw new Error("New slot has invalid date/time.");
+  }
+
+  const newSlot: InterviewSlotOption = {
+    id: slotId,
+    label: String(slotRow[4] ?? "").trim() || buildSlotLabel(date, startTime),
+    date,
+    startTime,
+    endTime,
+    startDateTime,
+    endDateTime,
+    capacity: Number(slotRow[5] ?? 1) || 1,
+    active: true,
+    reservedCount: 0,
+    remaining: 1,
+    full: false,
+    calendarEventId: String(slotRow[7] ?? "").trim(),
+    meetLink: String(slotRow[8] ?? "").trim(),
+    rowIndex: slotRowIndex + 2
+  };
+
+  let deletedOldEvent = false;
+  if (oldCalendarEventId) {
+    try {
+      deletedOldEvent = await deleteCalendarEvent(oldCalendarEventId);
+    } catch {
+      console.error(`Failed to delete old calendar event ${oldCalendarEventId}`);
+    }
+  }
+
+  const applicantPayload: ApplicationPayload = {
+    timestamp: new Date().toISOString(),
+    fullName,
+    aucEmail,
+    studentId,
+    major: "",
+    yearLevel: "",
+    phone: "",
+    roleAppliedFor,
+    roleStepTitle: "",
+    roleDescription: "",
+    secondPreference,
+    whyThisRole: "",
+    whyChooseYourself: "",
+    interviewSlot: newSlot.label,
+    interviewSlotId: newSlot.id,
+    interviewSlotLabel: newSlot.label,
+    createdAt: new Date().toISOString()
+  };
+
+  const calendarToken = await getGmailAccessToken();
+  const newCalendarEvent = await createCalendarEvent(calendarToken, applicantPayload, newSlot);
+
+  const newReminderSendAt = subtractMinutesFromLocalDateTime(newSlot.startDateTime, 30);
+
+  await sheetsFetch(token, "PUT", `${sheetRange(RESERVATION_SHEET_NAME, `B${reservationRowIndex}:C${reservationRowIndex}`)}?valueInputOption=RAW`, {
+    values: [[newSlot.id, newSlot.label]]
+  });
+  await sheetsFetch(token, "PUT", `${sheetRange(RESERVATION_SHEET_NAME, `G${reservationRowIndex}:H${reservationRowIndex}`)}?valueInputOption=RAW`, {
+    values: [[newCalendarEvent.calendarEventId, newCalendarEvent.meetLink]]
+  });
+  await sheetsFetch(token, "PUT", `${sheetRange(RESERVATION_SHEET_NAME, `J${reservationRowIndex}:L${reservationRowIndex}`)}?valueInputOption=RAW`, {
+    values: [[newReminderSendAt, "", "Pending"]]
+  });
+
+  const sheetName = await getSheetName(token);
+  const applicationWidth = columnLetter(HEADERS.length);
+  const applicationResponse = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${applicationWidth}`)}`);
+  const applicationRows = (await applicationResponse.json()).values ?? [];
+  const appRowIndex = applicationRows.findIndex((row: string[]) => normalize(row[2]) === normalize(aucEmail));
+  let updatedApplication = false;
+
+  if (appRowIndex !== -1) {
+    const sheetRow = appRowIndex + 2;
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `O${sheetRow}`)}?valueInputOption=RAW`, {
+      values: [[newSlot.label]]
+    });
+    updatedApplication = true;
+  }
+
+  let emailSent = false;
+  try {
+    await sendRescheduleEmail(applicantPayload, {
+      slot: newSlot,
+      calendarEventId: newCalendarEvent.calendarEventId,
+      meetLink: newCalendarEvent.meetLink
+    });
+    emailSent = gmailConfigured();
+  } catch (error) {
+    console.error(`Reschedule email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { updatedReservation: true, updatedApplication, deletedOldEvent, createdNewEvent: true, emailSent };
+}
+
+async function sendRescheduleEmail(payload: ApplicationPayload, reservation: ReservationDetails): Promise<void> {
+  if (!gmailConfigured()) return;
+
+  const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
+  const subject = "Resala AUC: Your interview has been rescheduled";
+  const body = [
+    `Hi ${payload.fullName},`,
+    "",
+    "Your Resala AUC interview has been rescheduled.",
+    "",
+    `New interview slot: ${slot}.`,
+    `Google Meet link: ${reservation.meetLink}`,
+    "You will receive a new Google Calendar invitation for this time.",
+    "",
+    "If you have any questions, just reply to this email.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = buildRescheduleEmailHtml({ fullName: payload.fullName, slot, meetLink: reservation.meetLink });
+  const accessToken = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: payload.aucEmail,
+    subject,
+    text: body,
+    html,
+    attachments: []
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gmail send failed: ${errorText}`);
+  }
+}
+
+function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: string; slot: string; meetLink: string }): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Interview Rescheduled</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">Your updated interview details are below.</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your Resala AUC interview has been rescheduled to a new time.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">New interview slot</div>
+                      <div style="font-size:22px;line-height:1.3;font-weight:bold;color:#0d2b45;">${escapeHtml(slot)}</div>
+                    </td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
+                      <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">A new Google Calendar invitation has been sent. You will also receive a reminder 30 minutes before.</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If you have any questions, just reply to this email.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 async function getSpreadsheetSheetIds(token: string): Promise<Map<string, number>> {
