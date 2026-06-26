@@ -1387,27 +1387,50 @@ async function loadAdminDashboard(token: string): Promise<{
   slots: InterviewSlotOption[];
 }> {
   await ensureSlotSheets(token);
+  const sheetName = await getSheetName(token);
 
-  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
+  const [reservationResponse, applicationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`),
+    sheetsFetch(token, "GET", `${sheetRange(sheetName, "A2:N")}`)
+  ]);
+
   const reservationRows = (await reservationResponse.json()).values ?? [];
+  const applicationRows = (await applicationResponse.json()).values ?? [];
 
-  const reservations = reservationRows.map((row: string[], index: number) => ({
-    rowIndex: index + 2,
-    timestamp: row[0] ?? "",
-    slotId: row[1] ?? "",
-    slotLabel: row[2] ?? "",
-    fullName: row[3] ?? "",
-    aucEmail: row[4] ?? "",
-    studentId: row[5] ?? "",
-    calendarEventId: row[6] ?? "",
-    meetLink: row[7] ?? "",
-    interviewStatus: row[8] ?? "",
-    reminderSendAt: row[9] ?? "",
-    reminderSentAt: row[10] ?? "",
-    reminderStatus: row[11] ?? "",
-    roleAppliedFor: row[12] ?? "",
-    secondPreference: row[13] ?? ""
-  }));
+  const appByEmail = new Map<string, string[]>();
+  for (const row of applicationRows) {
+    const email = normalize(String(row[2] ?? ""));
+    if (email) appByEmail.set(email, row);
+  }
+
+  const reservations = reservationRows.map((row: string[], index: number) => {
+    const aucEmail = String(row[4] ?? "").trim();
+    const app = appByEmail.get(normalize(aucEmail)) ?? [];
+    return {
+      rowIndex: index + 2,
+      timestamp: row[0] ?? "",
+      slotId: row[1] ?? "",
+      slotLabel: row[2] ?? "",
+      fullName: row[3] ?? "",
+      aucEmail,
+      studentId: row[5] ?? "",
+      calendarEventId: row[6] ?? "",
+      meetLink: row[7] ?? "",
+      interviewStatus: row[8] ?? "",
+      reminderSendAt: row[9] ?? "",
+      reminderSentAt: row[10] ?? "",
+      reminderStatus: row[11] ?? "",
+      roleAppliedFor: row[12] ?? "",
+      secondPreference: row[13] ?? "",
+      major: app[4] ?? "",
+      yearLevel: app[5] ?? "",
+      phone: app[6] ?? "",
+      whyThisRole: app[10] ?? "",
+      whyChooseYourself: app[11] ?? "",
+      hopeToLearn: app[12] ?? "",
+      previousResalaExperience: app[13] ?? ""
+    };
+  });
 
   const slots = await getInterviewSlots(token);
 
