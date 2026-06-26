@@ -146,7 +146,9 @@ type AdminLoadPayload = {
 type AdminReschedulePayload = {
   mode: "admin-reschedule";
   reservationRowIndex: number;
-  slotId: string;
+  date: string;      // YYYY-MM-DD
+  startTime: string; // HH:MM 24h
+  endTime?: string;  // HH:MM 24h, optional — defaults to +30 min
 };
 
 type ConfirmationEmailTemplate = {
@@ -1372,7 +1374,15 @@ async function rescheduleInterview(
   createdNewEvent: boolean;
   emailSent: boolean;
 }> {
-  const { reservationRowIndex, slotId } = payload;
+  const { reservationRowIndex, date, startTime: rawStartTime, endTime: rawEndTime } = payload;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("Invalid date format. Use YYYY-MM-DD.");
+  }
+
+  if (!/^\d{1,2}:\d{2}$/.test(rawStartTime)) {
+    throw new Error("Invalid time format. Use HH:MM (24h).");
+  }
 
   const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, `A${reservationRowIndex}:N${reservationRowIndex}`)}`);
   const reservationValues = (await reservationResponse.json()).values?.[0] ?? [];
@@ -1392,41 +1402,35 @@ async function rescheduleInterview(
     throw new Error("Reservation is missing applicant email.");
   }
 
-  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
-  const slotRows = (await slotResponse.json()).values ?? [];
-  const slotRowIndex = slotRows.findIndex((row: string[]) => normalize(row[0]) === normalize(slotId));
+  // Build slot directly from date + 24h time — no slots sheet lookup needed
+  const [sh, sm] = rawStartTime.split(":").map(Number);
+  const startDateTime = `${date}T${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}:00`;
 
-  if (slotRowIndex === -1) {
-    throw new Error(`Slot not found: ${slotId}.`);
-  }
+  const endMinutesTotal = sh * 60 + sm + 30;
+  const eh = Math.floor(endMinutesTotal / 60) % 24;
+  const em = endMinutesTotal % 60;
+  const resolvedEndTime = rawEndTime ?? `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+  const [reh, rem] = resolvedEndTime.split(":").map(Number);
+  const endDateTime = `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`;
 
-  const slotRow = slotRows[slotRowIndex];
-  const date = String(slotRow[1] ?? "").trim();
-  const startTime = String(slotRow[2] ?? "").trim();
-  const endTime = String(slotRow[3] ?? "").trim() || addMinutesToTime(startTime, 30);
-  const startDateTime = buildLocalDateTime(date, startTime);
-  const endDateTime = buildLocalDateTime(date, endTime);
-
-  if (!startDateTime || !endDateTime) {
-    throw new Error("New slot has invalid date/time.");
-  }
+  const displayHour = sh % 12 || 12;
+  const meridiem = sh >= 12 ? "PM" : "AM";
+  const slotLabel = `${date} at ${displayHour}:${String(sm).padStart(2, "0")} ${meridiem}`;
+  const slotId = `admin-${date}-${String(sh).padStart(2, "0")}${String(sm).padStart(2, "0")}`;
 
   const newSlot: InterviewSlotOption = {
     id: slotId,
-    label: String(slotRow[4] ?? "").trim() || buildSlotLabel(date, startTime),
+    label: slotLabel,
     date,
-    startTime,
-    endTime,
+    startTime: `${displayHour}:${String(sm).padStart(2, "0")} ${meridiem}`,
+    endTime: `${reh % 12 || 12}:${String(rem).padStart(2, "0")} ${reh >= 12 ? "PM" : "AM"}`,
     startDateTime,
     endDateTime,
-    capacity: Number(slotRow[5] ?? 1) || 1,
+    capacity: 1,
     active: true,
     reservedCount: 0,
     remaining: 1,
-    full: false,
-    calendarEventId: String(slotRow[7] ?? "").trim(),
-    meetLink: String(slotRow[8] ?? "").trim(),
-    rowIndex: slotRowIndex + 2
+    full: false
   };
 
   let deletedOldEvent = false;

@@ -190,7 +190,14 @@
       white-space: nowrap;
     }
 
-    select {
+    .datetime-inputs {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .datetime-inputs input {
       border: 1px solid #e6edf2;
       border-radius: 8px;
       padding: 7px 10px;
@@ -198,12 +205,11 @@
       color: #172033;
       background: #f8fafc;
       outline: none;
-      width: 100%;
-      min-width: 180px;
-      max-width: 260px;
     }
 
-    select:focus { border-color: #0d2b45; background: #fff; }
+    .datetime-inputs input[type="date"] { width: 136px; }
+    .datetime-inputs input[type="time"] { width: 100px; }
+    .datetime-inputs input:focus { border-color: #0d2b45; background: #fff; }
 
     .row-status {
       font-size: 12px;
@@ -303,7 +309,7 @@
             <th>Role</th>
             <th>Current Slot</th>
             <th>Status</th>
-            <th>New Slot</th>
+            <th>New Date &amp; Time</th>
             <th></th>
           </tr>
         </thead>
@@ -319,7 +325,6 @@
   const ENDPOINT = (typeof window !== 'undefined' && window.RESALA_APPLICATIONS_ENDPOINT) || '';
 
   let allReservations = [];
-  let availableSlots = [];
 
   function getSecret() {
     return document.getElementById('secret').value.trim();
@@ -346,13 +351,8 @@
     return `<span class="row-status pending">${escHtml(val || 'Pending')}</span>`;
   }
 
-  function buildSlotOptions(currentSlotId) {
-    if (!availableSlots.length) return '<option value="">No slots available</option>';
-    return availableSlots.map(slot => {
-      const remaining = slot.remaining > 0 ? ` (${slot.remaining} left)` : ' (full)';
-      const selected = slot.id === currentSlotId ? ' selected' : '';
-      return `<option value="${escHtml(slot.id)}"${selected}>${escHtml(slot.label)}${remaining}</option>`;
-    }).join('');
+  function todayStr() {
+    return new Date().toISOString().slice(0, 10);
   }
 
   function renderTable(rows) {
@@ -380,9 +380,10 @@
         <td><span class="slot-badge">${escHtml(r.slotLabel || r.slotId)}</span></td>
         <td>${statusBadge(r.interviewStatus)}</td>
         <td>
-          <select id="new-slot-${r.rowIndex}">
-            ${buildSlotOptions(r.slotId)}
-          </select>
+          <div class="datetime-inputs">
+            <input type="date" id="new-date-${r.rowIndex}" min="${todayStr()}" value="${todayStr()}">
+            <input type="time" id="new-time-${r.rowIndex}" value="15:00">
+          </div>
         </td>
         <td>
           <button class="btn btn-accent btn-sm" id="btn-${r.rowIndex}" onclick="reschedule(${r.rowIndex})">Reschedule</button>
@@ -432,7 +433,6 @@
       }
 
       allReservations = data.reservations ?? [];
-      availableSlots = (data.slots ?? []).filter(s => !s.full);
 
       document.getElementById('dashboard').style.display = '';
       document.getElementById('reservation-count').textContent = `${allReservations.length} reservation${allReservations.length !== 1 ? 's' : ''}`;
@@ -450,14 +450,11 @@
     const secret = getSecret();
     if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
 
-    const slotId = document.getElementById(`new-slot-${rowIndex}`)?.value;
-    if (!slotId) { showRowNotice(rowIndex, 'Select a new slot.', 'error'); return; }
+    const date = document.getElementById(`new-date-${rowIndex}`)?.value;
+    const time = document.getElementById(`new-time-${rowIndex}`)?.value;
 
-    const reservation = allReservations.find(r => r.rowIndex === rowIndex);
-    if (reservation && reservation.slotId === slotId) {
-      showRowNotice(rowIndex, 'That is already the current slot.', 'error');
-      return;
-    }
+    if (!date) { showRowNotice(rowIndex, 'Pick a date.', 'error'); return; }
+    if (!time) { showRowNotice(rowIndex, 'Pick a time.', 'error'); return; }
 
     const btn = document.getElementById(`btn-${rowIndex}`);
     btn.disabled = true;
@@ -471,7 +468,7 @@
           'Content-Type': 'text/plain;charset=utf-8',
           'x-admin-reset-secret': secret
         },
-        body: JSON.stringify({ mode: 'admin-reschedule', reservationRowIndex: rowIndex, slotId })
+        body: JSON.stringify({ mode: 'admin-reschedule', reservationRowIndex: rowIndex, date, startTime: time })
       });
 
       const data = await res.json();
