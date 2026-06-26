@@ -1408,6 +1408,7 @@ async function loadAdminDashboard(token: string): Promise<{
     const app = appByEmail.get(normalize(aucEmail)) ?? [];
     const roleAppliedFor = String(row[12] ?? "").trim() || String(app[7] ?? "").trim();
     const secondPreference = String(row[13] ?? "").trim() || String(app[17] ?? "").trim();
+    const taskSubmission = getTaskSubmissionState(app);
     return {
       rowIndex: index + 2,
       timestamp: row[0] ?? "",
@@ -1431,11 +1432,7 @@ async function loadAdminDashboard(token: string): Promise<{
       whyChooseYourself: app[11] ?? "",
       hopeToLearn: app[12] ?? "",
       previousResalaExperience: app[13] ?? "",
-      taskSubmittedAt: app[18] ?? "",
-      firstPreferenceTaskLink: app[19] ?? "",
-      secondPreferenceTaskLink: app[20] ?? "",
-      taskNotes: app[21] ?? "",
-      taskSubmissionStatus: app[22] ?? ""
+      ...taskSubmission
     };
   });
 
@@ -1478,11 +1475,7 @@ async function loadAdminApplicants(token: string): Promise<{
     secondPreference: row[17] ?? "",
     interviewSlot: row[14] ?? "",
     status: row[16] ?? "",
-    taskSubmittedAt: row[18] ?? "",
-    firstPreferenceTaskLink: row[19] ?? "",
-    secondPreferenceTaskLink: row[20] ?? "",
-    taskNotes: row[21] ?? "",
-    taskSubmissionStatus: row[22] ?? "",
+    ...getTaskSubmissionState(row),
     notesUrl: row[23] ?? "",
     firstPreferenceScore: row[24] ?? "",
     secondPreferenceScore: row[25] ?? ""
@@ -2280,6 +2273,44 @@ function sheetRange(sheetName: string, range: string): string {
 
 function normalize(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function getTaskSubmissionState(row: string[]): Record<string, string> {
+  const taskSubmittedAt = String(row[18] ?? "").trim();
+  const firstPreferenceTaskLink = String(row[19] ?? "").trim();
+  const secondPreferenceTaskLink = String(row[20] ?? "").trim();
+  const taskNotes = String(row[21] ?? "").trim();
+  const rawTaskSubmissionStatus = String(row[22] ?? "").trim();
+  const hasFirstTaskLink = isLikelyUrl(firstPreferenceTaskLink);
+  const hasSecondTaskLink = isLikelyUrl(secondPreferenceTaskLink);
+  const isComplete = hasFirstTaskLink && hasSecondTaskLink;
+  const hasAnySubmissionData = Boolean(
+    taskSubmittedAt ||
+      firstPreferenceTaskLink ||
+      secondPreferenceTaskLink ||
+      taskNotes ||
+      rawTaskSubmissionStatus
+  );
+
+  let taskSubmissionIssue = "";
+  if (!isComplete && hasAnySubmissionData) {
+    if (!hasFirstTaskLink && !hasSecondTaskLink) {
+      taskSubmissionIssue = "Missing both task links";
+    } else if (!hasFirstTaskLink) {
+      taskSubmissionIssue = "Missing first preference task link";
+    } else {
+      taskSubmissionIssue = "Missing second preference task link";
+    }
+  }
+
+  return {
+    taskSubmittedAt,
+    firstPreferenceTaskLink,
+    secondPreferenceTaskLink,
+    taskNotes,
+    taskSubmissionStatus: isComplete ? "Submitted" : "",
+    taskSubmissionIssue
+  };
 }
 
 function isLikelyUrl(value: string): boolean {
