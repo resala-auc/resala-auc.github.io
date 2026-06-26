@@ -573,7 +573,7 @@ function buildConfirmationEmailTemplate(
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
   const taskDeadline = formatLocalDateTimeLabel(subtractMinutesFromLocalDateTime(reservation.slot.startDateTime, 30));
   const submissionLine = getTaskSubmissionLine();
-  const subject = "Resala AUC: your application";
+  const subject = "Resala AUC Application Confirmation";
   const body = [
     `Hi ${payload.fullName},`,
     "",

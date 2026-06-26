@@ -323,7 +323,7 @@ function buildPreviewConfirmationEmailTemplate(): { subject: string; body: strin
   const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
   const taskDeadline = "2026-06-22 at 7:00 PM";
   const submissionLine = getTaskSubmissionLine();
-  const subject = "Resala AUC: your application";
+  const subject = "Resala AUC Application Confirmation";
   const body = [
     `Hi ${fullName},`,
     "",
