@@ -128,6 +128,7 @@ type TaskSubmissionPayload = {
 type AdminResetPayload = {
   mode: "admin-reset-test";
   aucEmail: string;
+  studentId?: string;
 };
 
 type ConfirmationEmailTemplate = {
@@ -236,7 +237,7 @@ Deno.serve(async (request) => {
 
       const token = await getGoogleAccessToken();
       const sheetName = await getSheetName(token);
-      const result = await resetTestApplicant(token, payload.aucEmail, sheetName);
+      const result = await resetTestApplicant(token, payload, sheetName);
 
       return jsonResponse({ ok: true, ...result });
     }
@@ -539,7 +540,7 @@ function buildConfirmationEmailTemplate(
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
   const taskDeadline = formatLocalDateTimeLabel(subtractMinutesFromLocalDateTime(reservation.slot.startDateTime, 30));
   const submissionLine = getTaskSubmissionLine();
-  const subject = `Resala AUC: your ${payload.roleAppliedFor} application was received`;
+  const subject = "Resala AUC: your application was received";
   const body = [
     `Hi ${payload.fullName},`,
     "",
@@ -1085,15 +1086,17 @@ async function ensureSheetHeaders(token: string, sheetName: string, headers: str
   }
 }
 
-async function resetTestApplicant(token: string, aucEmail: string, applicationSheetName: string): Promise<{
+async function resetTestApplicant(token: string, payload: AdminResetPayload, applicationSheetName: string): Promise<{
   deletedReservations: number;
   deletedApplications: number;
   clearedSlots: number;
   deletedCalendarEvents: number;
 }> {
-  const email = String(aucEmail ?? "").trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("Invalid AUC email.");
+  const email = String(payload.aucEmail ?? "").trim().toLowerCase();
+  const studentId = String(payload.studentId ?? "").trim();
+  const hasValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!hasValidEmail && !studentId) {
+    throw new Error("Provide a valid AUC email or Student ID.");
   }
 
   await ensureSlotSheets(token);
@@ -1103,7 +1106,11 @@ async function resetTestApplicant(token: string, aucEmail: string, applicationSh
   const reservationRows = (await reservationResponse.json()).values ?? [];
   const reservationMatches = reservationRows
     .map((row: string[], index: number) => ({ row, rowIndex: index + 2 }))
-    .filter(({ row }) => normalize(row[4]) === normalize(email));
+    .filter(({ row }) => {
+      const rowEmail = normalize(row[4]);
+      const rowStudentId = normalize(row[5]);
+      return (hasValidEmail && rowEmail === normalize(email)) || (studentId && rowStudentId === normalize(studentId));
+    });
 
   const slotIdsToReview = new Set(reservationMatches.map(({ row }) => String(row[1] ?? "").trim()).filter(Boolean));
   const calendarEventIds = [
@@ -1115,7 +1122,11 @@ async function resetTestApplicant(token: string, aucEmail: string, applicationSh
   const applicationRows = (await applicationResponse.json()).values ?? [];
   const applicationMatches = applicationRows
     .map((row: string[], index: number) => ({ row, rowIndex: index + 2 }))
-    .filter(({ row }) => normalize(row[2]) === normalize(email));
+    .filter(({ row }) => {
+      const rowEmail = normalize(row[2]);
+      const rowStudentId = normalize(row[3]);
+      return (hasValidEmail && rowEmail === normalize(email)) || (studentId && rowStudentId === normalize(studentId));
+    });
 
   const sheetIds = await getSpreadsheetSheetIds(token);
   const reservationSheetId = sheetIds.get(RESERVATION_SHEET_NAME);
