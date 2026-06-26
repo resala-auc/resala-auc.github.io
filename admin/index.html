@@ -26,24 +26,10 @@
 
     header img { width: 48px; height: 48px; border-radius: 50%; }
 
-    header h1 {
-      font-size: 20px;
-      font-weight: bold;
-      color: #fff;
-    }
+    header h1 { font-size: 20px; font-weight: bold; color: #fff; }
+    header span { font-size: 13px; color: #f5c46b; font-weight: bold; letter-spacing: 0.5px; }
 
-    header span {
-      font-size: 13px;
-      color: #f5c46b;
-      font-weight: bold;
-      letter-spacing: 0.5px;
-    }
-
-    .container {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 32px 16px;
-    }
+    .container { max-width: 1200px; margin: 0 auto; padding: 32px 16px; }
 
     .auth-card {
       background: #fff;
@@ -54,12 +40,7 @@
       margin: 0 auto 32px;
     }
 
-    .auth-card h2 {
-      font-size: 18px;
-      font-weight: bold;
-      color: #0d2b45;
-      margin-bottom: 18px;
-    }
+    .auth-card h2 { font-size: 18px; font-weight: bold; color: #0d2b45; margin-bottom: 18px; }
 
     .field { margin-bottom: 14px; }
 
@@ -73,7 +54,7 @@
       margin-bottom: 6px;
     }
 
-    input[type="password"], input[type="text"] {
+    input[type="password"], input[type="text"], input[type="url"], input[type="number"] {
       width: 100%;
       border: 1px solid #e6edf2;
       border-radius: 10px;
@@ -100,9 +81,9 @@
 
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn:not(:disabled):hover { opacity: 0.88; }
-
     .btn-primary { background: #0d2b45; color: #fff; }
     .btn-accent  { background: #f5c46b; color: #0d2b45; }
+    .btn-success { background: #16a34a; color: #fff; }
     .btn-sm      { padding: 7px 14px; font-size: 13px; }
 
     .notice {
@@ -117,6 +98,39 @@
     .notice-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
     .notice-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
 
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0;
+      background: #fff;
+      border: 1px solid #eadfca;
+      border-radius: 14px;
+      padding: 6px;
+      margin-bottom: 24px;
+      width: fit-content;
+    }
+
+    .tab-btn {
+      padding: 10px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      background: transparent;
+      color: #64748b;
+      transition: all 0.15s;
+    }
+
+    .tab-btn.active {
+      background: #0d2b45;
+      color: #fff;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Table */
     .table-wrap {
       background: #fff;
       border: 1px solid #eadfca;
@@ -134,22 +148,10 @@
       flex-wrap: wrap;
     }
 
-    .table-head h2 {
-      font-size: 17px;
-      font-weight: bold;
-      color: #0d2b45;
-    }
+    .table-head h2 { font-size: 17px; font-weight: bold; color: #0d2b45; }
+    .table-head .count { font-size: 13px; color: #64748b; }
 
-    .table-head .count {
-      font-size: 13px;
-      color: #64748b;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
 
     thead th {
       text-align: left;
@@ -167,11 +169,7 @@
     tbody tr { border-bottom: 1px solid #f0ede8; }
     tbody tr:last-child { border-bottom: none; }
 
-    tbody td {
-      padding: 12px 16px;
-      vertical-align: middle;
-      color: #172033;
-    }
+    tbody td { padding: 12px 16px; vertical-align: middle; color: #172033; }
 
     .name { font-weight: bold; }
     .email { color: #64748b; font-size: 13px; }
@@ -190,26 +188,16 @@
       white-space: nowrap;
     }
 
-    .datetime-inputs {
-      display: flex;
-      gap: 6px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-
-    .datetime-inputs input {
-      border: 1px solid #e6edf2;
-      border-radius: 8px;
-      padding: 7px 10px;
-      font-size: 13px;
-      color: #172033;
-      background: #f8fafc;
-      outline: none;
-    }
-
+    .datetime-inputs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .datetime-inputs input { border: 1px solid #e6edf2; border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #172033; background: #f8fafc; outline: none; }
     .datetime-inputs input[type="date"] { width: 136px; }
     .datetime-inputs input[type="time"] { width: 100px; }
     .datetime-inputs input:focus { border-color: #0d2b45; background: #fff; }
+
+    .score-cell { display: flex; align-items: center; gap: 6px; }
+    .score-cell input[type="number"] { width: 70px; padding: 7px 10px; font-size: 13px; border-radius: 8px; }
+
+    .notes-input { width: 100%; min-width: 160px; max-width: 220px; padding: 7px 10px; font-size: 12px; border-radius: 8px; }
 
     .row-status {
       font-size: 12px;
@@ -238,12 +226,7 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .empty {
-      text-align: center;
-      padding: 48px 24px;
-      color: #94a3b8;
-      font-size: 15px;
-    }
+    .empty { text-align: center; padding: 48px 24px; color: #94a3b8; font-size: 15px; }
 
     .filter-bar {
       padding: 14px 24px;
@@ -254,11 +237,71 @@
       align-items: center;
     }
 
-    .filter-bar input[type="text"] {
-      max-width: 260px;
-      padding: 7px 12px;
-      font-size: 13px;
+    .filter-bar input[type="text"] { max-width: 260px; padding: 7px 12px; font-size: 13px; }
+
+    /* Rankings */
+    .rank-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
     }
+
+    .rank-controls select {
+      border: 1px solid #e6edf2;
+      border-radius: 10px;
+      padding: 9px 14px;
+      font-size: 14px;
+      color: #172033;
+      background: #fff;
+      outline: none;
+    }
+
+    .rank-controls select:focus { border-color: #0d2b45; }
+
+    .rank-list { display: flex; flex-direction: column; gap: 10px; }
+
+    .rank-card {
+      background: #fff;
+      border: 1px solid #eadfca;
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .rank-num {
+      font-size: 22px;
+      font-weight: bold;
+      color: #0d2b45;
+      min-width: 36px;
+      text-align: center;
+    }
+
+    .rank-num.gold   { color: #b45309; }
+    .rank-num.silver { color: #64748b; }
+    .rank-num.bronze { color: #92400e; }
+
+    .rank-info { flex: 1; }
+    .rank-name { font-weight: bold; font-size: 15px; }
+    .rank-email { font-size: 13px; color: #64748b; }
+    .rank-slot  { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    .rank-score {
+      font-size: 24px;
+      font-weight: bold;
+      color: #0d2b45;
+      min-width: 48px;
+      text-align: right;
+    }
+
+    .rank-score.no-score { font-size: 14px; color: #94a3b8; }
+
+    .notes-link { font-size: 12px; margin-top: 4px; }
+    .notes-link a { color: #2563eb; text-decoration: none; }
+    .notes-link a:hover { text-decoration: underline; }
 
     @media (max-width: 768px) {
       table { display: block; overflow-x: auto; }
@@ -273,7 +316,7 @@
   <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="Resala AUC" onerror="this.style.display='none'">
   <div>
     <h1>Admin Dashboard</h1>
-    <span>Resala AUC · Reschedule Interviews</span>
+    <span>Resala AUC · Interview Management</span>
   </div>
 </header>
 
@@ -285,37 +328,114 @@
       <label for="secret">Admin Secret</label>
       <input type="password" id="secret" placeholder="Enter admin secret" autocomplete="off">
     </div>
-    <button class="btn btn-primary" id="load-btn" onclick="loadDashboard()">Load Reservations</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="load-btn" onclick="loadReschedule()">Load Reservations</button>
+      <button class="btn btn-accent" id="load-applicants-btn" onclick="loadScore()">Load Score Tracker</button>
+    </div>
   </div>
 
   <div id="global-notice"></div>
 
-  <div id="dashboard" style="display:none;">
-    <div class="table-wrap">
-      <div class="table-head">
-        <div>
-          <h2>Interview Reservations</h2>
-          <div class="count" id="reservation-count"></div>
+  <div id="main-dashboard" style="display:none;">
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('reschedule')">Reschedule</button>
+      <button class="tab-btn" onclick="switchTab('score')">Score &amp; Rank</button>
+    </div>
+
+    <!-- RESCHEDULE TAB -->
+    <div class="tab-panel active" id="tab-reschedule">
+      <div class="table-wrap">
+        <div class="table-head">
+          <div>
+            <h2>Interview Reservations</h2>
+            <div class="count" id="reservation-count"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="loadReschedule()">↺ Refresh</button>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="loadDashboard()">↺ Refresh</button>
+        <div class="filter-bar">
+          <input type="text" id="search" placeholder="Search by name, email, or role…" oninput="filterReschedule()">
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Applicant</th>
+              <th>Role</th>
+              <th>Current Slot</th>
+              <th>Status</th>
+              <th>New Date &amp; Time</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="reservations-body"></tbody>
+        </table>
+        <div id="empty-state" class="empty" style="display:none;">No reservations found.</div>
       </div>
-      <div class="filter-bar">
-        <input type="text" id="search" placeholder="Search by name, email, or role…" oninput="filterTable()">
+    </div>
+
+    <!-- SCORE & RANK TAB -->
+    <div class="tab-panel" id="tab-score">
+
+      <!-- Editing table -->
+      <div class="table-wrap" style="margin-bottom:28px;">
+        <div class="table-head">
+          <div>
+            <h2>Score Applicants</h2>
+            <div class="count" id="applicant-count"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="loadScore()">↺ Refresh</button>
+        </div>
+        <div class="filter-bar">
+          <input type="text" id="score-search" placeholder="Search by name, email, or role…" oninput="filterScore()">
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Applicant</th>
+              <th>1st Preference</th>
+              <th>2nd Preference</th>
+              <th>Slot</th>
+              <th>1st Score</th>
+              <th>2nd Score</th>
+              <th>Notes Doc</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="score-body"></tbody>
+        </table>
+        <div id="score-empty" class="empty" style="display:none;">No applicants found.</div>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Applicant</th>
-            <th>Role</th>
-            <th>Current Slot</th>
-            <th>Status</th>
-            <th>New Date &amp; Time</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="reservations-body"></tbody>
-      </table>
-      <div id="empty-state" class="empty" style="display:none;">No reservations found.</div>
+
+      <!-- Rankings -->
+      <div class="table-wrap">
+        <div class="table-head">
+          <h2>Rankings</h2>
+        </div>
+        <div style="padding:20px 24px;">
+          <div class="rank-controls">
+            <select id="rank-role">
+              <option value="">Select a role…</option>
+              <option>Treasurer</option>
+              <option>Tech Director</option>
+              <option>Operations</option>
+              <option>Branding / Media</option>
+              <option>HR</option>
+              <option>PR / Fundraising</option>
+              <option>Visits</option>
+              <option>Children Day Director</option>
+              <option>Mothers Day Director</option>
+              <option>Initiatives Director</option>
+            </select>
+            <select id="rank-pref">
+              <option value="first">By 1st preference score</option>
+              <option value="second">By 2nd preference score</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="renderRankings()">Show Rankings</button>
+          </div>
+          <div id="rank-list" class="rank-list"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -325,10 +445,11 @@
   const ENDPOINT = (typeof window !== 'undefined' && window.RESALA_APPLICATIONS_ENDPOINT) || '';
 
   let allReservations = [];
+  let allApplicants = [];
 
-  function getSecret() {
-    return document.getElementById('secret').value.trim();
-  }
+  // ── helpers ──────────────────────────────────────────────────────────────
+
+  function getSecret() { return document.getElementById('secret').value.trim(); }
 
   function showNotice(msg, type = 'info') {
     const el = document.getElementById('global-notice');
@@ -336,9 +457,7 @@
     el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  function clearNotice() {
-    document.getElementById('global-notice').innerHTML = '';
-  }
+  function clearNotice() { document.getElementById('global-notice').innerHTML = ''; }
 
   function escHtml(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -351,20 +470,36 @@
     return `<span class="row-status pending">${escHtml(val || 'Pending')}</span>`;
   }
 
-  function todayStr() {
-    return new Date().toISOString().slice(0, 10);
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+  function showRowNotice(id, msg, type) {
+    const el = document.getElementById(`row-notice-${id}`);
+    if (!el) return;
+    const colors = { error: '#991b1b', success: '#166534', info: '#1e40af' };
+    el.style.color = colors[type] || colors.info;
+    el.textContent = msg;
   }
 
-  function renderTable(rows) {
+  function clearRowNotice(id) {
+    const el = document.getElementById(`row-notice-${id}`);
+    if (el) el.textContent = '';
+  }
+
+  // ── tabs ─────────────────────────────────────────────────────────────────
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(`tab-${name}`).classList.add('active');
+    event.currentTarget.classList.add('active');
+  }
+
+  // ── reschedule tab ────────────────────────────────────────────────────────
+
+  function renderRescheduleTable(rows) {
     const tbody = document.getElementById('reservations-body');
     const empty = document.getElementById('empty-state');
-
-    if (!rows.length) {
-      tbody.innerHTML = '';
-      empty.style.display = '';
-      return;
-    }
-
+    if (!rows.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
     empty.style.display = 'none';
     tbody.innerHTML = rows.map(r => `
       <tr id="row-${r.rowIndex}">
@@ -393,51 +528,39 @@
     `).join('');
   }
 
-  function filterTable() {
+  function filterReschedule() {
     const q = document.getElementById('search').value.toLowerCase();
     const rows = q
       ? allReservations.filter(r =>
           r.fullName.toLowerCase().includes(q) ||
           r.aucEmail.toLowerCase().includes(q) ||
           r.roleAppliedFor.toLowerCase().includes(q) ||
-          r.slotLabel.toLowerCase().includes(q)
-        )
+          (r.slotLabel || '').toLowerCase().includes(q))
       : allReservations;
-    renderTable(rows);
+    renderRescheduleTable(rows);
     document.getElementById('reservation-count').textContent = `${rows.length} of ${allReservations.length} shown`;
   }
 
-  async function loadDashboard() {
+  async function loadReschedule() {
     const secret = getSecret();
     if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
     if (!ENDPOINT) { showNotice('RESALA_APPLICATIONS_ENDPOINT is not configured.', 'error'); return; }
-
     clearNotice();
     const btn = document.getElementById('load-btn');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>Loading…';
-
     try {
       const res = await fetch(ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-          'x-admin-reset-secret': secret
-        },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8', 'x-admin-reset-secret': secret },
         body: JSON.stringify({ mode: 'admin-load' })
       });
-
       const data = await res.json();
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.error || 'Load failed.');
-      }
-
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Load failed.');
       allReservations = data.reservations ?? [];
-
-      document.getElementById('dashboard').style.display = '';
+      document.getElementById('main-dashboard').style.display = '';
       document.getElementById('reservation-count').textContent = `${allReservations.length} reservation${allReservations.length !== 1 ? 's' : ''}`;
-      filterTable();
-
+      filterReschedule();
     } catch (err) {
       showNotice(err.message || 'Could not load reservations.', 'error');
     } finally {
@@ -449,45 +572,30 @@
   async function reschedule(rowIndex) {
     const secret = getSecret();
     if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
-
     const date = document.getElementById(`new-date-${rowIndex}`)?.value;
     const time = document.getElementById(`new-time-${rowIndex}`)?.value;
-
     if (!date) { showRowNotice(rowIndex, 'Pick a date.', 'error'); return; }
     if (!time) { showRowNotice(rowIndex, 'Pick a time.', 'error'); return; }
-
     const btn = document.getElementById(`btn-${rowIndex}`);
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>Rescheduling…';
     clearRowNotice(rowIndex);
-
     try {
       const res = await fetch(ENDPOINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'text/plain;charset=utf-8',
-          'x-admin-reset-secret': secret
-        },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8', 'x-admin-reset-secret': secret },
         body: JSON.stringify({ mode: 'admin-reschedule', reservationRowIndex: rowIndex, date, startTime: time })
       });
-
       const data = await res.json();
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.error || 'Reschedule failed.');
-      }
-
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Reschedule failed.');
       const parts = [];
       if (data.updatedReservation) parts.push('reservation updated');
       if (data.updatedApplication) parts.push('application updated');
-      if (data.deletedOldEvent) parts.push('old calendar event deleted');
-      if (data.createdNewEvent) parts.push('new calendar event created');
+      if (data.deletedOldEvent) parts.push('old event deleted');
+      if (data.createdNewEvent) parts.push('new event created');
       if (data.emailSent) parts.push('email sent');
-
       showRowNotice(rowIndex, '✓ ' + (parts.join(', ') || 'Done'), 'success');
-
-      // Refresh after short delay so updated data is visible
-      setTimeout(() => loadDashboard(), 1200);
-
+      setTimeout(() => loadReschedule(), 1200);
     } catch (err) {
       showRowNotice(rowIndex, err.message || 'Reschedule failed.', 'error');
       btn.disabled = false;
@@ -495,22 +603,185 @@
     }
   }
 
-  function showRowNotice(rowIndex, msg, type) {
-    const el = document.getElementById(`row-notice-${rowIndex}`);
-    if (!el) return;
-    const colors = {
-      error: '#991b1b',
-      success: '#166534',
-      info: '#1e40af'
-    };
-    el.style.color = colors[type] || colors.info;
-    el.textContent = msg;
+  // ── score tab ─────────────────────────────────────────────────────────────
+
+  function renderScoreTable(rows) {
+    const tbody = document.getElementById('score-body');
+    const empty = document.getElementById('score-empty');
+    if (!rows.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
+    empty.style.display = 'none';
+    tbody.innerHTML = rows.map(r => `
+      <tr id="score-row-${r.rowIndex}">
+        <td>
+          <div class="name">${escHtml(r.fullName)}</div>
+          <div class="email">${escHtml(r.aucEmail)}</div>
+        </td>
+        <td><div class="role">${escHtml(r.roleAppliedFor)}</div></td>
+        <td><div class="second">${escHtml(r.secondPreference || '—')}</div></td>
+        <td><span class="slot-badge" style="font-size:11px;">${escHtml(r.interviewSlot || '—')}</span></td>
+        <td>
+          <div class="score-cell">
+            <input type="number" id="s1-${r.rowIndex}" min="0" max="100" step="0.5"
+              value="${escHtml(r.firstPreferenceScore)}" placeholder="0–100">
+          </div>
+        </td>
+        <td>
+          <div class="score-cell">
+            <input type="number" id="s2-${r.rowIndex}" min="0" max="100" step="0.5"
+              value="${escHtml(r.secondPreferenceScore)}" placeholder="0–100">
+          </div>
+        </td>
+        <td>
+          <input type="url" class="notes-input" id="notes-${r.rowIndex}"
+            value="${escHtml(r.notesUrl)}" placeholder="Paste Google Doc URL">
+        </td>
+        <td>
+          <button class="btn btn-success btn-sm" id="save-btn-${r.rowIndex}"
+            onclick="saveScore(${r.rowIndex}, '${escHtml(r.aucEmail)}')">Save</button>
+          <div id="row-notice-${r.rowIndex}" style="margin-top:6px;font-size:12px;"></div>
+        </td>
+      </tr>
+    `).join('');
   }
 
-  function clearRowNotice(rowIndex) {
-    const el = document.getElementById(`row-notice-${rowIndex}`);
-    if (el) el.textContent = '';
+  function filterScore() {
+    const q = document.getElementById('score-search').value.toLowerCase();
+    const rows = q
+      ? allApplicants.filter(r =>
+          r.fullName.toLowerCase().includes(q) ||
+          r.aucEmail.toLowerCase().includes(q) ||
+          r.roleAppliedFor.toLowerCase().includes(q) ||
+          (r.secondPreference || '').toLowerCase().includes(q))
+      : allApplicants;
+    renderScoreTable(rows);
+    document.getElementById('applicant-count').textContent = `${rows.length} of ${allApplicants.length} shown`;
   }
+
+  async function loadScore() {
+    const secret = getSecret();
+    if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
+    if (!ENDPOINT) { showNotice('RESALA_APPLICATIONS_ENDPOINT is not configured.', 'error'); return; }
+    clearNotice();
+    const btn = document.getElementById('load-applicants-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Loading…';
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8', 'x-admin-reset-secret': secret },
+        body: JSON.stringify({ mode: 'admin-load-applicants' })
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Load failed.');
+      allApplicants = data.applicants ?? [];
+      document.getElementById('main-dashboard').style.display = '';
+      document.getElementById('applicant-count').textContent = `${allApplicants.length} applicant${allApplicants.length !== 1 ? 's' : ''}`;
+
+      // Switch to score tab
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab-score').classList.add('active');
+      document.querySelectorAll('.tab-btn')[1].classList.add('active');
+
+      filterScore();
+    } catch (err) {
+      showNotice(err.message || 'Could not load applicants.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Load Score Tracker';
+    }
+  }
+
+  async function saveScore(rowIndex, aucEmail) {
+    const secret = getSecret();
+    if (!secret) { showNotice('Enter the admin secret first.', 'error'); return; }
+    const notesUrl = document.getElementById(`notes-${rowIndex}`)?.value.trim() ?? '';
+    const firstPreferenceScore = document.getElementById(`s1-${rowIndex}`)?.value.trim() ?? '';
+    const secondPreferenceScore = document.getElementById(`s2-${rowIndex}`)?.value.trim() ?? '';
+    const btn = document.getElementById(`save-btn-${rowIndex}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    clearRowNotice(rowIndex);
+    try {
+      const res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8', 'x-admin-reset-secret': secret },
+        body: JSON.stringify({ mode: 'admin-update-score', aucEmail, notesUrl, firstPreferenceScore, secondPreferenceScore })
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) throw new Error(data.error || 'Save failed.');
+      // Update local cache
+      const app = allApplicants.find(a => a.rowIndex === rowIndex);
+      if (app) { app.notesUrl = notesUrl; app.firstPreferenceScore = firstPreferenceScore; app.secondPreferenceScore = secondPreferenceScore; }
+      showRowNotice(rowIndex, '✓ Saved', 'success');
+    } catch (err) {
+      showRowNotice(rowIndex, err.message || 'Save failed.', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  }
+
+  // ── rankings ──────────────────────────────────────────────────────────────
+
+  function renderRankings() {
+    const role = document.getElementById('rank-role').value;
+    const pref = document.getElementById('rank-pref').value;
+    const container = document.getElementById('rank-list');
+
+    if (!role) { container.innerHTML = '<p style="color:#94a3b8;font-size:14px;">Select a role above.</p>'; return; }
+
+    if (!allApplicants.length) { container.innerHTML = '<p style="color:#94a3b8;font-size:14px;">Load applicants first (click "Load Score Tracker").</p>'; return; }
+
+    const filtered = allApplicants.filter(a => {
+      const r1 = normalize(a.roleAppliedFor);
+      const r2 = normalize(a.secondPreference);
+      const target = normalize(role);
+      if (pref === 'first') return r1 === target;
+      if (pref === 'second') return r2 === target;
+      return r1 === target || r2 === target;
+    });
+
+    const scoreKey = pref === 'second' ? 'secondPreferenceScore' : 'firstPreferenceScore';
+
+    const sorted = [...filtered].sort((a, b) => {
+      const sa = parseFloat(a[scoreKey]) || -Infinity;
+      const sb = parseFloat(b[scoreKey]) || -Infinity;
+      return sb - sa;
+    });
+
+    if (!sorted.length) {
+      container.innerHTML = `<p style="color:#94a3b8;font-size:14px;">No applicants found for <strong>${escHtml(role)}</strong> as ${pref === 'first' ? '1st' : '2nd'} preference.</p>`;
+      return;
+    }
+
+    const numClass = i => i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+
+    container.innerHTML = sorted.map((a, i) => {
+      const score = a[scoreKey];
+      const hasScore = score !== '' && score !== null && score !== undefined;
+      const notesHtml = a.notesUrl
+        ? `<div class="notes-link"><a href="${escHtml(a.notesUrl)}" target="_blank" rel="noopener">📄 Interview notes</a></div>`
+        : '';
+      return `
+        <div class="rank-card">
+          <div class="rank-num ${numClass(i)}">#${i + 1}</div>
+          <div class="rank-info">
+            <div class="rank-name">${escHtml(a.fullName)}</div>
+            <div class="rank-email">${escHtml(a.aucEmail)}</div>
+            <div class="rank-slot">${escHtml(a.interviewSlot || 'No slot')}</div>
+            <div class="second" style="font-size:12px;margin-top:2px;">
+              1st: ${escHtml(a.roleAppliedFor)} · 2nd: ${escHtml(a.secondPreference || '—')}
+            </div>
+            ${notesHtml}
+          </div>
+          <div class="rank-score ${hasScore ? '' : 'no-score'}">${hasScore ? escHtml(String(score)) : '—'}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function normalize(s) { return String(s ?? '').trim().toLowerCase(); }
 </script>
 </body>
 </html>

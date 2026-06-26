@@ -48,6 +48,12 @@ const APPLICATION_TASK_HEADERS = [
 
 const HEADERS = [...APPLICATION_BASE_HEADERS, ...APPLICATION_TASK_HEADERS];
 
+const INTERVIEW_SCORE_HEADERS = [
+  "Interview Notes URL",
+  "First Preference Score",
+  "Second Preference Score"
+];
+
 const SLOT_HEADERS = [
   "Slot ID",
   "Date",
@@ -149,6 +155,18 @@ type AdminReschedulePayload = {
   date: string;      // YYYY-MM-DD
   startTime: string; // HH:MM 24h
   endTime?: string;  // HH:MM 24h, optional — defaults to +30 min
+};
+
+type AdminLoadApplicantsPayload = {
+  mode: "admin-load-applicants";
+};
+
+type AdminUpdateScorePayload = {
+  mode: "admin-update-score";
+  aucEmail: string;
+  notesUrl: string;
+  firstPreferenceScore: string;
+  secondPreferenceScore: string;
 };
 
 type ConfirmationEmailTemplate = {
@@ -301,6 +319,32 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminLoadApplicantsPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await loadAdminApplicants(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isAdminUpdateScorePayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await updateApplicantScore(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isTaskSubmissionPayload(payload)) {
       validateTaskSubmission(payload);
 
@@ -347,7 +391,7 @@ Deno.serve(async (request) => {
 
 async function parsePayload(
   request: Request
-): Promise<ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload | AdminLoadPayload | AdminReschedulePayload> {
+): Promise<ApplicationPayload | TaskSubmissionPayload | AdminResetPayload | AdminAddTestSlotPayload | AdminLoadPayload | AdminReschedulePayload | AdminLoadApplicantsPayload | AdminUpdateScorePayload> {
   const text = await request.text();
   if (!text.trim()) {
     throw new Error("Missing submission body.");
@@ -411,15 +455,21 @@ function isAdminLoadPayload(
 }
 
 function isAdminReschedulePayload(
-  payload:
-    | ApplicationPayload
-    | TaskSubmissionPayload
-    | AdminResetPayload
-    | AdminAddTestSlotPayload
-    | AdminLoadPayload
-    | AdminReschedulePayload
+  payload: unknown
 ): payload is AdminReschedulePayload {
   return (payload as AdminReschedulePayload).mode === "admin-reschedule";
+}
+
+function isAdminLoadApplicantsPayload(
+  payload: unknown
+): payload is AdminLoadApplicantsPayload {
+  return (payload as AdminLoadApplicantsPayload).mode === "admin-load-applicants";
+}
+
+function isAdminUpdateScorePayload(
+  payload: unknown
+): payload is AdminUpdateScorePayload {
+  return (payload as AdminUpdateScorePayload).mode === "admin-update-score";
 }
 
 function authorizeAdminReset(request: Request): void {
@@ -1362,6 +1412,75 @@ async function loadAdminDashboard(token: string): Promise<{
   const slots = await getInterviewSlots(token);
 
   return { reservations, slots };
+}
+
+async function ensureInterviewScoreHeaders(token: string, sheetName: string): Promise<void> {
+  const startCol = columnLetter(HEADERS.length + 1);
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}`);
+  const current = (await response.json()).values?.[0] ?? [];
+  const match = INTERVIEW_SCORE_HEADERS.every((h, i) => current[i] === h);
+  if (!match) {
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}?valueInputOption=RAW`, {
+      values: [INTERVIEW_SCORE_HEADERS]
+    });
+  }
+}
+
+async function loadAdminApplicants(token: string): Promise<{
+  applicants: Array<Record<string, string | number>>;
+}> {
+  const sheetName = await getSheetName(token);
+  await ensureInterviewScoreHeaders(token, sheetName);
+
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length;
+  const width = columnLetter(totalCols);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
+  const rows = (await response.json()).values ?? [];
+
+  const applicants = rows.map((row: string[], index: number) => ({
+    rowIndex: index + 2,
+    fullName: row[1] ?? "",
+    aucEmail: row[2] ?? "",
+    studentId: row[3] ?? "",
+    roleAppliedFor: row[7] ?? "",
+    secondPreference: row[17] ?? "",
+    interviewSlot: row[14] ?? "",
+    status: row[16] ?? "",
+    notesUrl: row[23] ?? "",
+    firstPreferenceScore: row[24] ?? "",
+    secondPreferenceScore: row[25] ?? ""
+  }));
+
+  return { applicants };
+}
+
+async function updateApplicantScore(
+  token: string,
+  payload: AdminUpdateScorePayload
+): Promise<{ updated: boolean }> {
+  const sheetName = await getSheetName(token);
+  await ensureInterviewScoreHeaders(token, sheetName);
+
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length;
+  const width = columnLetter(totalCols);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
+  const rows = (await response.json()).values ?? [];
+
+  const rowIndex = rows.findIndex((row: string[]) => normalize(row[2]) === normalize(payload.aucEmail));
+  if (rowIndex === -1) {
+    throw new Error(`Applicant not found: ${payload.aucEmail}`);
+  }
+
+  const sheetRow = rowIndex + 2;
+  const startCol = columnLetter(HEADERS.length + 1); // X
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length); // Z
+
+  await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}${sheetRow}:${endCol}${sheetRow}`)}?valueInputOption=RAW`, {
+    values: [[payload.notesUrl, payload.firstPreferenceScore, payload.secondPreferenceScore]]
+  });
+
+  return { updated: true };
 }
 
 async function rescheduleInterview(
