@@ -11,6 +11,7 @@ const GMAIL_SENDER_EMAIL = Deno.env.get("GMAIL_SENDER_EMAIL") ?? "";
 const GMAIL_SENDER_NAME = Deno.env.get("GMAIL_SENDER_NAME") ?? "Resala AUC";
 const EMAIL_LOGO_URL =
   Deno.env.get("EMAIL_LOGO_URL") ?? "https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png";
+const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const REMINDER_STALE_MINUTES = Number(Deno.env.get("REMINDER_STALE_MINUTES") ?? 90);
 const REMINDER_JOB_SECRET = Deno.env.get("REMINDER_JOB_SECRET") ?? "";
@@ -27,7 +28,9 @@ const RESERVATION_HEADERS = [
   "Interview Status",
   "Reminder Send At",
   "Reminder Sent At",
-  "Reminder Status"
+  "Reminder Status",
+  "Role Applied For",
+  "Second Preference"
 ];
 
 const corsHeaders = {
@@ -57,11 +60,37 @@ type ReservationRow = {
   reminderSendAt: string;
   reminderSentAt: string;
   reminderStatus: string;
+  roleAppliedFor: string;
+  secondPreference: string;
+};
+
+type TaskDocument = {
+  roleName: string;
+  title: string;
+  documentUrl: string;
+  pdfUrl: string;
+};
+
+type ApplicantTaskDocument = TaskDocument & {
+  preferenceLabel: string;
 };
 
 type PreviewEmailRequest = {
   mode?: string;
   to?: string;
+};
+
+const TASK_DOCUMENTS: Record<string, TaskDocument> = {
+  treasurer: taskDocument("Treasurer", "12cWr1oQfAuNmnLRUtR9ekHyE7uu716-VhAdcdYpffl4", "Final Task - Treasurer - Resala Board Recruitment"),
+  "tech director": taskDocument("Tech Director", "1jWXLeGeN4yIrq6q_Dutdm4Dqz3jtWgjIzpGHfuaXji0", "Final Task - Tech Director - Resala Board Recruitment"),
+  "branding media": taskDocument("Branding / Media", "1kflQQAValfaoEpOO1r-mEaPRVl3loUeYd3XofPQivwY", "Final Task - Branding Media - Resala Board Recruitment"),
+  "pr fundraising": taskDocument("PR / Fundraising", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
+  hr: taskDocument("HR", "1rYAnr0lhVyHW0GIwjHMOaMWxiGxZI3AOp6t5qY8imus", "Final Task - HR - Resala Board Recruitment"),
+  operations: taskDocument("Operations", "1tvyaQDhCHnb9E4HiiVmB6ZNXpTVpunsti9ECwxw8f30", "Final Task - Operations - Resala Board Recruitment"),
+  visits: taskDocument("Visits", "1ELC6nP7FQN33enuHbUamCvNYTlP8i3DNnA2NCuhPDF0", "Final Task - Visits - Resala Board Recruitment"),
+  "children day director": taskDocument("Children Day Director", "1-6nfB5GaSSgE7gL046oIOA9R7caiCmuf04hdHtnHYjM", "Resala Task Children Day"),
+  "mothers day director": taskDocument("Mothers Day Director", "1we0KfCWjMg4bX2gQaEmAa8fdAp26_iVvpSt0Xe4mz_c", "Resala Task Mothers Day"),
+  "initiatives director": taskDocument("Initiatives Director", "1tW2YFctINtnKQalTywtI8ZHWyI5AyuvTRf5OIHgcOgA", "Final Task - Initiatives Director - Resala Board Recruitment")
 };
 
 Deno.serve(async (request) => {
@@ -195,7 +224,7 @@ async function getSlotMap(token: string): Promise<Map<string, SlotRow>> {
 }
 
 async function getReservations(token: string): Promise<ReservationRow[]> {
-  const response = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:L")}`);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
   const rows = (await response.json()).values ?? [];
 
   return rows.map((row: string[], index: number) => ({
@@ -211,7 +240,9 @@ async function getReservations(token: string): Promise<ReservationRow[]> {
     interviewStatus: String(row[8] ?? "").trim(),
     reminderSendAt: String(row[9] ?? "").trim(),
     reminderSentAt: String(row[10] ?? "").trim(),
-    reminderStatus: String(row[11] ?? "").trim()
+    reminderStatus: String(row[11] ?? "").trim(),
+    roleAppliedFor: String(row[12] ?? "").trim(),
+    secondPreference: String(row[13] ?? "").trim()
   }));
 }
 
@@ -229,13 +260,28 @@ async function updateReminderState(
 
 async function sendReminderEmail(reservation: ReservationRow): Promise<void> {
   const slot = reservation.slotLabel || reservation.reminderSendAt;
-  const template = buildReminderEmailTemplate(reservation.fullName, slot, reservation.meetLink);
+  const taskDeadline = formatLocalDateTimeLabel(reservation.reminderSendAt);
+  const template = buildReminderEmailTemplate(
+    reservation.fullName,
+    slot,
+    reservation.meetLink,
+    reservation.roleAppliedFor,
+    reservation.secondPreference,
+    taskDeadline
+  );
   await sendEmail(reservation.aucEmail, template.subject, template.body, template.html);
 }
 
 async function sendPreviewEmails(to: string): Promise<void> {
   const confirmation = buildPreviewConfirmationEmailTemplate();
-  const reminder = buildReminderEmailTemplate("Youssef", "2026-06-22 at 7:30 PM", "https://meet.google.com/resala-preview");
+  const reminder = buildReminderEmailTemplate(
+    "Youssef",
+    "2026-06-22 at 7:30 PM",
+    "https://meet.google.com/resala-preview",
+    "Tech Director",
+    "HR",
+    "2026-06-22 at 7:00 PM"
+  );
 
   await sendEmail(to, confirmation.subject, confirmation.body, confirmation.html);
   await sendEmail(to, reminder.subject, reminder.body, reminder.html);
@@ -271,24 +317,28 @@ async function sendEmail(to: string, subject: string, text: string, html: string
 function buildPreviewConfirmationEmailTemplate(): { subject: string; body: string; html: string } {
   const fullName = "Youssef";
   const roleAppliedFor = "Tech Director";
+  const secondPreference = "HR";
   const slot = "2026-06-22 at 7:30 PM";
   const meetLink = "https://meet.google.com/resala-preview";
-  const prepLine = "Draft one small system idea that could make a club process easier, and how you would implement it.";
+  const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
+  const taskDeadline = "2026-06-22 at 7:00 PM";
+  const submissionLine = getTaskSubmissionLine();
   const subject = "Resala AUC: your Tech Director application was received";
   const body = [
     `Hi ${fullName},`,
     "",
-    `Thanks for applying to Resala AUC for ${roleAppliedFor}.`,
+    `Thanks for applying to Resala AUC. Your first preference is ${roleAppliedFor}, and your second preference is ${secondPreference}.`,
     "",
     `Your interview slot is: ${slot}.`,
     `Google Meet link: ${meetLink}`,
     "You will also receive a Google Calendar reminder 30 minutes before the interview.",
     "",
-    "Please prepare one simple idea for the role:",
+    "Please complete two pre-interview tasks, one for each preference:",
     "",
-    `- ${prepLine}`,
+    ...formatTaskDocumentTextLines(tasks),
     "",
-    "Keep it simple. We are not looking for a polished pitch.",
+    `Task deadline: ${taskDeadline}.`,
+    submissionLine,
     "If anything feels unclear, just reply to this email and we will help.",
     "",
     "Best,",
@@ -301,11 +351,11 @@ function buildPreviewConfirmationEmailTemplate(): { subject: string; body: strin
     heroSubtitle: "Thanks for applying. Here is everything you need before the interview.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong> for <strong>${escapeHtml(roleAppliedFor)}</strong>. We received your application and reserved your interview slot.</p>
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. We received your application and reserved your interview slot.</p>
       ${infoCard("Your interview slot", escapeHtml(slot))}
       ${linkCard("Google Meet", "Join the interview meeting", meetLink, "You will also receive a Google Calendar reminder 30 minutes before the interview.")}
-      ${darkCallout("Before the interview", escapeHtml(prepLine))}
-      <p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#4b5563;">Keep it simple. We are not looking for a polished pitch.</p>
+      ${buildTaskDocumentsHtml(tasks)}
+      ${darkCallout("Task deadline", `Submit both tasks by ${escapeHtml(taskDeadline)}.<br>${escapeHtml(submissionLine)}`)}
       <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything feels unclear, just reply to this email and we will help.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
@@ -315,7 +365,16 @@ function buildPreviewConfirmationEmailTemplate(): { subject: string; body: strin
   return { subject, body, html };
 }
 
-function buildReminderEmailTemplate(fullName: string, slot: string, meetLink: string): { subject: string; body: string; html: string } {
+function buildReminderEmailTemplate(
+  fullName: string,
+  slot: string,
+  meetLink: string,
+  roleAppliedFor: string,
+  secondPreference: string,
+  taskDeadline: string
+): { subject: string; body: string; html: string } {
+  const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
+  const submissionLine = getTaskSubmissionLine();
   const subject = "Resala AUC: your interview starts in 30 minutes";
   const body = [
     `Hi ${fullName},`,
@@ -325,7 +384,14 @@ function buildReminderEmailTemplate(fullName: string, slot: string, meetLink: st
     `Interview slot: ${slot}`,
     `Google Meet link: ${meetLink}`,
     "",
-    "Please keep your simple role idea ready and join from a quiet place if possible.",
+    "If you have not submitted your two pre-interview tasks yet, submit them now:",
+    "",
+    ...formatTaskDocumentTextLines(tasks),
+    "",
+    `Task deadline: ${taskDeadline || "30 minutes before your interview"}.`,
+    submissionLine,
+    "",
+    "Please join from a quiet place if possible.",
     "If anything comes up, reply to this email.",
     "",
     "Best,",
@@ -335,13 +401,14 @@ function buildReminderEmailTemplate(fullName: string, slot: string, meetLink: st
   const html = buildCenteredEmailHtml({
     preheader: "Your Resala AUC interview starts in 30 minutes.",
     heroTitle: "Your Interview Starts Soon",
-    heroSubtitle: "Join from a quiet place and keep your simple role idea ready.",
+    heroSubtitle: "Join from a quiet place and submit your tasks if you have not yet.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview starts in <strong>30 minutes</strong>.</p>
       ${infoCard("Interview slot", escapeHtml(slot))}
       ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible.")}
-      <p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#4b5563;">Please keep your simple role idea ready.</p>
+      ${buildTaskDocumentsHtml(tasks)}
+      ${darkCallout("Task deadline", `If you have not submitted both tasks yet, submit them now. Deadline: ${escapeHtml(taskDeadline || "30 minutes before your interview")}.<br>${escapeHtml(submissionLine)}`)}
       <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything comes up, reply to this email.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
@@ -429,6 +496,93 @@ function darkCallout(label: string, value: string): string {
       </td>
     </tr>
   </table>`;
+}
+
+function taskDocument(roleName: string, documentId: string, title: string): TaskDocument {
+  return {
+    roleName,
+    title,
+    documentUrl: `https://docs.google.com/document/d/${documentId}/edit?usp=sharing`,
+    pdfUrl: `https://docs.google.com/document/d/${documentId}/export?format=pdf`
+  };
+}
+
+function getApplicantTaskDocuments(firstPreference: string, secondPreference: string): ApplicantTaskDocument[] {
+  const preferences = [
+    { preferenceLabel: "First preference", roleName: firstPreference },
+    { preferenceLabel: "Second preference", roleName: secondPreference }
+  ].filter((preference) => preference.roleName);
+
+  return preferences.map(({ preferenceLabel, roleName }) => {
+    const task = TASK_DOCUMENTS[normalizeRole(roleName)] ?? {
+      roleName,
+      title: `${roleName} pre-interview task`,
+      documentUrl: "",
+      pdfUrl: ""
+    };
+
+    return {
+      ...task,
+      roleName: task.roleName || roleName,
+      preferenceLabel
+    };
+  });
+}
+
+function formatTaskDocumentTextLines(tasks: ApplicantTaskDocument[]): string[] {
+  if (!tasks.length) {
+    return ["- Your task links are in your confirmation email."];
+  }
+
+  return tasks.flatMap((task) => [
+    `- ${task.preferenceLabel}: ${task.roleName}`,
+    `  Google Doc: ${task.documentUrl || "Task document link is in your confirmation email."}`,
+    `  PDF: ${task.pdfUrl || "Task PDF link is in your confirmation email."}`
+  ]);
+}
+
+function buildTaskDocumentsHtml(tasks: ApplicantTaskDocument[]): string {
+  if (!tasks.length) {
+    return `<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#4b5563;">Your task links are in your confirmation email.</p>`;
+  }
+
+  const rows = tasks
+    .map((task) => {
+      const docLink = task.documentUrl
+        ? `<a href="${escapeHtml(task.documentUrl)}" style="color:#0d2b45;font-size:15px;font-weight:bold;text-decoration:underline;">Open Google Doc</a>`
+        : `<span style="color:#64748b;font-size:15px;">Google Doc link is in your confirmation email.</span>`;
+      const pdfLink = task.pdfUrl
+        ? `<a href="${escapeHtml(task.pdfUrl)}" style="color:#0d2b45;font-size:15px;font-weight:bold;text-decoration:underline;margin-left:12px;">Download PDF</a>`
+        : `<span style="color:#64748b;font-size:15px;margin-left:12px;">PDF link is in your confirmation email.</span>`;
+
+      return `<tr>
+        <td style="padding:14px 0;border-top:1px solid #e6edf2;">
+          <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;font-weight:bold;margin-bottom:5px;">${escapeHtml(task.preferenceLabel)}</div>
+          <div style="font-size:17px;line-height:1.35;color:#172033;font-weight:bold;margin-bottom:8px;">${escapeHtml(task.roleName)}</div>
+          <div>${docLink}${pdfLink}</div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:0 16px;margin:0 0 20px;">
+    <tr>
+      <td style="padding:16px 0 2px;">
+        <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Pre-interview tasks</div>
+        <div style="font-size:15px;line-height:1.55;color:#4b5563;">Complete both tasks: one for your first preference and one for your second preference.</div>
+      </td>
+    </tr>
+    ${rows}
+  </table>`;
+}
+
+function getTaskSubmissionLine(): string {
+  const submissionUrl = TASK_SUBMISSION_URL.trim();
+  if (submissionUrl) {
+    return `Submit both completed tasks here: ${submissionUrl}`;
+  }
+
+  return "Submit both completed tasks by replying to this email with your files or links.";
 }
 
 function gmailConfigured(): boolean {
@@ -647,6 +801,14 @@ function normalize(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeRole(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("/", " ")
+    .replace(/\s+/g, " ");
+}
+
 function buildSlotLabel(date: string, startTime: string): string {
   if (!date || !startTime) return startTime || date || "";
   return `${date} at ${startTime}`;
@@ -719,6 +881,18 @@ function addMinutesToLocalDateTime(value: string, minutesToAdd: number): string 
   ].join(":");
 
   return `${datePart}T${timePart}`;
+}
+
+function formatLocalDateTimeLabel(value: string): string {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+  if (!match) return "";
+
+  const [, year, month, day, hour, minute] = match;
+  const numericHour = Number(hour);
+  const displayHour = numericHour % 12 || 12;
+  const meridiem = numericHour >= 12 ? "PM" : "AM";
+
+  return `${year}-${month}-${day} at ${displayHour}:${minute} ${meridiem}`;
 }
 
 function getCurrentLocalDateTime(timeZone: string): string {

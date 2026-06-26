@@ -396,6 +396,7 @@ function ComingSoonCTA() {
           <p>Choose the role you want to apply for, answer the application questions clearly, and select the interview slot that works best for you.</p>
           <div class="application-actions" aria-label="Application actions">
             <a class="button button-primary" href="./apply/">Open application form</a>
+            <a class="button button-secondary" href="./tasks/">Submit task links</a>
             <a class="button button-secondary" href="#roles">Review roles first</a>
           </div>
         </div>

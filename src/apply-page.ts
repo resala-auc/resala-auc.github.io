@@ -140,7 +140,10 @@ export function SuccessState(): string {
       </div>
       <p class="success-processing" data-success-processing>Your confirmation email and calendar invite are being prepared in the background.</p>
       <p>We'll contact you by email with your confirmation and what you should prepare for the interview.</p>
-      <a class="button button-secondary" href="../">Back to recruitment page</a>
+      <div class="success-actions">
+        <a class="button button-primary" href="../tasks/">Submit task links</a>
+        <a class="button button-secondary" href="../">Back to recruitment page</a>
+      </div>
     </section>
   `;
 }
@@ -234,7 +237,10 @@ export function ApplyPage(): string {
               <img src="${logoPath}" alt="Resala AUC logo" width="420" height="236">
             </span>
           </a>
-          <a class="button button-secondary apply-back-link" href="../">Back to landing page</a>
+          <div class="task-topbar-actions">
+            <a class="button button-secondary apply-back-link" href="../tasks/">Submit tasks</a>
+            <a class="button button-secondary apply-back-link" href="../">Back to landing page</a>
+          </div>
         </header>
         <div class="container apply-hero-grid">
           <div class="apply-hero-copy">

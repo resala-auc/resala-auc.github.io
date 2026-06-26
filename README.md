@@ -27,10 +27,11 @@ Required Supabase secrets:
 - `GMAIL_SENDER_EMAIL`
 - `GMAIL_SENDER_NAME` is optional
 - `EMAIL_LOGO_URL` is optional and defaults to the public Supabase Storage Resala logo at `https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png`
+- `TASK_SUBMISSION_URL` is optional but recommended. Set it to the deployed `/tasks/` page URL so confirmation and reminder emails send applicants to the task submission form. If unset, emails ask applicants to reply with their files or links.
 - `CALENDAR_ID` is optional if it is the same as `GMAIL_SENDER_EMAIL`
 - `CALENDAR_TIME_ZONE` is optional and defaults to `Africa/Cairo`
 
-`GOOGLE_SERVICE_ACCOUNT_KEY` can be the full Google service account JSON or its base64-encoded JSON. The Google Sheet must be shared with that service account's `client_email`.
+`GOOGLE_SERVICE_ACCOUNT_KEY` can be the full Google service account JSON or its base64-encoded JSON. The Google Sheet must be shared with that service account's `client_email`. To attach task PDFs when the Google Docs are not public, also share the task documents with the same service account.
 
 For Gmail confirmation emails and applicant Calendar invites, the function uses OAuth refresh-token flow with the Gmail sender account. The refresh token must include both scopes:
 
@@ -70,9 +71,17 @@ Calendar setup:
 Reminder emails:
 
 - Each reservation stores `Reminder Send At`, `Reminder Sent At`, and `Reminder Status` in `Interview Reservations`.
+- New reservations also store `Role Applied For` and `Second Preference` in `Interview Reservations` so reminder emails can repeat both task links.
 - Deploy `send-interview-reminders` with `--no-verify-jwt` and schedule it to run every few minutes from Supabase.
 - The reminder function sends from the configured Gmail account when `Reminder Send At` is due, skips rows marked `Done`, and avoids stale reminders older than `REMINDER_STALE_MINUTES` minutes.
 - The scheduler authenticates with `REMINDER_JOB_SECRET` in the `x-reminder-secret` header.
+
+Task submissions:
+
+- The static site builds a task submission page at `/tasks/`.
+- Applicants submit with the same AUC email and Student ID used in the application.
+- The submit function matches both values against the Applications sheet and updates the same row.
+- Applications sheet task columns are `Task Submitted At`, `First Preference Task Link`, `Second Preference Task Link`, `Task Notes`, and `Task Submission Status`.
 
 Schedule the reminder worker from the Supabase SQL editor:
 
@@ -104,6 +113,7 @@ Deploy:
 ```bash
 supabase secrets set --project-ref upnmxdgqdkvgzfwqaicb SHEET_ID='1AIoEVXGc6I_SZcvndvum4GadrbF_HIpyGHqL5BJW2C8'
 supabase secrets set --project-ref upnmxdgqdkvgzfwqaicb GOOGLE_SERVICE_ACCOUNT_KEY='<service-account-json-or-base64>'
+supabase secrets set --project-ref upnmxdgqdkvgzfwqaicb TASK_SUBMISSION_URL='https://YOUR_SITE_URL/tasks/'
 supabase functions deploy submit --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api
 supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api
 ```
@@ -118,7 +128,9 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 - Interview slots are live and reserved through the sheet-backed booking list.
 - Past interview slots are automatically hidden based on their start time in the configured calendar timezone.
 - Each reservation creates a Google Calendar event from the Gmail sender account, invites the applicant as an attendee, generates a Google Meet link, stores the link in `Interview Reservations`, and sends it in the confirmation email.
-- A separate scheduled Supabase function sends a direct Gmail reminder 30 minutes before the interview and marks the reminder as `Sent`.
+- Confirmation emails include two task documents, one for each role preference, with Google Doc/PDF links and PDF attachments when Drive export is available.
+- A separate scheduled Supabase function sends a direct Gmail reminder 30 minutes before the interview, reminds applicants to submit both tasks if they have not submitted yet, and marks the reminder as `Sent`.
+- The `/tasks/` page lets applicants submit task links and maps them back to their application row.
 - `Interview Reservations` includes an `Interview Status` column seeded as `Not Done`; update it to `Done` after the interview.
 - The Edge Function is deployed with JWT verification disabled so GitHub Pages can post to it directly.
 

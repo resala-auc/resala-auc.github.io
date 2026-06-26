@@ -3,7 +3,8 @@ export const navItems = [
   { label: "01 Impact", href: "#impact" },
   { label: "02 Roles", href: "#roles" },
   { label: "03 Process", href: "#process" },
-  { label: "04 FAQ", href: "#faq" }
+  { label: "04 FAQ", href: "#faq" },
+  { label: "05 Submit Tasks", href: "./tasks/" }
 ];
 
 export const impactStats = [

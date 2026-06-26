@@ -39,6 +39,16 @@ export type ApplicationPayload = {
   createdAt: string;
 };
 
+export type TaskSubmissionPayload = {
+  mode: "task-submission";
+  aucEmail: string;
+  studentId: string;
+  firstPreferenceTaskLink: string;
+  secondPreferenceTaskLink: string;
+  taskNotes: string;
+  submittedAt: string;
+};
+
 export type ConfirmationEmailTemplate = {
   subject: string;
   body: string;
@@ -226,6 +236,36 @@ export async function submitApplication(data: ApplicationPayload): Promise<{ ok:
 
   if (!response.ok || responseBody?.ok === false) {
     throw new Error(responseBody?.error || "Application database rejected the submission.");
+  }
+
+  return { ok: true };
+}
+
+export async function submitTasks(data: TaskSubmissionPayload): Promise<{ ok: true }> {
+  if (!APPLICATION_ENDPOINT) {
+    throw new Error("Application database is not configured yet. Add the spreadsheet endpoint in spreadsheet-config.js.");
+  }
+
+  const response = await fetch(APPLICATION_ENDPOINT, {
+    method: "POST",
+    mode: APPLICATION_ENDPOINT_MODE,
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8"
+    },
+    body: JSON.stringify({
+      ...data
+    })
+  });
+
+  if (response.type === "opaque") {
+    return { ok: true };
+  }
+
+  const responseText = await response.text();
+  const responseBody = responseText ? JSON.parse(responseText) : null;
+
+  if (!response.ok || responseBody?.ok === false) {
+    throw new Error(responseBody?.error || "Application database rejected the task submission.");
   }
 
   return { ok: true };
