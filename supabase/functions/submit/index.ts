@@ -1406,6 +1406,8 @@ async function loadAdminDashboard(token: string): Promise<{
   const reservations = reservationRows.map((row: string[], index: number) => {
     const aucEmail = String(row[4] ?? "").trim();
     const app = appByEmail.get(normalize(aucEmail)) ?? [];
+    const roleAppliedFor = String(row[12] ?? "").trim() || String(app[7] ?? "").trim();
+    const secondPreference = String(row[13] ?? "").trim() || String(app[17] ?? "").trim();
     return {
       rowIndex: index + 2,
       timestamp: row[0] ?? "",
@@ -1420,8 +1422,8 @@ async function loadAdminDashboard(token: string): Promise<{
       reminderSendAt: row[9] ?? "",
       reminderSentAt: row[10] ?? "",
       reminderStatus: row[11] ?? "",
-      roleAppliedFor: row[12] ?? "",
-      secondPreference: row[13] ?? "",
+      roleAppliedFor,
+      secondPreference,
       major: app[4] ?? "",
       yearLevel: app[5] ?? "",
       phone: app[6] ?? "",
