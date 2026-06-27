@@ -1209,7 +1209,7 @@ async function getSpreadsheetSheetTitles(token: string): Promise<Set<string>> {
   return resolvedSheetTitles;
 }
 
-async function ensureSlotSheets(token: string, normalizeDurations = true): Promise<void> {
+async function ensureSlotSheets(token: string): Promise<void> {
   await ensureSheetTab(token, SLOT_SHEET_NAME);
   await ensureSheetTab(token, RESERVATION_SHEET_NAME);
   await ensureSheetSeed(
@@ -1218,16 +1218,13 @@ async function ensureSlotSheets(token: string, normalizeDurations = true): Promi
     SLOT_HEADERS,
     buildRecruitmentSlotRows()
   );
-  if (normalizeDurations) {
-    await normalizeSlotDurations(token);
-  }
   await ensureSheetHeaders(token, RESERVATION_SHEET_NAME, RESERVATION_HEADERS);
 }
 
 async function normalizeSlotDurations(token: string): Promise<number> {
   const response = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
   const rows = (await response.json()).values ?? [];
-  let updated = 0;
+  const updates: Array<{ range: string; values: string[][] }> = [];
 
   for (const [index, row] of rows.entries()) {
     const startTime = String(row[2] ?? "").trim();
@@ -1239,13 +1236,14 @@ async function normalizeSlotDurations(token: string): Promise<number> {
     }
 
     const rowIndex = index + 2;
-    await sheetsFetch(token, "PUT", `${sheetRange(SLOT_SHEET_NAME, `D${rowIndex}`)}?valueInputOption=RAW`, {
+    updates.push({
+      range: sheetA1Range(SLOT_SHEET_NAME, `D${rowIndex}`),
       values: [[expectedEndTime]]
     });
-    updated += 1;
   }
 
-  return updated;
+  await sheetsBatchUpdateValues(token, updates);
+  return updates.length;
 }
 
 async function ensureSheetTab(token: string, tabName: string): Promise<void> {
@@ -1542,7 +1540,7 @@ async function extendReservedInterviewDurations(token: string): Promise<{
     throw new Error("Google Calendar event updates are not configured.");
   }
 
-  await ensureSlotSheets(token, false);
+  await ensureSlotSheets(token);
   const normalizedSlots = await normalizeSlotDurations(token);
 
   const [slotResponse, reservationResponse] = await Promise.all([
@@ -1884,7 +1882,7 @@ async function resolveRescheduleSlot(
   const row = match.row;
   const id = String(row[0] ?? "").trim();
   const startTime = String(row[2] ?? "").trim();
-  const endTime = String(row[3] ?? "").trim() || addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES);
+  const endTime = addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES) || String(row[3] ?? "").trim();
   const label = String(row[4] ?? "").trim() || buildSlotLabel(date, startTime);
   const capacity = Number(row[5] ?? 1) || 1;
   const active = String(row[6] ?? "TRUE").toLowerCase() !== "false";
@@ -2217,7 +2215,7 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
       const id = String(row[0] ?? "").trim();
       const date = String(row[1] ?? "").trim();
       const startTime = String(row[2] ?? "").trim();
-      const endTime = String(row[3] ?? "").trim() || addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES);
+      const endTime = addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES) || String(row[3] ?? "").trim();
       const label = String(row[4] ?? "").trim() || buildSlotLabel(date, startTime);
       const capacity = Number(row[5] ?? 1) || 1;
       const active = String(row[6] ?? "TRUE").toLowerCase() !== "false";
@@ -2406,6 +2404,30 @@ async function sheetsFetch(token: string, method: string, path: string, body?: u
   return response;
 }
 
+async function sheetsBatchUpdateValues(
+  token: string,
+  data: Array<{ range: string; values: string[][] }>
+): Promise<void> {
+  if (!data.length) return;
+
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values:batchUpdate`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      valueInputOption: "RAW",
+      data
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets batch values update failed: ${errorText}`);
+  }
+}
+
 async function getGoogleAccessToken(): Promise<string> {
   const credentials = getGoogleCredentials();
   const now = Math.floor(Date.now() / 1000);
@@ -2531,6 +2553,10 @@ function decodeMaybeBase64(value: string): string {
 
 function sheetRange(sheetName: string, range: string): string {
   return `${encodeURIComponent(sheetName)}!${range}`;
+}
+
+function sheetA1Range(sheetName: string, range: string): string {
+  return `'${sheetName.replaceAll("'", "''")}'!${range}`;
 }
 
 function normalize(value: unknown): string {
