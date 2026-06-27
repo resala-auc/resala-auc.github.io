@@ -87,12 +87,10 @@ const RECRUITMENT_START_DATE = "2026-06-22";
 const RECRUITMENT_END_DATE = "2026-07-15";
 const DAILY_SLOT_TIMES = [
   { code: "1500", startTime: "3:00 PM" },
-  { code: "1530", startTime: "3:30 PM" },
   { code: "1900", startTime: "7:00 PM" },
-  { code: "1930", startTime: "7:30 PM" },
-  { code: "2000", startTime: "8:00 PM" },
-  { code: "2030", startTime: "8:30 PM" }
+  { code: "2000", startTime: "8:00 PM" }
 ];
+const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1885,7 +1883,7 @@ async function resolveRescheduleSlot(
   const endTime = addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES) || String(row[3] ?? "").trim();
   const label = String(row[4] ?? "").trim() || buildSlotLabel(date, startTime);
   const capacity = Number(row[5] ?? 1) || 1;
-  const active = String(row[6] ?? "TRUE").toLowerCase() !== "false";
+  const active = String(row[6] ?? "TRUE").toLowerCase() !== "false" && !isRemovedOverlappingDefaultSlot(id);
   const reservedCount = reservationRows.reduce((count: number, reservationRow: string[], index: number) => {
     const sheetRow = index + 2;
     if (sheetRow === currentReservationRowIndex) return count;
@@ -2218,7 +2216,7 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
       const endTime = addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES) || String(row[3] ?? "").trim();
       const label = String(row[4] ?? "").trim() || buildSlotLabel(date, startTime);
       const capacity = Number(row[5] ?? 1) || 1;
-      const active = String(row[6] ?? "TRUE").toLowerCase() !== "false";
+      const active = String(row[6] ?? "TRUE").toLowerCase() !== "false" && !isRemovedOverlappingDefaultSlot(id);
       const calendarEventId = String(row[7] ?? "").trim();
       const meetLink = String(row[8] ?? "").trim();
       const reservedCount = reservedCounts.get(normalize(id)) ?? 0;
@@ -2561,6 +2559,11 @@ function sheetA1Range(sheetName: string, range: string): string {
 
 function normalize(value: unknown): string {
   return String(value ?? "").trim().toLowerCase();
+}
+
+function isRemovedOverlappingDefaultSlot(slotId: string): boolean {
+  const match = String(slotId ?? "").trim().match(/^slot-\d{4}-\d{2}-\d{2}-(\d{4})$/);
+  return Boolean(match && REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES.has(match[1]));
 }
 
 function getTaskSubmissionState(row: string[]): Record<string, string> {
