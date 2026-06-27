@@ -66,6 +66,7 @@ export function RoleSelector(): string {
           <span class="role-option-step">${role.stepTitle}</span>
           <strong>${role.name}</strong>
           <span>${role.description}</span>
+          <button class="role-details-button" type="button" data-role-details="${role.id}">View details</button>
         </label>
       `
     )
@@ -106,7 +107,20 @@ export function RoleDescriptionCard(): string {
       <span class="role-description-kicker">Selected role</span>
       <h3 data-role-description-title>Choose a role to see its step.</h3>
       <p data-role-description-copy>Your selected role description will appear here to help you answer the application questions with focus.</p>
+      <button class="button button-secondary role-description-action" type="button" data-selected-role-details hidden>View full details</button>
     </aside>
+  `;
+}
+
+export function RoleDetailsDialog(): string {
+  return `
+    <div class="role-details-dialog" data-role-details-dialog hidden>
+      <div class="role-details-backdrop" data-role-details-close></div>
+      <section class="role-details-panel" role="dialog" aria-modal="true" aria-labelledby="role-details-title" tabindex="-1">
+        <button class="role-details-close" type="button" aria-label="Close role details" data-role-details-close>&times;</button>
+        <div data-role-details-content></div>
+      </section>
+    </div>
   `;
 }
 
@@ -268,6 +282,7 @@ export function ApplyPage(): string {
           </div>
         </div>
       </section>
+      ${RoleDetailsDialog()}
     </main>
   `;
 }

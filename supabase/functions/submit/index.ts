@@ -13,6 +13,7 @@ const GMAIL_SENDER_NAME = Deno.env.get("GMAIL_SENDER_NAME") ?? "Resala AUC";
 const EMAIL_LOGO_URL =
   Deno.env.get("EMAIL_LOGO_URL") ?? "https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png";
 const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
+const ROLE_GUIDE_BASE_URL = (Deno.env.get("ROLE_GUIDE_BASE_URL") ?? "https://resala-auc.github.io/guides").replace(/\/+$/, "");
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
@@ -210,6 +211,12 @@ type ApplicantTaskDocument = TaskDocument & {
   preferenceLabel: string;
 };
 
+type RoleGuideLink = {
+  preferenceLabel: string;
+  roleName: string;
+  url: string;
+};
+
 type EmailAttachment = {
   filename: string;
   contentType: string;
@@ -256,6 +263,21 @@ const TASK_DOCUMENTS: Record<string, TaskDocument> = {
   "children day director": taskDocument("Children Day Director", "1-6nfB5GaSSgE7gL046oIOA9R7caiCmuf04hdHtnHYjM", "Resala Task Children Day"),
   "mothers day director": taskDocument("Mothers Day Director", "1we0KfCWjMg4bX2gQaEmAa8fdAp26_iVvpSt0Xe4mz_c", "Resala Task Mothers Day"),
   "initiatives director": taskDocument("Initiatives Director", "1tW2YFctINtnKQalTywtI8ZHWyI5AyuvTRf5OIHgcOgA", "Final Task - Initiatives Director - Resala Board Recruitment")
+};
+
+const ROLE_GUIDE_SLUGS: Record<string, string> = {
+  treasurer: "treasurer",
+  "tech director": "tech-director",
+  operations: "operations",
+  "branding media": "branding-media",
+  hr: "hr",
+  "pr fundraising": "pr-fundraising",
+  pr: "pr-fundraising",
+  fundraising: "pr-fundraising",
+  visits: "visits",
+  "children day director": "children-day-director",
+  "mothers day director": "mothers-day-director",
+  "initiatives director": "initiatives-director"
 };
 
 Deno.serve(async (request) => {
@@ -672,7 +694,8 @@ async function sendConfirmationEmail(payload: ApplicationPayload, reservation: R
   }
 
   const tasks = getApplicantTaskDocuments(payload.roleAppliedFor, payload.secondPreference);
-  const template = buildConfirmationEmailTemplate(payload, reservation, tasks);
+  const roleGuideLinks = getApplicantRoleGuideLinks(payload.roleAppliedFor, payload.secondPreference);
+  const template = buildConfirmationEmailTemplate(payload, reservation, tasks, roleGuideLinks);
   const attachments = await getTaskPdfAttachments(tasks);
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
@@ -718,7 +741,8 @@ function gmailConfigured(): boolean {
 function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
   reservation: ReservationDetails,
-  tasks: ApplicantTaskDocument[]
+  tasks: ApplicantTaskDocument[],
+  roleGuideLinks: RoleGuideLink[]
 ): ConfirmationEmailTemplate {
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
   const taskDeadline = formatLocalDateTimeLabel(
@@ -738,6 +762,10 @@ function buildConfirmationEmailTemplate(
     "Please complete two pre-interview tasks, one for each preference:",
     "",
     ...formatTaskDocumentTextLines(tasks),
+    "",
+    "Role guide:",
+    `${ROLE_GUIDE_BASE_URL}/`,
+    ...formatRoleGuideTextLines(roleGuideLinks),
     "",
     `Task deadline: ${taskDeadline || "30 minutes before your interview"}.`,
     submissionLine,
@@ -759,7 +787,8 @@ function buildConfirmationEmailTemplate(
       slot,
       taskDeadline,
       meetLink: reservation.meetLink,
-      tasks
+      tasks,
+      roleGuideLinks
     })
   };
 }
@@ -771,7 +800,8 @@ function buildConfirmationEmailHtml({
   slot,
   taskDeadline,
   meetLink,
-  tasks
+  tasks,
+  roleGuideLinks
 }: {
   fullName: string;
   roleAppliedFor: string;
@@ -780,6 +810,7 @@ function buildConfirmationEmailHtml({
   taskDeadline: string;
   meetLink: string;
   tasks: ApplicantTaskDocument[];
+  roleGuideLinks: RoleGuideLink[];
 }): string {
   return `<!doctype html>
 <html>
@@ -820,6 +851,7 @@ function buildConfirmationEmailHtml({
                   </tr>
                 </table>
                 ${buildTaskDocumentsHtml(tasks)}
+                ${buildRoleGuideHtml(roleGuideLinks)}
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
@@ -848,60 +880,52 @@ function buildConfirmationEmailHtml({
 </html>`;
 }
 
-function getRolePrepLines(roleName: string): string[] {
-  const role = normalizeRole(roleName);
+function getApplicantRoleGuideLinks(firstPreference: string, secondPreference: string): RoleGuideLink[] {
+  return [
+    { preferenceLabel: "First preference", roleName: firstPreference },
+    { preferenceLabel: "Second preference", roleName: secondPreference }
+  ].map(({ preferenceLabel, roleName }) => ({
+    preferenceLabel,
+    roleName,
+    url: getRoleGuideUrl(roleName)
+  }));
+}
 
-  switch (role) {
-    case "treasurer":
-      return [
-        "- A simple way you would keep track of bills, reimbursements, and communication with the team."
-      ];
-    case "tech director":
-      return [
-        "- One small system idea that could make a club process easier, and how you would implement it."
-      ];
-    case "branding media":
-      return [
-        "- A short plan for reaching 5k followers through consistent content."
-      ];
-    case "pr fundraising":
-    case "pr":
-      return [
-        "- A short outreach plan for a partner or collaborator Resala should approach."
-      ];
-    case "fundraising":
-      return [
-        "- A fundraising campaign plan and which sponsor types would fit it if sponsorship is needed."
-      ];
-    case "hr":
-      return [
-        "- A simple plan for keeping people engaged through events, retreats, or check-ins."
-      ];
-    case "operations":
-      return [
-        "- A simple plan for managing logistics, setup, and tracking during an event."
-      ];
-    case "visits":
-      return [
-        "- A proposal for a one-day program that can be implemented in different orphanages or Dar Mosneen."
-      ];
-    case "children day director":
-      return [
-        "- A proposal for the outcome underprivileged children need based on what you know about them."
-      ];
-    case "mothers day director":
-      return [
-        "- A plan for keeping mothers aware of what children learn and helping them believe children can change."
-      ];
-    case "initiatives director":
-      return [
-        "- An initiative that supports visually impaired people across campus and makes daily life easier."
-      ];
-    default:
-      return [
-        "- One practical idea for how you would help the team move the work forward."
-      ];
-  }
+function getRoleGuideUrl(roleName: string): string {
+  const slug = ROLE_GUIDE_SLUGS[normalizeRole(roleName)];
+  return slug ? `${ROLE_GUIDE_BASE_URL}/${slug}/` : `${ROLE_GUIDE_BASE_URL}/`;
+}
+
+function formatRoleGuideTextLines(roleGuideLinks: RoleGuideLink[]): string[] {
+  return roleGuideLinks.flatMap((link) => [
+    `- ${link.preferenceLabel} role details: ${link.roleName}`,
+    `  ${link.url}`
+  ]);
+}
+
+function buildRoleGuideHtml(roleGuideLinks: RoleGuideLink[]): string {
+  const roleRows = roleGuideLinks
+    .map(
+      (link) => `<tr>
+        <td style="padding:12px 0;border-top:1px solid rgba(245,196,107,.35);">
+          <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:.8px;font-weight:bold;margin-bottom:5px;">${escapeHtml(link.preferenceLabel)}</div>
+          <div style="font-size:16px;line-height:1.35;color:#ffffff;font-weight:bold;margin-bottom:9px;">${escapeHtml(link.roleName)}</div>
+          <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#ffffff;color:#0d2b45;font-size:13px;font-weight:bold;text-decoration:none;border-radius:10px;padding:9px 13px;">View role details</a>
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#0d2b45;border-radius:14px;padding:0 16px;margin:0 0 20px;">
+    <tr>
+      <td style="padding:16px 0 4px;">
+        <div style="font-size:13px;color:#f5c46b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Role guide</div>
+        <div style="font-size:15px;line-height:1.55;color:#dbe7ef;margin-bottom:12px;">Review the full guide, then revisit the details for both preferences before your interview.</div>
+        <a href="${escapeHtml(`${ROLE_GUIDE_BASE_URL}/`)}" style="display:inline-block;background:#f5c46b;color:#0d2b45;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">How to choose your role</a>
+      </td>
+    </tr>
+    ${roleRows}
+  </table>`;
 }
 
 function taskDocument(roleName: string, documentId: string, title: string): TaskDocument {

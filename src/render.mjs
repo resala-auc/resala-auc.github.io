@@ -68,14 +68,8 @@ const navLinks = navItems
   .map((item) => `<a class="nav-link" href="${item.href}">${item.label}</a>`)
   .join("");
 
-function roleApplyHref(roleName) {
-  const roleId = roleName
-    .toLowerCase()
-    .replaceAll("/", "-")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return `./apply/?role=${roleId}`;
+function roleApplyHref(role) {
+  return `./apply/?role=${role.id}`;
 }
 
 function PhotoFrame({ photo, className, fallbackLabel }) {
@@ -175,7 +169,7 @@ function Hero() {
           <p class="hero-subtitle hero-copy-line">AUC students serving children, families, and community access through visits, logistics, fundraising, media, HR, tech, events, and operations.</p>
           <div class="hero-actions hero-actions-line" aria-label="Campaign actions">
             <a class="button button-primary" href="./apply/">Start Application</a>
-            <a class="button button-secondary" href="#roles">Explore Roles</a>
+          <a class="button button-secondary" href="./guides/">How to choose your role</a>
           </div>
         </div>
       </div>
@@ -330,7 +324,8 @@ function RolePreviewCards() {
           </dl>
         </div>
           <p class="role-step">${role.step}</p>
-          <a class="role-apply-link" href="${roleApplyHref(role.name)}" aria-label="Apply for ${role.name}">Apply</a>
+          <a class="role-apply-link" href="${roleApplyHref(role)}" aria-label="Apply for ${role.name}">Apply</a>
+          <a class="role-guide-link" href="./guides/${role.id}/" aria-label="View details for ${role.name}">Details</a>
         </article>
       `
     )
@@ -346,7 +341,7 @@ function RolePreviewCards() {
         </div>
         <div class="contents-strip reveal">
           <span>Contents</span>
-          <p>Eleven roles · this recruitment issue</p>
+          <p>Ten roles · this recruitment issue</p>
         </div>
         <div class="role-index-list">
           ${rows}
@@ -397,7 +392,7 @@ function ComingSoonCTA() {
           <div class="application-actions" aria-label="Application actions">
             <a class="button button-primary" href="./apply/">Open application form</a>
             <a class="button button-secondary" href="./tasks/">Submit task links</a>
-            <a class="button button-secondary" href="#roles">Review roles first</a>
+            <a class="button button-secondary" href="./guides/">How to choose your role</a>
           </div>
         </div>
       </div>

@@ -18,6 +18,10 @@ const errorSummary = document.querySelector<HTMLElement>("[data-error-summary]")
 const submitButton = document.querySelector<HTMLButtonElement>("[data-submit-button]");
 const roleDescriptionTitle = document.querySelector<HTMLElement>("[data-role-description-title]");
 const roleDescriptionCopy = document.querySelector<HTMLElement>("[data-role-description-copy]");
+const selectedRoleDetailsButton = document.querySelector<HTMLButtonElement>("[data-selected-role-details]");
+const roleDetailsDialog = document.querySelector<HTMLElement>("[data-role-details-dialog]");
+const roleDetailsPanel = document.querySelector<HTMLElement>(".role-details-panel");
+const roleDetailsContent = document.querySelector<HTMLElement>("[data-role-details-content]");
 const whyChooseHelper = document.querySelector<HTMLElement>("#whyChooseYourself-helper");
 const slotOptions = document.querySelector<HTMLElement>("[data-slot-options]");
 
@@ -80,6 +84,19 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function escapeHtml(value: string): string {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function listItems(items: string[]): string {
+  return items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+}
+
 function validateForm(): FormErrors {
   const errors: FormErrors = {};
 
@@ -135,11 +152,18 @@ function updateRoleDescription(): void {
     if (whyChooseHelper) {
       whyChooseHelper.textContent = "Choose a role above to see more specific guidance for this question.";
     }
+    if (selectedRoleDetailsButton) {
+      selectedRoleDetailsButton.hidden = true;
+    }
     return;
   }
 
   if (roleDescriptionTitle) roleDescriptionTitle.textContent = `${role.name} - ${role.stepTitle}`;
   if (roleDescriptionCopy) roleDescriptionCopy.textContent = role.description;
+  if (selectedRoleDetailsButton) {
+    selectedRoleDetailsButton.hidden = false;
+    selectedRoleDetailsButton.dataset.roleDetails = role.id;
+  }
 
   if (whyChooseHelper) {
     whyChooseHelper.textContent =
@@ -147,6 +171,63 @@ function updateRoleDescription(): void {
         ? "If you were choosing Resala's Treasurer, what would make you trust yourself with budgets, receipts, reimbursements, and financial details?"
         : `If you were choosing someone for ${role.name}, what habits, strengths, or experience would make you trust yourself with ${role.stepTitle.toLowerCase()}?`;
   }
+}
+
+function renderRoleDetails(role: RoleOption): string {
+  return `
+    <header class="role-details-header">
+      <span>${escapeHtml(role.stepTitle)}</span>
+      <h2 id="role-details-title">${escapeHtml(role.name)}</h2>
+      <p>${escapeHtml(role.whyChoose)}</p>
+    </header>
+    <div class="role-details-body">
+      <section class="role-details-section role-details-section-wide">
+        <h3>What you will actually do</h3>
+        <ul>${listItems(role.actualWork)}</ul>
+      </section>
+      <section class="role-details-section">
+        <h3>Leadership requirement</h3>
+        <p>${escapeHtml(role.leadershipRequirement)}</p>
+      </section>
+      <section class="role-details-section">
+        <h3>Ownership requirement</h3>
+        <p>${escapeHtml(role.ownershipRequirement)}</p>
+      </section>
+      <section class="role-details-section">
+        <h3>Skills requirement</h3>
+        <ul>${listItems(role.skillsRequirement)}</ul>
+      </section>
+      <section class="role-details-section">
+        <h3>Preferred experiences or passions</h3>
+        <ul>${listItems(role.preferredExperiences)}</ul>
+      </section>
+      <section class="role-details-question role-details-section-wide">
+        <span>Guiding question</span>
+        <p>${escapeHtml(role.guidingQuestion)}</p>
+      </section>
+      <section class="role-details-task role-details-section-wide">
+        <span>Interview task direction</span>
+        <p>${escapeHtml(role.taskPrompt)}</p>
+      </section>
+    </div>
+  `;
+}
+
+function openRoleDetails(roleId: string): void {
+  const role = roles.find((item) => item.id === roleId);
+  if (!role || !roleDetailsDialog || !roleDetailsContent || !roleDetailsPanel) return;
+
+  roleDetailsContent.innerHTML = renderRoleDetails(role);
+  roleDetailsDialog.hidden = false;
+  document.body.classList.add("dialog-open");
+  roleDetailsPanel.focus();
+}
+
+function closeRoleDetails(): void {
+  if (!roleDetailsDialog) return;
+
+  roleDetailsDialog.hidden = true;
+  document.body.classList.remove("dialog-open");
 }
 
 function updateSecondPreferenceOptions(): void {
@@ -222,6 +303,26 @@ form?.addEventListener("change", (event) => {
 
   if (event.target instanceof HTMLInputElement && event.target.name === "interviewSlot") {
     setRadioGroupError("interviewSlot", "");
+  }
+});
+
+document.addEventListener("click", (event) => {
+  const detailsButton = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-role-details]") : null;
+  if (detailsButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    openRoleDetails(detailsButton.dataset.roleDetails ?? "");
+    return;
+  }
+
+  if (event.target instanceof Element && event.target.closest("[data-role-details-close]")) {
+    closeRoleDetails();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && roleDetailsDialog && !roleDetailsDialog.hidden) {
+    closeRoleDetails();
   }
 });
 

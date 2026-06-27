@@ -1,3 +1,5 @@
+import { roleGuides } from "./role-guide-data.mjs";
+
 export const navItems = [
   { label: "00 Campaign", href: "#campaign" },
   { label: "01 Impact", href: "#impact" },
@@ -128,74 +130,14 @@ export const yearlyGoals = [
   }
 ];
 
-export const roles = [
-  {
-    name: "Treasurer",
-    step: "The Step of Trust",
-    description: "Keeps the team's finances organized, tracks spending, follows up on bills and reimbursements, and makes sure money-related communication stays clear.",
-    preparation: "Prepare how you would keep track of every bill and manage the system of communication."
-  },
-  {
-    name: "Tech Director",
-    step: "The Step of System",
-    description: "Builds and improves simple digital systems that make applications, tracking, communication, and team operations easier to manage.",
-    preparation: "Draft an idea for a system that can facilitate a process in the club and how it can be implemented."
-  },
-  {
-    name: "Operations",
-    step: "The Step of Structure",
-    description: "Turns plans into organized execution by managing logistics, setup, supplies, timelines, and on-ground coordination during events.",
-    preparation: "Draft a plan for how you would manage logistics, tracking, and event setup."
-  },
-  {
-    name: "Branding/Media",
-    step: "The Step of Voice",
-    description: "Shapes how Resala appears online by planning content, documenting work, keeping the visual identity consistent, and growing community awareness.",
-    preparation: "Draft a plan for reaching 5k followers."
-  },
-  {
-    name: "HR",
-    step: "The Step of People",
-    description: "Supports the member experience through onboarding, engagement, internal communication, check-ins, and activities that keep the team connected.",
-    preparation: "Draft a plan for keeping people engaged through engagement events and retreats."
-  },
-  {
-    name: "PR",
-    step: "The Step of Opportunity",
-    description: "Builds relationships with partners, campus communities, and external contacts so Resala can communicate professionally and open doors for collaboration.",
-    preparation: "Draft a short outreach plan for a partner or collaborator Resala should approach."
-  },
-  {
-    name: "Fundraising",
-    step: "The Step of Support",
-    description: "Plans fundraising campaigns, sets campaign goals, and identifies the right sponsor types only when sponsorship support is needed.",
-    preparation: "Draft a fundraising campaign plan and explain which sponsor types would fit it if sponsorship is needed."
-  },
-  {
-    name: "Visits",
-    step: "The Step of Presence",
-    description: "Plans meaningful visit programs and coordinates volunteers so Resala can show up consistently for orphanages, Dar Mosneen, and community partners.",
-    preparation: "Draft a proposal for a one-day program that can be implemented in different orphanages or Dar Mosneen."
-  },
-  {
-    name: "Children Day Director",
-    step: "The Step of Learning",
-    description: "Designs children's day experiences that are safe, engaging, and useful, with activities that support learning, confidence, and belonging.",
-    preparation: "Draft a proposal for the outcome underprivileged children need based on your knowledge."
-  },
-  {
-    name: "Mothers Day Director",
-    step: "The Step of Care",
-    description: "Creates programs that support mothers, keep them aware of what children are learning, and connect family care with children's growth.",
-    preparation: "Draft a plan for how you will keep mothers aware of what children learn and help them move past the idea that children cannot change."
-  },
-  {
-    name: "Initiatives Director",
-    step: "The Step of Access",
-    description: "Develops focused initiatives that respond to clear needs on campus or in the community, especially accessibility and inclusion needs.",
-    preparation: "Draft a plan for an initiative that supports visually impaired people across campus and facilitates their daily life."
-  }
-];
+export const roles = roleGuides.map((role) => ({
+  id: role.id,
+  name: role.name,
+  step: role.stepTitle,
+  description: role.shortDescription,
+  preparation: role.preparation,
+  guidingQuestion: role.guidingQuestion
+}));
 
 export const processSteps = [
   "Explore the mission, impact, and role expectations",

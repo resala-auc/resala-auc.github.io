@@ -1,11 +1,12 @@
+import { roleGuides } from "./role-guide-data.mjs";
+
 export type RoleId =
   | "treasurer"
   | "tech-director"
   | "operations"
   | "branding-media"
   | "hr"
-  | "pr"
-  | "fundraising"
+  | "pr-fundraising"
   | "visits"
   | "children-day-director"
   | "mothers-day-director"
@@ -16,6 +17,14 @@ export type RoleOption = {
   name: string;
   stepTitle: string;
   description: string;
+  whyChoose: string;
+  actualWork: string[];
+  leadershipRequirement: string;
+  ownershipRequirement: string;
+  skillsRequirement: string[];
+  preferredExperiences: string[];
+  guidingQuestion: string;
+  taskPrompt: string;
 };
 
 export type ApplicationPayload = {
@@ -85,74 +94,20 @@ export const APPLICATION_ENDPOINT = runtimeConfig.RESALA_APPLICATIONS_ENDPOINT?.
 export const APPLICATION_ENDPOINT_MODE: ApplicationEndpointMode =
   runtimeConfig.RESALA_APPLICATIONS_ENDPOINT_MODE === "no-cors" ? "no-cors" : "cors";
 
-export const roles: RoleOption[] = [
-  {
-    id: "treasurer",
-    name: "Treasurer",
-    stepTitle: "The Step of Trust",
-    description: "Keeps the team's finances organized, tracks spending, follows up on bills and reimbursements, and makes sure money-related communication stays clear."
-  },
-  {
-    id: "tech-director",
-    name: "Tech Director",
-    stepTitle: "The Step of System",
-    description: "Builds and improves simple digital systems that make applications, tracking, communication, and team operations easier to manage."
-  },
-  {
-    id: "operations",
-    name: "Operations",
-    stepTitle: "The Step of Structure",
-    description: "Turns plans into organized execution by managing logistics, setup, supplies, timelines, and on-ground coordination during events."
-  },
-  {
-    id: "branding-media",
-    name: "Branding / Media",
-    stepTitle: "The Step of Voice",
-    description: "Shapes how Resala appears online by planning content, documenting work, keeping the visual identity consistent, and growing community awareness."
-  },
-  {
-    id: "hr",
-    name: "HR",
-    stepTitle: "The Step of People",
-    description: "Supports the member experience through onboarding, engagement, internal communication, check-ins, and activities that keep the team connected."
-  },
-  {
-    id: "pr",
-    name: "PR",
-    stepTitle: "The Step of Opportunity",
-    description: "Builds relationships with partners, campus communities, and external contacts so Resala can communicate professionally and open doors for collaboration."
-  },
-  {
-    id: "fundraising",
-    name: "Fundraising",
-    stepTitle: "The Step of Support",
-    description: "Plans fundraising campaigns, sets campaign goals, and identifies the right sponsor types only when sponsorship support is needed."
-  },
-  {
-    id: "visits",
-    name: "Visits",
-    stepTitle: "The Step of Presence",
-    description: "Plans meaningful visit programs and coordinates volunteers so Resala can show up consistently for orphanages, Dar Mosneen, and community partners."
-  },
-  {
-    id: "children-day-director",
-    name: "Children Day Director",
-    stepTitle: "The Step of Learning",
-    description: "Designs children's day experiences that are safe, engaging, and useful, with activities that support learning, confidence, and belonging."
-  },
-  {
-    id: "mothers-day-director",
-    name: "Mothers Day Director",
-    stepTitle: "The Step of Care",
-    description: "Creates programs that support mothers, keep them aware of what children are learning, and connect family care with children's growth."
-  },
-  {
-    id: "initiatives-director",
-    name: "Initiatives Director",
-    stepTitle: "The Step of Access",
-    description: "Develops focused initiatives that respond to clear needs on campus or in the community, especially accessibility and inclusion needs."
-  }
-];
+export const roles: RoleOption[] = roleGuides.map((role) => ({
+  id: role.id as RoleId,
+  name: role.name,
+  stepTitle: role.stepTitle,
+  description: role.shortDescription,
+  whyChoose: role.whyChoose,
+  actualWork: role.actualWork,
+  leadershipRequirement: role.leadershipRequirement,
+  ownershipRequirement: role.ownershipRequirement,
+  skillsRequirement: role.skillsRequirement,
+  preferredExperiences: role.preferredExperiences,
+  guidingQuestion: role.guidingQuestion,
+  taskPrompt: role.taskPrompt
+}));
 
 export const yearLevelOptions = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate", "Other"] as const;
 
@@ -172,31 +127,8 @@ export async function fetchInterviewSlots(): Promise<InterviewSlotOption[]> {
 }
 
 export function createConfirmationEmailTemplate(payload: ApplicationPayload): ConfirmationEmailTemplate {
-  const role = payload.roleAppliedFor.toLowerCase();
-  const roleLine =
-    role.includes("treasurer")
-      ? "A simple way you would keep track of bills, reimbursements, and team communication."
-      : role.includes("tech")
-        ? "One small system idea that could make a club process easier, and how you would implement it."
-        : role.includes("branding")
-          ? "A short plan for reaching 5k followers through consistent content."
-          : role === "pr"
-            ? "A short outreach plan for a partner or collaborator Resala should approach."
-            : role.includes("fundraising")
-              ? "A fundraising campaign plan and which sponsor types would fit it if sponsorship is needed."
-              : role.includes("hr")
-                ? "A simple plan for keeping people engaged through events, retreats, or check-ins."
-                : role.includes("operations")
-                  ? "A simple plan for managing logistics, setup, and tracking during an event."
-                  : role.includes("visit")
-                    ? "A proposal for a one-day program that can be implemented in different orphanages or Dar Mosneen."
-                  : role.includes("children")
-                    ? "A proposal for the outcome underprivileged children need based on what you know about them."
-                    : role.includes("mother")
-                      ? "A plan for keeping mothers aware of what children learn and helping them believe children can change."
-                      : role.includes("initiative")
-                        ? "An initiative that supports visually impaired people across campus and makes daily life easier."
-                        : "One practical idea for how you would help the team move the work forward.";
+  const selectedRole = roles.find((role) => role.name === payload.roleAppliedFor);
+  const roleLine = selectedRole?.taskPrompt ?? "One practical idea for how you would help the team move the work forward.";
 
   return {
     subject: `Resala AUC: your ${payload.roleAppliedFor} application was received`,
