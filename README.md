@@ -76,6 +76,7 @@ Reminder emails:
 Task submissions:
 
 - The static site builds a task submission page at `/tasks/`.
+- The static site also builds a frontend-only match registration page at `/world-cup/` for the Egypt vs Australia gathering. It is prepared for the registration flow but intentionally has no backend connection yet.
 - Applicants submit with the same AUC email and Student ID used in the application.
 - The submit function matches both values against the Applications sheet and updates the same row.
 - Applications sheet task columns are `Task Submitted At`, `First Preference Task Link`, `Second Preference Task Link`, `Task Notes`, and `Task Submission Status`.
