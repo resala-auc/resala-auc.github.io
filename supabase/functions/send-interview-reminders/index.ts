@@ -91,7 +91,6 @@ const TASK_DOCUMENTS: Record<string, TaskDocument> = {
   operations: taskDocument("Operations", "1tvyaQDhCHnb9E4HiiVmB6ZNXpTVpunsti9ECwxw8f30", "Final Task - Operations - Resala Board Recruitment"),
   visits: taskDocument("Visits", "1ELC6nP7FQN33enuHbUamCvNYTlP8i3DNnA2NCuhPDF0", "Final Task - Visits - Resala Board Recruitment"),
   "children day director": taskDocument("Children Day Director", "1-6nfB5GaSSgE7gL046oIOA9R7caiCmuf04hdHtnHYjM", "Resala Task Children Day"),
-  "mothers day director": taskDocument("Mothers Day Director", "1we0KfCWjMg4bX2gQaEmAa8fdAp26_iVvpSt0Xe4mz_c", "Resala Task Mothers Day"),
   "initiatives director": taskDocument("Initiatives Director", "1tW2YFctINtnKQalTywtI8ZHWyI5AyuvTRf5OIHgcOgA", "Final Task - Initiatives Director - Resala Board Recruitment")
 };
 

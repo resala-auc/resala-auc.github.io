@@ -9,7 +9,6 @@ export type RoleId =
   | "pr-fundraising"
   | "visits"
   | "children-day-director"
-  | "mothers-day-director"
   | "initiatives-director";
 
 export type RoleOption = {

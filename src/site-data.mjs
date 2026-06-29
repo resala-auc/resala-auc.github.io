@@ -81,12 +81,6 @@ export const yearlyGoals = [
     description: "Designing safe, engaging experiences where children can learn, play, build confidence, and explore technology, English, and practical skills."
   },
   {
-    title: "Mothers Support Initiative",
-    target: "",
-    category: "Mothers Support",
-    description: "Organizing thoughtful activities and support moments for mothers, focused on appreciation, care, and practical value."
-  },
-  {
     title: "Micro Factory Initiative",
     target: "",
     category: "Employment Access",

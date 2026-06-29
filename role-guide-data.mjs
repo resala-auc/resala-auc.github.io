@@ -407,44 +407,6 @@ export const roleGuides = [
     taskPrompt: "Build a four-week Children Day journey: goal, weekly themes, activities, materials, volunteer roles, and how you would evaluate progress."
   },
   {
-    id: "mothers-day-director",
-    name: "Mothers Day Director",
-    stepTitle: "The Step of Support",
-    shortDescription: "Helps mothers understand and support children's growth so impact continues beyond the session.",
-    preparation: "Draft a plan for keeping mothers aware of what children learn and helping them believe children can change.",
-    whyChoose: "If we want to support children, we also need to support the environment around them. Mothers Day helps mothers understand what the children are learning and how they can support them with the resources they have.",
-    actualWork: [
-      "Understand Children Day goals.",
-      "Build Mothers Day goals that align with them.",
-      "Plan bi-weekly sessions for mothers.",
-      "Coordinate with professors, speakers, or specialists.",
-      "Validate session topics and materials with trusted guidance.",
-      "Make sure the sessions are practical and respectful.",
-      "Help mothers understand how to support their children.",
-      "Keep Mothers Day and Children Day connected."
-    ],
-    leadershipRequirement: "Lead a support program that respects mothers and aligns with Children Day, speakers, professors, and the realities families face.",
-    ownershipRequirement: "Own the bridge between session and home. Make sure the impact can continue beyond what children experience on Saturday.",
-    skillsRequirement: [
-      "Respectful communication.",
-      "Planning and coordination.",
-      "Ability to contact professors or speakers.",
-      "Presentation skills.",
-      "Sensitivity and self-awareness.",
-      "Ability to align different goals together.",
-      "Understanding of children's growth and family support.",
-      "Consistency in bi-weekly planning."
-    ],
-    preferredExperiences: [
-      "You care about supporting children through their environment.",
-      "You can communicate respectfully with mothers and specialists.",
-      "You are interested in practical family support."
-    ],
-    fit: "You can build sessions that help mothers support their children with the resources they have.",
-    guidingQuestion: "If Children Day plants the seed of change, can you help mothers understand it, support it, and keep it growing beyond the session?",
-    taskPrompt: "Plan a Mothers Day session series: alignment with Children Day, topics, speakers, respectful activities, and practical takeaways for mothers."
-  },
-  {
     id: "initiatives-director",
     name: "Initiatives Director",
     stepTitle: "The Step of Innovation",
