@@ -30,6 +30,7 @@ export function renderWorldCupPage(): string {
           </a>
           <div class="match-partner-lockup" aria-label="In collaboration with AUC Residential Life">
             <span>In collaboration with</span>
+            <strong>AUC Residential Life</strong>
             <img src="${aucResidentialLifeLogoPath}" alt="The American University in Cairo Office of Residential Life" width="150" height="150">
           </div>
         </header>
@@ -39,6 +40,10 @@ export function renderWorldCupPage(): string {
             <p class="match-eyebrow">Resala AUC x AUC Residential Life</p>
             <h1 id="match-title">Egypt vs Australia</h1>
             <p>Register to attend the World Cup match gathering next Friday, July 3, 2026.</p>
+            <div class="match-hero-actions">
+              <a class="button button-primary match-hero-cta" href="#register">Register interest</a>
+              <span>Limited attendance planning form</span>
+            </div>
             <div class="match-detail-strip" aria-label="Event details">
               <span><strong>Date</strong> Friday, July 3</span>
               <span><strong>Match</strong> Egypt vs Australia</span>
@@ -61,7 +66,7 @@ export function renderWorldCupPage(): string {
         </div>
       </section>
 
-      <section class="match-registration-section" aria-label="Match registration form">
+      <section class="match-registration-section" id="register" aria-label="Match registration form">
         <div class="container match-registration-layout">
           <aside class="match-info-panel">
             <span>Before you register</span>
@@ -78,7 +83,7 @@ export function renderWorldCupPage(): string {
             <div class="match-form-heading">
               <span>Registration form</span>
               <h2>Reserve your match-night spot</h2>
-              <p>No backend is connected yet. This page is ready for the registration flow and shows a local confirmation on submit.</p>
+              <p>Share your details so the team can plan attendance, entry, and match-night communication.</p>
             </div>
 
             <div class="match-field-grid">
@@ -150,7 +155,7 @@ export function renderWorldCupPage(): string {
 
         form.reset();
         if (status) {
-          status.textContent = "Registration preview received. Backend connection is still off.";
+          status.textContent = "Your details are ready for the attendance list once collection opens.";
         }
       });
     </script>
