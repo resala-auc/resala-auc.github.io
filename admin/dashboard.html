@@ -118,7 +118,8 @@
       align-items: center;
     }
 
-    .filter-bar input {
+    .filter-bar input,
+    .filter-bar select {
       border: 1px solid #e6edf2;
       border-radius: 9px;
       padding: 8px 12px;
@@ -130,7 +131,42 @@
       width: 100%;
     }
 
-    .filter-bar input:focus { border-color: #0d2b45; background: #fff; }
+    .filter-bar select { max-width: 180px; font-weight: bold; }
+    .filter-bar input:focus,
+    .filter-bar select:focus { border-color: #0d2b45; background: #fff; }
+
+    .status-summary {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }
+
+    .summary-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #e6edf2;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: bold;
+      background: #fff;
+      color: #64748b;
+      white-space: nowrap;
+    }
+
+    .summary-chip::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .summary-chip.needs::before { background: #f59e0b; }
+    .summary-chip.done::before { background: #16a34a; }
+    .summary-chip.noshow::before { background: #dc2626; }
 
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
 
@@ -152,10 +188,73 @@
     tbody tr:hover { background: #faf9f7; }
     tbody td { padding: 14px 16px; vertical-align: top; }
 
+    .reservation-section-row td {
+      padding: 12px 16px 9px;
+      background: #f8fafc;
+      border-top: 1px solid #e6edf2;
+      border-bottom: 1px solid #e6edf2;
+    }
+
+    .reservation-section-title {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #0d2b45;
+      font-size: 12px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .reservation-section-title::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .reservation-section-title.needs::before { background: #f59e0b; }
+    .reservation-section-title.done::before { background: #16a34a; }
+    .reservation-section-title.noshow::before { background: #dc2626; }
+
+    .reservation-row td:first-child {
+      box-shadow: inset 5px 0 0 #94a3b8;
+    }
+
+    .reservation-row.status-needs td:first-child { box-shadow: inset 5px 0 0 #f59e0b; }
+    .reservation-row.status-done-row td:first-child { box-shadow: inset 5px 0 0 #16a34a; }
+    .reservation-row.status-noshow td:first-child { box-shadow: inset 5px 0 0 #dc2626; }
+    .reservation-row.status-done-row { background: #f8fff9; }
+    .reservation-row.status-noshow { background: #fff8f8; }
+
+    .name-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     .name { font-weight: bold; font-size: 14px; }
     .meta { font-size: 12px; color: #94a3b8; margin-top: 2px; }
     .role-main { font-size: 13px; font-weight: bold; color: #0d2b45; }
     .role-second { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    .interview-flag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    .flag-needs { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+    .flag-done { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    .flag-noshow { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
 
     .slot-badge {
       display: inline-block;
@@ -459,6 +558,13 @@
         </div>
         <div class="filter-bar">
           <input id="res-search" placeholder="Search name, email, role…" oninput="filterRes()">
+          <select id="res-status-filter" onchange="filterRes()" aria-label="Filter by interview status">
+            <option value="">All statuses</option>
+            <option value="needs">Needs interview</option>
+            <option value="done">Done</option>
+            <option value="noshow">No show</option>
+          </select>
+          <div class="status-summary" id="res-summary"></div>
         </div>
         <table>
           <thead>
@@ -582,8 +688,7 @@
 
     if (cache) {
       allReservations = cache.reservations ?? [];
-      renderResTable(allReservations);
-      document.getElementById('res-count').textContent = countLabel(allReservations.length, 'reservation');
+      filterRes();
     }
 
     try {
@@ -594,8 +699,7 @@
 
       if (resData) {
         allReservations = resData.reservations ?? [];
-        renderResTable(allReservations);
-        document.getElementById('res-count').textContent = countLabel(allReservations.length, 'reservation');
+        filterRes();
       }
 
       allApplicants = appData.applicants ?? [];
@@ -622,9 +726,8 @@
       ]);
       allReservations = resData.reservations ?? [];
       allApplicants   = appData.applicants ?? [];
-      renderResTable(allReservations);
+      filterRes();
       renderScoreTable(allApplicants);
-      document.getElementById('res-count').textContent   = countLabel(allReservations.length, 'reservation');
       document.getElementById('app-count').textContent   = countLabel(allApplicants.length, 'applicant');
     } catch (err) {
       showNotice(err.message, 'error');
@@ -665,6 +768,90 @@
     return `<span class="status-badge status-pending">${escHtml(val || 'Pending')}</span>`;
   }
 
+  function reservationStatusKey(r) {
+    const v = normalize(r.interviewStatus || 'Not Done');
+    if (v === 'done') return 'done';
+    if (v === 'no show') return 'noshow';
+    return 'needs';
+  }
+
+  function reservationStatusLabel(key) {
+    if (key === 'done') return 'Done';
+    if (key === 'noshow') return 'No show';
+    return 'Needs interview';
+  }
+
+  function reservationFlag(r) {
+    const key = reservationStatusKey(r);
+    return `<span class="interview-flag flag-${key}">${reservationStatusLabel(key)}</span>`;
+  }
+
+  function reservationCounts(rows) {
+    return rows.reduce((counts, r) => {
+      counts[reservationStatusKey(r)] += 1;
+      return counts;
+    }, { needs: 0, done: 0, noshow: 0 });
+  }
+
+  function parseTimeToMinutes(value) {
+    const raw = String(value ?? '').trim().toUpperCase().replace(/\./g, '');
+    const match = raw.match(/^(\d{1,2})(?::?(\d{2}))?\s*(AM|PM)?$/);
+    if (!match) return null;
+
+    let hour = Number(match[1]);
+    const minute = Number(match[2] ?? 0);
+    const meridiem = match[3];
+    if (minute > 59 || hour > 23) return null;
+    if (meridiem) {
+      if (hour < 1 || hour > 12) return null;
+      if (meridiem === 'PM' && hour !== 12) hour += 12;
+      if (meridiem === 'AM' && hour === 12) hour = 0;
+    }
+    return hour * 60 + minute;
+  }
+
+  function timestampFromDateAndTime(dateValue, timeValue) {
+    const timeMinutes = parseTimeToMinutes(timeValue);
+    if (timeMinutes == null) return Number.POSITIVE_INFINITY;
+    const date = String(dateValue ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Number.POSITIVE_INFINITY;
+    const hours = String(Math.floor(timeMinutes / 60)).padStart(2, '0');
+    const minutes = String(timeMinutes % 60).padStart(2, '0');
+    const time = new Date(`${date}T${hours}:${minutes}:00`).getTime();
+    return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
+  }
+
+  function reservationInterviewTimestamp(r) {
+    const slotId = String(r.slotId ?? '').trim();
+    const idMatch = slotId.match(/(\d{4}-\d{2}-\d{2})-(\d{3,4}(?:am|pm)?|\d{1,2}(?:am|pm))$/i);
+    if (idMatch) return timestampFromDateAndTime(idMatch[1], idMatch[2]);
+
+    const label = String(r.slotLabel || r.slotId || '').trim();
+    const labelMatch = label.match(/(\d{4}-\d{2}-\d{2})\s+at\s+(.+)$/i);
+    if (labelMatch) return timestampFromDateAndTime(labelMatch[1], labelMatch[2]);
+
+    return Number.POSITIVE_INFINITY;
+  }
+
+  function sortReservationsByInterviewTime(rows) {
+    return [...rows].sort((a, b) => {
+      const timeDiff = reservationInterviewTimestamp(a) - reservationInterviewTimestamp(b);
+      if (timeDiff) return timeDiff;
+      return Number(a.rowIndex || 0) - Number(b.rowIndex || 0);
+    });
+  }
+
+  function renderReservationSummary(rows) {
+    const summary = document.getElementById('res-summary');
+    if (!summary) return;
+    const counts = reservationCounts(rows);
+    summary.innerHTML = `
+      <span class="summary-chip needs">${counts.needs} needs interview</span>
+      <span class="summary-chip done">${counts.done} done</span>
+      <span class="summary-chip noshow">${counts.noshow} no show</span>
+    `;
+  }
+
   function statusControl(r) {
     const current = r.interviewStatus || 'Not Done';
     const options = ['Not Done', 'Done', 'No Show', 'Pending'];
@@ -702,14 +889,30 @@
   function renderResTable(rows) {
     const tbody = document.getElementById('res-body');
     const empty = document.getElementById('res-empty');
+    renderReservationSummary(rows);
     if (!rows.length) { tbody.innerHTML = ''; empty.style.display = ''; return; }
     empty.style.display = 'none';
-    tbody.innerHTML = rows.map(r => {
+    const orderedRows = sortReservationsByInterviewTime(rows);
+    const groups = [
+      { key: 'needs', title: 'Needs interview', rows: orderedRows.filter(r => reservationStatusKey(r) === 'needs') },
+      { key: 'done', title: 'Completed interviews', rows: orderedRows.filter(r => reservationStatusKey(r) === 'done') },
+      { key: 'noshow', title: 'No show / follow-up', rows: orderedRows.filter(r => reservationStatusKey(r) === 'noshow') }
+    ].filter(group => group.rows.length);
+    tbody.innerHTML = groups.map(group => `
+      <tr class="reservation-section-row">
+        <td colspan="6"><span class="reservation-section-title ${group.key}">${group.title} · ${group.rows.length}</span></td>
+      </tr>
+      ${group.rows.map(r => {
       const hasMeet = !!(r.meetLink);
+      const statusKey = reservationStatusKey(r);
+      const rowClass = statusKey === 'done' ? 'status-done-row' : statusKey === 'noshow' ? 'status-noshow' : 'status-needs';
       return `
-        <tr id="res-row-${r.rowIndex}">
+        <tr id="res-row-${r.rowIndex}" class="reservation-row ${rowClass}">
           <td>
-            <div class="name">${escHtml(r.fullName)}</div>
+            <div class="name-line">
+              <div class="name">${escHtml(r.fullName)}</div>
+              ${reservationFlag(r)}
+            </div>
             <div class="meta">${escHtml(r.aucEmail)}</div>
             <div class="meta">${escHtml(r.studentId)}</div>
             <div class="meta">${escHtml(r.phone || 'No phone')}</div>
@@ -742,20 +945,27 @@
           </td>
         </tr>
       `;
-    }).join('');
+      }).join('')}
+    `).join('');
   }
 
   function filterRes() {
-    const q = document.getElementById('res-search').value.toLowerCase();
-    const rows = q
-      ? allReservations.filter(r =>
-          normalize(r.fullName).includes(q) ||
-          normalize(r.aucEmail).includes(q) ||
-          normalize(r.phone).includes(q) ||
-          normalize(r.roleAppliedFor).includes(q))
-      : allReservations;
+    const q = normalize(document.getElementById('res-search').value);
+    const status = document.getElementById('res-status-filter')?.value || '';
+    const rows = allReservations.filter(r => {
+      const matchesSearch = !q ||
+        normalize(r.fullName).includes(q) ||
+        normalize(r.aucEmail).includes(q) ||
+        normalize(r.phone).includes(q) ||
+        normalize(r.roleAppliedFor).includes(q) ||
+        normalize(r.secondPreference).includes(q);
+      const matchesStatus = !status || reservationStatusKey(r) === status;
+      return matchesSearch && matchesStatus;
+    });
     renderResTable(rows);
-    document.getElementById('res-count').textContent = `${rows.length} of ${allReservations.length} reservations`;
+    document.getElementById('res-count').textContent = q || status
+      ? `${rows.length} of ${allReservations.length} reservations`
+      : countLabel(allReservations.length, 'reservation');
   }
 
   async function reschedule(rowIndex) {
@@ -797,6 +1007,7 @@
       if (reservation) reservation.interviewStatus = nextStatus;
       select.dataset.currentStatus = nextStatus;
       showRowNotice(rowIndex, '✓ Status updated', '#166534');
+      setTimeout(() => filterRes(), 650);
     } catch (err) {
       select.value = previous;
       showRowNotice(rowIndex, err.message, '#991b1b');
