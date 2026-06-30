@@ -170,7 +170,7 @@ export function ApplicationForm(): string {
       <aside class="application-attention-note" aria-label="Important application note">
         <span>Important before you submit</span>
         <strong>Read your confirmation email carefully after applying.</strong>
-        <p>It includes the details you need before your interview, and following it closely shows us that you pay attention to what matters.</p>
+        <p>Your interview task is attached there, along with the details you need before your interview.</p>
       </aside>
 
       <section class="apply-card" aria-labelledby="basic-info-title">
