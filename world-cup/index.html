@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Egypt vs Australia Registration | Resala AUC</title>
+    <meta name="description" content="Register your interest to attend the Resala AUC and AUC Residential Life Egypt vs Australia World Cup match gathering.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans:wght@400;500;600;700;800;900&family=Roboto+Slab:wght@400;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+  </head>
+  <body class="match-page-body">
+    <main class="match-page">
+      <section class="match-hero" aria-labelledby="match-title">
+        <div class="match-flag-ribbon" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <header class="match-topbar">
+          <a class="match-logo-link" href="../" aria-label="Back to Resala AUC home">
+            <span class="brand-logo-frame">
+              <img src="../The brand System/logos/Resala Logo - source.svg" alt="Resala AUC logo" width="420" height="236">
+            </span>
+          </a>
+          <div class="match-partner-lockup" aria-label="In collaboration with AUC Residential Life">
+            <span>In collaboration with</span>
+            <strong>AUC Residential Life</strong>
+            <img src="../The brand System/assets/auc-residential-life.png" alt="The American University in Cairo Office of Residential Life" width="150" height="150">
+          </div>
+        </header>
+
+        <div class="container match-hero-grid">
+          <div class="match-hero-copy">
+            <p class="match-eyebrow">Resala AUC x AUC Residential Life</p>
+            <h1 id="match-title">Egypt vs Australia</h1>
+            <p>Register to attend the World Cup match gathering next Friday, July 3, 2026.</p>
+            <div class="match-hero-actions">
+              <a class="button button-primary match-hero-cta" href="#register">Register interest</a>
+              <span>Limited attendance planning form</span>
+            </div>
+            <div class="match-detail-strip" aria-label="Event details">
+              <span><strong>Date</strong> Friday, July 3</span>
+              <span><strong>Match</strong> Egypt vs Australia</span>
+              <span><strong>Theme</strong> Wear Egypt colors</span>
+            </div>
+          </div>
+
+          <div class="match-visual-card" aria-label="Egypt match theme">
+            <div class="match-scoreline">
+              <span>EGY</span>
+              <strong>vs</strong>
+              <span>AUS</span>
+            </div>
+            <div class="match-pitch" aria-hidden="true">
+              <span class="match-pitch-circle"></span>
+              <span class="match-pitch-line"></span>
+            </div>
+            <p>One night, one crowd, one flag.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="match-registration-section" id="register" aria-label="Match registration form">
+        <div class="container match-registration-layout">
+          <aside class="match-info-panel">
+            <span>Before you register</span>
+            <h2>Come ready for the full match atmosphere.</h2>
+            <p>This form is prepared for attendance planning. Fill in your details, choose your group size, and keep an eye on your confirmation instructions once registration is connected.</p>
+            <ul>
+              <li>Bring your AUC ID.</li>
+              <li>Wear red, white, black, or Egypt gear.</li>
+              <li>Arrive early so entry stays organized.</li>
+            </ul>
+          </aside>
+
+          <form class="match-registration-form" data-match-registration-form novalidate>
+            <div class="match-form-heading">
+              <span>Registration form</span>
+              <h2>Reserve your match-night spot</h2>
+              <p>Share your details so the team can plan attendance, entry, and match-night communication.</p>
+            </div>
+
+            <div class="match-field-grid">
+              <div class="match-field">
+                <label for="matchFullName">Full name <span aria-hidden="true">*</span></label>
+                <input id="matchFullName" name="fullName" type="text" autocomplete="name" required>
+              </div>
+              <div class="match-field">
+                <label for="matchAucEmail">AUC email <span aria-hidden="true">*</span></label>
+                <input id="matchAucEmail" name="aucEmail" type="email" autocomplete="email" placeholder="name@aucegypt.edu" required>
+              </div>
+              <div class="match-field">
+                <label for="matchPhone">Phone / WhatsApp <span aria-hidden="true">*</span></label>
+                <input id="matchPhone" name="phone" type="tel" autocomplete="tel" required>
+              </div>
+              <div class="match-field">
+                <label for="matchStudentId">Student ID</label>
+                <input id="matchStudentId" name="studentId" type="text" autocomplete="off">
+              </div>
+              <div class="match-field">
+                <label for="matchGuests">How many seats? <span aria-hidden="true">*</span></label>
+                <select id="matchGuests" name="guests" required>
+                  <option value="">Select seats</option>
+                  <option value="1">Just me</option>
+                  <option value="2">Me + 1 guest</option>
+                  <option value="3">Me + 2 guests</option>
+                </select>
+              </div>
+              <div class="match-field">
+                <label for="matchArrival">Expected arrival <span aria-hidden="true">*</span></label>
+                <select id="matchArrival" name="arrival" required>
+                  <option value="">Select time</option>
+                  <option value="Early">Early</option>
+                  <option value="On time">On time</option>
+                  <option value="A little late">A little late</option>
+                </select>
+              </div>
+              <div class="match-field match-field-full">
+                <label for="matchNotes">Anything we should know?</label>
+                <textarea id="matchNotes" name="notes" rows="4" placeholder="Accessibility needs, guest notes, or anything that helps us organize the gathering."></textarea>
+              </div>
+            </div>
+
+            <label class="match-check">
+              <input type="checkbox" name="commitment" required>
+              <span>I will read the confirmation details carefully and follow the event instructions.</span>
+            </label>
+
+            <div class="match-submit-row">
+              <button class="button button-primary match-submit-button" type="submit">Register interest</button>
+              <p data-match-form-status role="status" aria-live="polite"></p>
+            </div>
+          </form>
+        </div>
+      </section>
+    </main>
+    <script>
+      const form = document.querySelector("[data-match-registration-form]");
+      const status = document.querySelector("[data-match-form-status]");
+
+      form?.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        if (!form.checkValidity()) {
+          form.reportValidity();
+          if (status) status.textContent = "Please complete the required fields.";
+          return;
+        }
+
+        form.reset();
+        if (status) {
+          status.textContent = "Your details are ready for the attendance list once collection opens.";
+        }
+      });
+    </script>
+  </body>
+</html>
