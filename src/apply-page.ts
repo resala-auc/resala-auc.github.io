@@ -301,6 +301,8 @@ export function renderApplyPage(): string {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Apply | Resala AUC Recruitment</title>
     <meta name="description" content="Apply to Resala AUC recruitment and choose the role where you can build the first step.">
+    <link rel="icon" type="image/png" href="../favicon.png">
+    <link rel="apple-touch-icon" href="../favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans:wght@400;500;600;700;800&family=Roboto+Slab:wght@400;700&display=swap" rel="stylesheet">

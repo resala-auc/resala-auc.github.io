@@ -23,6 +23,7 @@ for (const role of roleGuides) {
 }
 await writeFile("dist/tasks/index.html", renderTaskPage(), "utf8");
 await writeFile("dist/.nojekyll", "", "utf8");
+await cp("favicon.png", "dist/favicon.png");
 await cp("src/styles.css", "dist/styles.css");
 await cp("src/app.js", "dist/app.js");
 await cp("src/spreadsheet-config.js", "dist/spreadsheet-config.js");

@@ -17,7 +17,7 @@ function shortList(items, limit = 3) {
   return listItems(items.slice(0, limit));
 }
 
-function GuideShell({ title, description, stylesheetHref, logoHref, homeHref, body }) {
+function GuideShell({ title, description, stylesheetHref, logoHref, faviconHref, homeHref, body }) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -25,6 +25,8 @@ function GuideShell({ title, description, stylesheetHref, logoHref, homeHref, bo
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(title)} | Resala AUC Recruitment</title>
     <meta name="description" content="${escapeHtml(description)}">
+    <link rel="icon" type="image/png" href="${faviconHref}">
+    <link rel="apple-touch-icon" href="${faviconHref}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans:wght@400;500;600;700;800&family=Roboto+Slab:wght@400;700&display=swap" rel="stylesheet">
@@ -192,6 +194,7 @@ export function renderRoleGuideIndexPage() {
     description: "A Resala AUC recruitment guide for choosing the director role that fits your skills, passion, and ownership.",
     stylesheetHref: "../styles.css",
     logoHref: "../The brand System/logos/Resala Logo - source.svg",
+    faviconHref: "../favicon.png",
     homeHref: "../",
     body
   });
@@ -282,6 +285,7 @@ export function renderRoleGuidePage(role) {
     description: `${role.name} details for Resala AUC board recruitment.`,
     stylesheetHref: "../../styles.css",
     logoHref: "../../The brand System/logos/Resala Logo - source.svg",
+    faviconHref: "../../favicon.png",
     homeHref: "../../",
     body
   });
