@@ -399,6 +399,17 @@
     /* score tab */
     .score-num { width: 70px; padding: 7px 10px; font-size: 13px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; }
     .score-num:focus { border-color: #0d2b45; background: #fff; }
+    .score-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(128px, 1fr)); gap: 8px; min-width: 300px; }
+    .score-field { display: grid; gap: 4px; }
+    .score-field label { font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; }
+    .score-field-input { display: flex; align-items: center; gap: 4px; }
+    .score-field-input input { width: 58px; padding: 6px 8px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; color: #172033; }
+    .score-field-input input:focus { border-color: #0d2b45; background: #fff; }
+    .score-field-input span { color: #94a3b8; font-size: 11px; font-weight: bold; }
+    .score-total { min-width: 76px; color: #0d2b45; font-size: 18px; font-weight: bold; white-space: nowrap; }
+    .score-total span { color: #94a3b8; font-size: 12px; }
+    .score-role { width: 100%; min-width: 150px; max-width: 210px; padding: 7px 10px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; color: #172033; }
+    .score-role:focus { border-color: #0d2b45; background: #fff; }
     .url-input { width: 100%; min-width: 140px; max-width: 200px; padding: 7px 10px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; }
     .url-input:focus { border-color: #0d2b45; background: #fff; }
 
@@ -606,8 +617,9 @@
               <th>2nd Preference</th>
               <th>Slot</th>
               <th>Task</th>
-              <th>1st Score</th>
-              <th>2nd Score</th>
+              <th>Scoring Summary</th>
+              <th>Total</th>
+              <th>Recommended Role</th>
               <th>Notes Doc</th>
               <th></th>
             </tr>
@@ -634,8 +646,8 @@
               <option>Initiatives Director</option>
             </select>
             <select id="rank-pref">
-              <option value="first">By 1st preference score</option>
-              <option value="second">By 2nd preference score</option>
+              <option value="first">1st preference candidates</option>
+              <option value="second">2nd preference candidates</option>
             </select>
             <button class="btn btn-primary btn-sm" onclick="renderRankings()">Show</button>
           </div>
@@ -664,6 +676,25 @@
 
 <script>
   const ENDPOINT = window.RESALA_APPLICATIONS_ENDPOINT || '';
+  const ROLE_OPTIONS = [
+    'Treasurer',
+    'Tech Director',
+    'Operations',
+    'Branding / Media',
+    'HR',
+    'PR / Fundraising',
+    'Visits',
+    'Children Day Director',
+    'Initiatives Director'
+  ];
+  const SCORE_FIELDS = [
+    { key: 'visionMotivationScore', label: 'Vision + Motivation', max: 10 },
+    { key: 'leadershipScore', label: 'Leadership', max: 10 },
+    { key: 'ownershipScore', label: 'Ownership', max: 10 },
+    { key: 'selfAwarenessCommitmentScore', label: 'Self-awareness + Commitment', max: 10 },
+    { key: 'roleSpecificModulesScore', label: 'Role-Specific Module(s)', max: 15 },
+    { key: 'finalJudgmentScore', label: 'Final Judgment', max: 5 }
+  ];
   let allReservations = [];
   let allApplicants   = [];
 
@@ -758,6 +789,75 @@
   }
 
   function countLabel(n, word) { return `${n} ${word}${n !== 1 ? 's' : ''}`; }
+
+  function roleOptionsHtml(selectedRole) {
+    const selected = String(selectedRole ?? '');
+    return [
+      '<option value="">Select role…</option>',
+      ...ROLE_OPTIONS.map(role => `<option value="${escHtml(role)}"${role === selected ? ' selected' : ''}>${escHtml(role)}</option>`)
+    ].join('');
+  }
+
+  function formatScoreNumber(value) {
+    if (!Number.isFinite(value)) return '0';
+    return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+  }
+
+  function renderScoreSummary(r) {
+    return `<div class="score-summary-grid">${SCORE_FIELDS.map(field => `
+      <div class="score-field">
+        <label for="${field.key}-${r.rowIndex}">${escHtml(field.label)}</label>
+        <div class="score-field-input">
+          <input type="number" id="${field.key}-${r.rowIndex}" class="score-part" min="0" max="${field.max}" step="0.5" value="${escHtml(r[field.key])}" data-row-index="${escHtml(r.rowIndex)}" data-score-key="${field.key}" placeholder="0">
+          <span>/${field.max}</span>
+        </div>
+      </div>
+    `).join('')}</div>`;
+  }
+
+  function scoreFieldValue(rowIndex, field) {
+    const input = document.getElementById(`${field.key}-${rowIndex}`);
+    const raw = input?.value.trim() ?? '';
+    if (!raw) return { raw: '', value: 0 };
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > field.max) {
+      throw new Error(`${field.label} must be between 0 and ${field.max}.`);
+    }
+    return { raw, value };
+  }
+
+  function collectScoreSummary(rowIndex) {
+    const scores = {};
+    let total = 0;
+    let hasAnyScore = false;
+    SCORE_FIELDS.forEach(field => {
+      const score = scoreFieldValue(rowIndex, field);
+      scores[field.key] = score.raw;
+      if (score.raw) hasAnyScore = true;
+      total += score.value;
+    });
+    return { scores, total: formatScoreNumber(total), hasAnyScore };
+  }
+
+  function calculateScoreTotal(rowIndex) {
+    try {
+      const { total } = collectScoreSummary(rowIndex);
+      const totalEl = document.getElementById(`total-${rowIndex}`);
+      if (totalEl) totalEl.textContent = total;
+    } catch {
+      const totalEl = document.getElementById(`total-${rowIndex}`);
+      if (totalEl) totalEl.textContent = '!';
+    }
+  }
+
+  function initialScoreTotal(r) {
+    const totalRaw = String(r.totalScore ?? '').trim();
+    const total = Number(totalRaw);
+    if (totalRaw && Number.isFinite(total)) return formatScoreNumber(total);
+    const legacyRaw = String(r.firstPreferenceScore ?? '').trim();
+    const legacyTotal = Number(legacyRaw);
+    return legacyRaw && Number.isFinite(legacyTotal) ? formatScoreNumber(legacyTotal) : '0';
+  }
 
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -1160,8 +1260,9 @@
         <td><div class="role-second">${escHtml(r.secondPreference || '—')}</div></td>
         <td><span class="slot-badge" style="font-size:11px;">${escHtml(r.interviewSlot || '—')}</span></td>
         <td style="min-width:130px;">${taskCell(r)}</td>
-        <td><input type="number" class="score-num" id="s1-${r.rowIndex}" min="0" max="100" step="0.5" value="${escHtml(r.firstPreferenceScore)}" placeholder="—"></td>
-        <td><input type="number" class="score-num" id="s2-${r.rowIndex}" min="0" max="100" step="0.5" value="${escHtml(r.secondPreferenceScore)}" placeholder="—"></td>
+        <td>${renderScoreSummary(r)}</td>
+        <td><div class="score-total"><strong id="total-${r.rowIndex}">${escHtml(initialScoreTotal(r))}</strong> <span>/60</span></div></td>
+        <td><select class="score-role" id="recommended-role-${r.rowIndex}" aria-label="Recommended role for ${escHtml(r.fullName)}">${roleOptionsHtml(r.recommendedRole)}</select></td>
         <td><input type="url" class="url-input" id="notes-${r.rowIndex}" value="${escHtml(r.notesUrl)}" placeholder="Paste doc URL"></td>
         <td>
           <button type="button" class="btn btn-primary btn-sm score-save-btn" id="save-btn-${r.rowIndex}" data-row-index="${escHtml(r.rowIndex)}">Save</button>
@@ -1172,6 +1273,9 @@
     tbody.querySelectorAll('.score-save-btn').forEach(button => {
       button.addEventListener('click', () => saveScore(Number(button.dataset.rowIndex)));
     });
+    tbody.querySelectorAll('.score-part').forEach(input => {
+      input.addEventListener('input', () => calculateScoreTotal(Number(input.dataset.rowIndex)));
+    });
   }
 
   function filterScore() {
@@ -1181,7 +1285,9 @@
           normalize(r.fullName).includes(q) ||
           normalize(r.aucEmail).includes(q) ||
           normalize(r.phone).includes(q) ||
-          normalize(r.roleAppliedFor).includes(q))
+          normalize(r.roleAppliedFor).includes(q) ||
+          normalize(r.secondPreference).includes(q) ||
+          normalize(r.recommendedRole).includes(q))
       : allApplicants;
     renderScoreTable(rows);
     document.getElementById('app-count').textContent = `${rows.length} of ${allApplicants.length} applicants`;
@@ -1189,8 +1295,7 @@
 
   async function saveScore(rowIndex) {
     const notesUrl            = document.getElementById(`notes-${rowIndex}`)?.value.trim() ?? '';
-    const firstPreferenceScore  = document.getElementById(`s1-${rowIndex}`)?.value.trim() ?? '';
-    const secondPreferenceScore = document.getElementById(`s2-${rowIndex}`)?.value.trim() ?? '';
+    const recommendedRole = document.getElementById(`recommended-role-${rowIndex}`)?.value.trim() ?? '';
     const btn = document.getElementById(`save-btn-${rowIndex}`);
     const app = allApplicants.find(a => a.rowIndex === rowIndex);
     if (!app?.aucEmail) {
@@ -1198,12 +1303,40 @@
       return;
     }
 
+    let scoreSummary;
+    try {
+      scoreSummary = collectScoreSummary(rowIndex);
+    } catch (err) {
+      showRowNotice(rowIndex, err.message, '#991b1b');
+      return;
+    }
+
+    const savedTotal = scoreSummary.hasAnyScore ? scoreSummary.total : initialScoreTotal(app);
+    const firstPreferenceScore = savedTotal;
+    const secondPreferenceScore = savedTotal;
+
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>';
 
     try {
-      await apiFetch({ mode: 'admin-update-score', aucEmail: app.aucEmail, notesUrl, firstPreferenceScore, secondPreferenceScore });
-      if (app) { app.notesUrl = notesUrl; app.firstPreferenceScore = firstPreferenceScore; app.secondPreferenceScore = secondPreferenceScore; }
+      await apiFetch({
+        mode: 'admin-update-score',
+        aucEmail: app.aucEmail,
+        notesUrl,
+        firstPreferenceScore,
+        secondPreferenceScore,
+        recommendedRole,
+        totalScore: savedTotal,
+        ...scoreSummary.scores
+      });
+      if (app) {
+        app.notesUrl = notesUrl;
+        app.firstPreferenceScore = firstPreferenceScore;
+        app.secondPreferenceScore = secondPreferenceScore;
+        app.recommendedRole = recommendedRole;
+        app.totalScore = savedTotal;
+        Object.assign(app, scoreSummary.scores);
+      }
       showRowNotice(rowIndex, '✓ Saved', '#166534');
     } catch (err) {
       showRowNotice(rowIndex, err.message, '#991b1b');
@@ -1228,7 +1361,8 @@
     );
 
     const scoreKey = pref === 'second' ? 'secondPreferenceScore' : 'firstPreferenceScore';
-    const sorted = [...filtered].sort((a, b) => (parseFloat(b[scoreKey]) || -Infinity) - (parseFloat(a[scoreKey]) || -Infinity));
+    const scoreFor = a => a.totalScore || a[scoreKey];
+    const sorted = [...filtered].sort((a, b) => (parseFloat(scoreFor(b)) || -Infinity) - (parseFloat(scoreFor(a)) || -Infinity));
 
     if (!sorted.length) {
       container.innerHTML = `<p style="color:#94a3b8;font-size:14px;">No applicants with ${role} as ${pref === 'first' ? '1st' : '2nd'} preference.</p>`;
@@ -1238,7 +1372,7 @@
     const cls = i => i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
 
     container.innerHTML = sorted.map((a, i) => {
-      const score = a[scoreKey];
+      const score = scoreFor(a);
       const hasScore = score !== '' && score != null;
       return `
         <div class="rank-card">

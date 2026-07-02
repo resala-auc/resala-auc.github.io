@@ -54,7 +54,15 @@ const HEADERS = [...APPLICATION_BASE_HEADERS, ...APPLICATION_TASK_HEADERS];
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
   "First Preference Score",
-  "Second Preference Score"
+  "Second Preference Score",
+  "Recommended Role",
+  "Vision + Motivation Score",
+  "Leadership Score",
+  "Ownership Score",
+  "Self-awareness + Commitment Score",
+  "Role-Specific Module(s) Score",
+  "Final Judgment Score",
+  "Total Score"
 ];
 
 const SLOT_HEADERS = [
@@ -179,6 +187,14 @@ type AdminUpdateScorePayload = {
   notesUrl: string;
   firstPreferenceScore: string;
   secondPreferenceScore: string;
+  recommendedRole?: string;
+  visionMotivationScore?: string;
+  leadershipScore?: string;
+  ownershipScore?: string;
+  selfAwarenessCommitmentScore?: string;
+  roleSpecificModulesScore?: string;
+  finalJudgmentScore?: string;
+  totalScore?: string;
 };
 
 type SubmissionPayload =
@@ -1689,7 +1705,15 @@ async function loadAdminApplicants(token: string): Promise<{
     ...getTaskSubmissionState(row),
     notesUrl: row[23] ?? "",
     firstPreferenceScore: row[24] ?? "",
-    secondPreferenceScore: row[25] ?? ""
+    secondPreferenceScore: row[25] ?? "",
+    recommendedRole: row[26] ?? "",
+    visionMotivationScore: row[27] ?? "",
+    leadershipScore: row[28] ?? "",
+    ownershipScore: row[29] ?? "",
+    selfAwarenessCommitmentScore: row[30] ?? "",
+    roleSpecificModulesScore: row[31] ?? "",
+    finalJudgmentScore: row[32] ?? "",
+    totalScore: row[33] ?? ""
   }));
 
   return { applicants };
@@ -1714,10 +1738,22 @@ async function updateApplicantScore(
 
   const sheetRow = rowIndex + 2;
   const startCol = columnLetter(HEADERS.length + 1); // X
-  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length); // Z
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length); // AH
 
   await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}${sheetRow}:${endCol}${sheetRow}`)}?valueInputOption=RAW`, {
-    values: [[payload.notesUrl, payload.firstPreferenceScore, payload.secondPreferenceScore]]
+    values: [[
+      payload.notesUrl,
+      payload.firstPreferenceScore,
+      payload.secondPreferenceScore,
+      payload.recommendedRole ?? "",
+      payload.visionMotivationScore ?? "",
+      payload.leadershipScore ?? "",
+      payload.ownershipScore ?? "",
+      payload.selfAwarenessCommitmentScore ?? "",
+      payload.roleSpecificModulesScore ?? "",
+      payload.finalJudgmentScore ?? "",
+      payload.totalScore ?? ""
+    ]]
   });
 
   return { updated: true };
