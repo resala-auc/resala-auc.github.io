@@ -95,6 +95,7 @@ const RESERVATION_HEADERS = [
 const RECRUITMENT_START_DATE = "2026-06-22";
 const RECRUITMENT_END_DATE = "2026-07-15";
 const DAILY_SLOT_TIMES = [
+  { code: "1201", startTime: "12:01 PM" },
   { code: "1500", startTime: "3:00 PM" },
   { code: "1900", startTime: "7:00 PM" },
   { code: "2000", startTime: "8:00 PM" }
@@ -1266,6 +1267,7 @@ async function ensureSlotSheets(token: string): Promise<void> {
     SLOT_HEADERS,
     buildRecruitmentSlotRows()
   );
+  await ensureRemainingRecruitmentSlotRows(token);
   await ensureSheetHeaders(token, RESERVATION_SHEET_NAME, RESERVATION_HEADERS);
 }
 
@@ -2232,14 +2234,42 @@ function shouldResetSlotRows(sheetName: string, rows: string[][]): boolean {
   });
 }
 
-function buildRecruitmentSlotRows(): Array<Array<string | number>> {
+async function ensureRemainingRecruitmentSlotRows(token: string): Promise<void> {
+  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
+  const existingRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const existingSlotKeys = new Set(
+    existingRows
+      .map((row) => {
+        const date = String(row[1] ?? "").trim();
+        const startTime = normalizeTime24(row[2]);
+        return date && startTime ? `${date}|${startTime}` : "";
+      })
+      .filter(Boolean)
+  );
+
+  const missingRows = buildRecruitmentSlotRows(getRemainingRecruitmentStartDate()).filter((row) => {
+    const date = String(row[1] ?? "").trim();
+    const startTime = normalizeTime24(row[2]);
+    return date && startTime && !existingSlotKeys.has(`${date}|${startTime}`);
+  });
+
+  if (!missingRows.length) return;
+
+  await sheetsFetch(token, "POST", `${sheetRange(SLOT_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    values: missingRows
+  });
+}
+
+function buildRecruitmentSlotRows(fromDate?: Date): Array<Array<string | number>> {
   const rows: Array<Array<string | number>> = [];
-  const startDate = parseDateOnly(RECRUITMENT_START_DATE);
+  const configuredStartDate = parseDateOnly(RECRUITMENT_START_DATE);
   const endDate = parseDateOnly(RECRUITMENT_END_DATE);
 
-  if (!startDate || !endDate) {
+  if (!configuredStartDate || !endDate) {
     throw new Error("Recruitment slot date range is invalid.");
   }
+
+  const startDate = fromDate && fromDate > configuredStartDate ? fromDate : configuredStartDate;
 
   for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
     const dateString = formatDateOnly(date);
@@ -2260,6 +2290,17 @@ function buildRecruitmentSlotRows(): Array<Array<string | number>> {
   }
 
   return rows;
+}
+
+function getRemainingRecruitmentStartDate(): Date {
+  const currentLocalDate = parseDateOnly(getCurrentLocalDateTime(CALENDAR_TIME_ZONE).slice(0, 10));
+  const recruitmentStartDate = parseDateOnly(RECRUITMENT_START_DATE);
+
+  if (!currentLocalDate || !recruitmentStartDate) {
+    throw new Error("Recruitment slot date range is invalid.");
+  }
+
+  return currentLocalDate > recruitmentStartDate ? currentLocalDate : recruitmentStartDate;
 }
 
 async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> {
