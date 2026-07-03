@@ -98,7 +98,8 @@ const DAILY_SLOT_TIMES = [
   { code: "1201", startTime: "12:01 PM" },
   { code: "1500", startTime: "3:00 PM" },
   { code: "1900", startTime: "7:00 PM" },
-  { code: "2000", startTime: "8:00 PM" }
+  { code: "2000", startTime: "8:00 PM" },
+  { code: "2200", startTime: "10:00 PM" }
 ];
 const SAME_DAY_SLOT_CUTOFF_HOUR = 11;
 const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
