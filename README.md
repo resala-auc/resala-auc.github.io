@@ -47,19 +47,20 @@ The function will also create and use two sheet tabs if they do not already exis
 - `Interview Slots`
 - `Interview Reservations`
 
-The `Interview Slots` tab seeds editable one-hour rows for `12:01 PM`, `3:00 PM`, `7:00 PM`, `8:00 PM`, and `10:00 PM`. Only dated, active, non-full, future slots appear on the form.
+The `Interview Slots` tab seeds editable one-hour rows for `12:01 PM`, `2:00 PM`, `3:00 PM`, `7:00 PM`, `8:00 PM`, and `10:00 PM`. Only dated, active, non-full, future slots appear on the form.
 
 Recruitment slots run from Monday, June 22, 2026 through Wednesday, July 15, 2026. The backend generates one row per date/time, with a unique `Slot ID` for every row:
 
 ```text
 slot-2026-06-22-1201 | 2026-06-22 | 12:01 PM | 1:01 PM | 2026-06-22 at 12:01 PM | 1 | TRUE
+slot-2026-06-22-1400 | 2026-06-22 | 2:00 PM | 3:00 PM | 2026-06-22 at 2:00 PM | 1 | TRUE
 slot-2026-06-22-1500 | 2026-06-22 | 3:00 PM | 4:00 PM | 2026-06-22 at 3:00 PM | 1 | TRUE
 slot-2026-06-22-1900 | 2026-06-22 | 7:00 PM | 8:00 PM | 2026-06-22 at 7:00 PM | 1 | TRUE
 slot-2026-06-22-2000 | 2026-06-22 | 8:00 PM | 9:00 PM | 2026-06-22 at 8:00 PM | 1 | TRUE
 slot-2026-06-22-2200 | 2026-06-22 | 10:00 PM | 11:00 PM | 2026-06-22 at 10:00 PM | 1 | TRUE
 ```
 
-The generated sheet includes those five rows for every date through `2026-07-15`. Existing sheets are also backfilled with any missing generated rows from the current `Africa/Cairo` date through `2026-07-15`. Once a slot's start time passes in the `Africa/Cairo` timezone, the backend automatically hides it from the form. Same-day slots are also closed from 11:00 AM Cairo time so applicants have enough time to read and complete the next steps before the interview. Older default half-hour rows such as `7:30 PM - 8:30 PM` are hidden by the backend to avoid overlaps.
+The generated sheet includes those six rows for every date through `2026-07-15`. Existing sheets are also backfilled with any missing generated rows from the current `Africa/Cairo` date through `2026-07-15`. Once a slot's start time passes in the `Africa/Cairo` timezone, the backend automatically hides it from the form. Same-day slots are also closed from 11:00 AM Cairo time so applicants have enough time to read and complete the next steps before the interview. Older default half-hour rows such as `7:30 PM - 8:30 PM` are hidden by the backend to avoid overlaps.
 
 Calendar setup:
 

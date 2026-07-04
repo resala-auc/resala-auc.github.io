@@ -96,6 +96,7 @@ const RECRUITMENT_START_DATE = "2026-06-22";
 const RECRUITMENT_END_DATE = "2026-07-15";
 const DAILY_SLOT_TIMES = [
   { code: "1201", startTime: "12:01 PM" },
+  { code: "1400", startTime: "2:00 PM" },
   { code: "1500", startTime: "3:00 PM" },
   { code: "1900", startTime: "7:00 PM" },
   { code: "2000", startTime: "8:00 PM" },
