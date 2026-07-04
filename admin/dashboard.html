@@ -406,6 +406,8 @@
     .score-field-input input { width: 58px; padding: 6px 8px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; color: #172033; }
     .score-field-input input:focus { border-color: #0d2b45; background: #fff; }
     .score-field-input span { color: #94a3b8; font-size: 11px; font-weight: bold; }
+    .score-strength { width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; color: #172033; box-sizing: border-box; }
+    .score-strength:focus { border-color: #0d2b45; background: #fff; }
     .score-total { min-width: 76px; color: #0d2b45; font-size: 18px; font-weight: bold; white-space: nowrap; }
     .score-total span { color: #94a3b8; font-size: 12px; }
     .score-role { width: 100%; min-width: 150px; max-width: 210px; padding: 7px 10px; font-size: 12px; border: 1px solid #e6edf2; border-radius: 8px; outline: none; background: #f8fafc; color: #172033; }
@@ -619,6 +621,7 @@
               <th>Task</th>
               <th>Scoring Summary</th>
               <th>Total</th>
+              <th>Best Strengths</th>
               <th>Recommended Role</th>
               <th>Notes Doc</th>
               <th></th>
@@ -813,6 +816,19 @@
         </div>
       </div>
     `).join('')}</div>`;
+  }
+
+  function renderStrengthFields(r) {
+    return `<div class="score-summary-grid">
+      <div class="score-field">
+        <label for="strength1-${r.rowIndex}">Best Strength 1</label>
+        <input type="text" id="strength1-${r.rowIndex}" class="score-strength" value="${escHtml(r.bestStrength1)}" placeholder="e.g. Communication">
+      </div>
+      <div class="score-field">
+        <label for="strength2-${r.rowIndex}">Best Strength 2</label>
+        <input type="text" id="strength2-${r.rowIndex}" class="score-strength" value="${escHtml(r.bestStrength2)}" placeholder="e.g. Problem-solving">
+      </div>
+    </div>`;
   }
 
   function scoreFieldValue(rowIndex, field) {
@@ -1262,6 +1278,7 @@
         <td style="min-width:130px;">${taskCell(r)}</td>
         <td>${renderScoreSummary(r)}</td>
         <td><div class="score-total"><strong id="total-${r.rowIndex}">${escHtml(initialScoreTotal(r))}</strong> <span>/60</span></div></td>
+        <td>${renderStrengthFields(r)}</td>
         <td><select class="score-role" id="recommended-role-${r.rowIndex}" aria-label="Recommended role for ${escHtml(r.fullName)}">${roleOptionsHtml(r.recommendedRole)}</select></td>
         <td><input type="url" class="url-input" id="notes-${r.rowIndex}" value="${escHtml(r.notesUrl)}" placeholder="Paste doc URL"></td>
         <td>
@@ -1296,6 +1313,8 @@
   async function saveScore(rowIndex) {
     const notesUrl            = document.getElementById(`notes-${rowIndex}`)?.value.trim() ?? '';
     const recommendedRole = document.getElementById(`recommended-role-${rowIndex}`)?.value.trim() ?? '';
+    const bestStrength1 = document.getElementById(`strength1-${rowIndex}`)?.value.trim() ?? '';
+    const bestStrength2 = document.getElementById(`strength2-${rowIndex}`)?.value.trim() ?? '';
     const btn = document.getElementById(`save-btn-${rowIndex}`);
     const app = allApplicants.find(a => a.rowIndex === rowIndex);
     if (!app?.aucEmail) {
@@ -1327,6 +1346,8 @@
         secondPreferenceScore,
         recommendedRole,
         totalScore: savedTotal,
+        bestStrength1,
+        bestStrength2,
         ...scoreSummary.scores
       });
       if (app) {
@@ -1335,6 +1356,8 @@
         app.secondPreferenceScore = secondPreferenceScore;
         app.recommendedRole = recommendedRole;
         app.totalScore = savedTotal;
+        app.bestStrength1 = bestStrength1;
+        app.bestStrength2 = bestStrength2;
         Object.assign(app, scoreSummary.scores);
       }
       showRowNotice(rowIndex, '✓ Saved', '#166534');

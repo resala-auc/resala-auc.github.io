@@ -62,7 +62,9 @@ const INTERVIEW_SCORE_HEADERS = [
   "Self-awareness + Commitment Score",
   "Role-Specific Module(s) Score",
   "Final Judgment Score",
-  "Total Score"
+  "Total Score",
+  "Best Strength 1",
+  "Best Strength 2"
 ];
 
 const SLOT_HEADERS = [
@@ -198,6 +200,8 @@ type AdminUpdateScorePayload = {
   roleSpecificModulesScore?: string;
   finalJudgmentScore?: string;
   totalScore?: string;
+  bestStrength1?: string;
+  bestStrength2?: string;
 };
 
 type SubmissionPayload =
@@ -1717,7 +1721,9 @@ async function loadAdminApplicants(token: string): Promise<{
     selfAwarenessCommitmentScore: row[30] ?? "",
     roleSpecificModulesScore: row[31] ?? "",
     finalJudgmentScore: row[32] ?? "",
-    totalScore: row[33] ?? ""
+    totalScore: row[33] ?? "",
+    bestStrength1: row[34] ?? "",
+    bestStrength2: row[35] ?? ""
   }));
 
   return { applicants };
@@ -1756,7 +1762,9 @@ async function updateApplicantScore(
       payload.selfAwarenessCommitmentScore ?? "",
       payload.roleSpecificModulesScore ?? "",
       payload.finalJudgmentScore ?? "",
-      payload.totalScore ?? ""
+      payload.totalScore ?? "",
+      payload.bestStrength1 ?? "",
+      payload.bestStrength2 ?? ""
     ]]
   });
 
