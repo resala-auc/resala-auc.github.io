@@ -54,7 +54,17 @@ const HEADERS = [...APPLICATION_BASE_HEADERS, ...APPLICATION_TASK_HEADERS];
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
   "First Preference Score",
-  "Second Preference Score"
+  "Second Preference Score",
+  "Recommended Role",
+  "Vision + Motivation Score",
+  "Leadership Score",
+  "Ownership Score",
+  "Self-awareness + Commitment Score",
+  "Role-Specific Module(s) Score",
+  "Final Judgment Score",
+  "Total Score",
+  "Best Strength 1",
+  "Best Strength 2"
 ];
 
 const SLOT_HEADERS = [
@@ -87,9 +97,12 @@ const RESERVATION_HEADERS = [
 const RECRUITMENT_START_DATE = "2026-06-22";
 const RECRUITMENT_END_DATE = "2026-07-15";
 const DAILY_SLOT_TIMES = [
+  { code: "1201", startTime: "12:01 PM" },
+  { code: "1400", startTime: "2:00 PM" },
   { code: "1500", startTime: "3:00 PM" },
   { code: "1900", startTime: "7:00 PM" },
-  { code: "2000", startTime: "8:00 PM" }
+  { code: "2000", startTime: "8:00 PM" },
+  { code: "2200", startTime: "10:00 PM" }
 ];
 const SAME_DAY_SLOT_CUTOFF_HOUR = 11;
 const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
@@ -179,6 +192,16 @@ type AdminUpdateScorePayload = {
   notesUrl: string;
   firstPreferenceScore: string;
   secondPreferenceScore: string;
+  recommendedRole?: string;
+  visionMotivationScore?: string;
+  leadershipScore?: string;
+  ownershipScore?: string;
+  selfAwarenessCommitmentScore?: string;
+  roleSpecificModulesScore?: string;
+  finalJudgmentScore?: string;
+  totalScore?: string;
+  bestStrength1?: string;
+  bestStrength2?: string;
 };
 
 type SubmissionPayload =
@@ -1250,6 +1273,7 @@ async function ensureSlotSheets(token: string): Promise<void> {
     SLOT_HEADERS,
     buildRecruitmentSlotRows()
   );
+  await ensureRemainingRecruitmentSlotRows(token);
   await ensureSheetHeaders(token, RESERVATION_SHEET_NAME, RESERVATION_HEADERS);
 }
 
@@ -1689,7 +1713,17 @@ async function loadAdminApplicants(token: string): Promise<{
     ...getTaskSubmissionState(row),
     notesUrl: row[23] ?? "",
     firstPreferenceScore: row[24] ?? "",
-    secondPreferenceScore: row[25] ?? ""
+    secondPreferenceScore: row[25] ?? "",
+    recommendedRole: row[26] ?? "",
+    visionMotivationScore: row[27] ?? "",
+    leadershipScore: row[28] ?? "",
+    ownershipScore: row[29] ?? "",
+    selfAwarenessCommitmentScore: row[30] ?? "",
+    roleSpecificModulesScore: row[31] ?? "",
+    finalJudgmentScore: row[32] ?? "",
+    totalScore: row[33] ?? "",
+    bestStrength1: row[34] ?? "",
+    bestStrength2: row[35] ?? ""
   }));
 
   return { applicants };
@@ -1714,10 +1748,24 @@ async function updateApplicantScore(
 
   const sheetRow = rowIndex + 2;
   const startCol = columnLetter(HEADERS.length + 1); // X
-  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length); // Z
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length); // AH
 
   await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}${sheetRow}:${endCol}${sheetRow}`)}?valueInputOption=RAW`, {
-    values: [[payload.notesUrl, payload.firstPreferenceScore, payload.secondPreferenceScore]]
+    values: [[
+      payload.notesUrl,
+      payload.firstPreferenceScore,
+      payload.secondPreferenceScore,
+      payload.recommendedRole ?? "",
+      payload.visionMotivationScore ?? "",
+      payload.leadershipScore ?? "",
+      payload.ownershipScore ?? "",
+      payload.selfAwarenessCommitmentScore ?? "",
+      payload.roleSpecificModulesScore ?? "",
+      payload.finalJudgmentScore ?? "",
+      payload.totalScore ?? "",
+      payload.bestStrength1 ?? "",
+      payload.bestStrength2 ?? ""
+    ]]
   });
 
   return { updated: true };
@@ -2196,14 +2244,42 @@ function shouldResetSlotRows(sheetName: string, rows: string[][]): boolean {
   });
 }
 
-function buildRecruitmentSlotRows(): Array<Array<string | number>> {
+async function ensureRemainingRecruitmentSlotRows(token: string): Promise<void> {
+  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`);
+  const existingRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const existingSlotKeys = new Set(
+    existingRows
+      .map((row) => {
+        const date = String(row[1] ?? "").trim();
+        const startTime = normalizeTime24(row[2]);
+        return date && startTime ? `${date}|${startTime}` : "";
+      })
+      .filter(Boolean)
+  );
+
+  const missingRows = buildRecruitmentSlotRows(getRemainingRecruitmentStartDate()).filter((row) => {
+    const date = String(row[1] ?? "").trim();
+    const startTime = normalizeTime24(row[2]);
+    return date && startTime && !existingSlotKeys.has(`${date}|${startTime}`);
+  });
+
+  if (!missingRows.length) return;
+
+  await sheetsFetch(token, "POST", `${sheetRange(SLOT_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    values: missingRows
+  });
+}
+
+function buildRecruitmentSlotRows(fromDate?: Date): Array<Array<string | number>> {
   const rows: Array<Array<string | number>> = [];
-  const startDate = parseDateOnly(RECRUITMENT_START_DATE);
+  const configuredStartDate = parseDateOnly(RECRUITMENT_START_DATE);
   const endDate = parseDateOnly(RECRUITMENT_END_DATE);
 
-  if (!startDate || !endDate) {
+  if (!configuredStartDate || !endDate) {
     throw new Error("Recruitment slot date range is invalid.");
   }
+
+  const startDate = fromDate && fromDate > configuredStartDate ? fromDate : configuredStartDate;
 
   for (let date = startDate; date <= endDate; date = addDays(date, 1)) {
     const dateString = formatDateOnly(date);
@@ -2224,6 +2300,17 @@ function buildRecruitmentSlotRows(): Array<Array<string | number>> {
   }
 
   return rows;
+}
+
+function getRemainingRecruitmentStartDate(): Date {
+  const currentLocalDate = parseDateOnly(getCurrentLocalDateTime(CALENDAR_TIME_ZONE).slice(0, 10));
+  const recruitmentStartDate = parseDateOnly(RECRUITMENT_START_DATE);
+
+  if (!currentLocalDate || !recruitmentStartDate) {
+    throw new Error("Recruitment slot date range is invalid.");
+  }
+
+  return currentLocalDate > recruitmentStartDate ? currentLocalDate : recruitmentStartDate;
 }
 
 async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> {
