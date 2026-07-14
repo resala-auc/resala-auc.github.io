@@ -131,7 +131,7 @@ export function InterviewSlotSelector(): string {
         <span class="apply-step-number">04</span>
         <div>
           <h2 id="interview-section-title">Interview time slot</h2>
-          <p>Choose an available date first, then pick one of the open interview times.</p>
+          <p>Choose an available time, or submit without one and we will contact you to schedule your interview.</p>
         </div>
       </div>
       <div class="slot-picker" aria-describedby="interviewSlot-error" data-slot-options>
@@ -148,12 +148,12 @@ export function SuccessState(): string {
       <span class="success-mark" aria-hidden="true">01</span>
       <h2 id="success-title">Thank you for taking the first step with Resala.</h2>
       <p>Your application has been received.</p>
-      <div class="success-slot">
+      <div class="success-slot" data-success-slot-container>
         <span>Your selected interview slot is:</span>
         <strong data-success-slot>[INTERVIEW_SLOT]</strong>
       </div>
-      <p class="success-processing" data-success-processing>Your confirmation email and calendar invite are being prepared in the background.</p>
-      <p>We'll contact you by email with your confirmation and what you should prepare for the interview.</p>
+      <p class="success-processing" data-success-processing>Your confirmation email is being prepared.</p>
+      <p>Check your email for next steps. If you did not reserve a slot, someone from the team will contact you soon to schedule your interview.</p>
       <div class="success-actions">
         <a class="button button-primary" href="../tasks/">Submit task links</a>
         <a class="button button-secondary" href="../">Back to recruitment page</a>
@@ -170,7 +170,7 @@ export function ApplicationForm(): string {
       <aside class="application-attention-note" aria-label="Important application note">
         <span>Important before you submit</span>
         <strong>Read your confirmation email carefully after applying.</strong>
-        <p>Your interview task is attached there, along with the details you need before your interview.</p>
+        <p>Your interview tasks are attached there. If you did not reserve a slot, someone from the team will contact you soon to schedule your interview.</p>
       </aside>
 
       <section class="apply-card" aria-labelledby="basic-info-title">

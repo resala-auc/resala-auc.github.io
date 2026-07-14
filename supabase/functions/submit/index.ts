@@ -130,7 +130,7 @@ type ApplicationPayload = {
   whyChooseYourself: string;
   hopeToLearn?: string;
   previousResalaExperience?: string;
-  interviewSlot: string;
+  interviewSlot?: string;
   interviewSlotId?: string;
   interviewSlotLabel?: string;
   createdAt: string;
@@ -465,9 +465,14 @@ Deno.serve(async (request) => {
     await ensureSlotSheets(token);
     await ensureHeaders(token, sheetName);
     await ensureNotDuplicate(token, payload, sheetName);
-    const reservation = await reserveInterviewSlot(token, payload);
-    payload.interviewSlot = reservation.slot.label;
-    payload.interviewSlotLabel = reservation.slot.label;
+
+    let reservation: ReservationDetails | null = null;
+    if (payload.interviewSlotId) {
+      reservation = await reserveInterviewSlot(token, payload);
+      payload.interviewSlot = reservation.slot.label;
+      payload.interviewSlotLabel = reservation.slot.label;
+    }
+
     await appendApplication(token, payload, sheetName);
     const emailSent = await trySendConfirmationEmail(payload, reservation);
 
@@ -555,7 +560,6 @@ function validateApplication(payload: ApplicationPayload): void {
     "secondPreference",
     "whyThisRole",
     "whyChooseYourself",
-    "interviewSlot",
     "createdAt"
   ];
 
@@ -566,10 +570,6 @@ function validateApplication(payload: ApplicationPayload): void {
 
   if (!isValidAucEmail(payload.aucEmail)) {
     throw new Error("Invalid AUC email.");
-  }
-
-  if (!String(payload.interviewSlotId ?? "").trim()) {
-    throw new Error("Missing required fields: interviewSlotId.");
   }
 
   if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
@@ -714,7 +714,7 @@ async function updateTaskSubmission(token: string, payload: TaskSubmissionPayloa
   });
 }
 
-async function sendConfirmationEmail(payload: ApplicationPayload, reservation: ReservationDetails): Promise<void> {
+async function sendConfirmationEmail(payload: ApplicationPayload, reservation: ReservationDetails | null): Promise<void> {
   if (!gmailConfigured()) {
     return;
   }
@@ -766,25 +766,41 @@ function gmailConfigured(): boolean {
 
 function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
-  reservation: ReservationDetails,
+  reservation: ReservationDetails | null,
   tasks: ApplicantTaskDocument[],
   roleGuideLinks: RoleGuideLink[]
 ): ConfirmationEmailTemplate {
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
-  const taskDeadline = formatLocalDateTimeLabel(
-    subtractMinutesFromLocalDateTime(reservation.slot.startDateTime, INTERVIEW_REMINDER_MINUTES)
-  );
+  const hasSlot = Boolean(reservation && slot);
+  const taskDeadline = hasSlot
+    ? formatLocalDateTimeLabel(
+        subtractMinutesFromLocalDateTime(reservation!.slot.startDateTime, INTERVIEW_REMINDER_MINUTES)
+      )
+    : "";
   const submissionLine = getTaskSubmissionLine();
   const subject = "Resala AUC Application Confirmation";
-  const body = [
+  const bodyLines = [
     `Hi ${payload.fullName},`,
     "",
     `Thanks for applying to Resala AUC. Your first preference is ${payload.roleAppliedFor}, and your second preference is ${payload.secondPreference}.`,
     "",
-    `Your interview slot is: ${slot}.`,
-    `Google Meet link: ${reservation.meetLink}`,
-    "You will receive a Google Calendar invitation and a reminder email 30 minutes before the interview.",
-    "",
+  ];
+
+  if (hasSlot) {
+    bodyLines.push(
+      `Your interview slot is: ${slot}.`,
+      `Google Meet link: ${reservation!.meetLink}`,
+      "You will receive a Google Calendar invitation and a reminder email 30 minutes before the interview.",
+      "",
+    );
+  } else {
+    bodyLines.push(
+      "Your application has been received. We will contact you soon to schedule your interview.",
+      "",
+    );
+  }
+
+  bodyLines.push(
     "Please complete two pre-interview tasks, one for each preference:",
     "",
     ...formatTaskDocumentTextLines(tasks),
@@ -793,7 +809,15 @@ function buildConfirmationEmailTemplate(
     `${ROLE_GUIDE_BASE_URL}/`,
     ...formatRoleGuideTextLines(roleGuideLinks),
     "",
-    `Task deadline: ${taskDeadline || "30 minutes before your interview"}.`,
+  );
+
+  if (hasSlot) {
+    bodyLines.push(`Task deadline: ${taskDeadline || "30 minutes before your interview"}.`);
+  } else {
+    bodyLines.push("Please complete your tasks as soon as possible so you are ready when your interview is scheduled.");
+  }
+
+  bodyLines.push(
     submissionLine,
     "",
     "The task PDFs are attached when Drive export is available. The Google Doc links above are included as a backup.",
@@ -801,20 +825,21 @@ function buildConfirmationEmailTemplate(
     "",
     "Best,",
     "Resala AUC"
-  ].join("\n");
+  );
 
   return {
     subject,
-    body,
+    body: bodyLines.join("\n"),
     html: buildConfirmationEmailHtml({
       fullName: payload.fullName,
       roleAppliedFor: payload.roleAppliedFor,
       secondPreference: payload.secondPreference,
-      slot,
+      slot: hasSlot ? slot : "",
       taskDeadline,
-      meetLink: reservation.meetLink,
+      meetLink: hasSlot ? reservation!.meetLink : "",
       tasks,
-      roleGuideLinks
+      roleGuideLinks,
+      hasSlot
     })
   };
 }
@@ -827,7 +852,8 @@ function buildConfirmationEmailHtml({
   taskDeadline,
   meetLink,
   tasks,
-  roleGuideLinks
+  roleGuideLinks,
+  hasSlot = true
 }: {
   fullName: string;
   roleAppliedFor: string;
@@ -837,11 +863,12 @@ function buildConfirmationEmailHtml({
   meetLink: string;
   tasks: ApplicantTaskDocument[];
   roleGuideLinks: RoleGuideLink[];
+  hasSlot?: boolean;
 }): string {
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your Resala AUC interview slot is reserved.</div>
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your Resala AUC application has been received.</div>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
@@ -851,14 +878,15 @@ function buildConfirmationEmailHtml({
                 <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
                 <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
                 <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
-                <div style="font-size:28px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:22px;">Your Interview Slot Is Reserved</div>
-                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">Thanks for applying. Here is everything you need before the interview.</div>
+                <div style="font-size:28px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:22px;">${hasSlot ? "Your Interview Slot Is Reserved" : "Application Received"}</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${hasSlot ? "Thanks for applying. Here is everything you need before the interview." : "Thanks for applying. We will contact you soon to schedule your interview."}</div>
               </td>
             </tr>
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. We received your application and reserved your interview slot.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. ${hasSlot ? "We received your application and reserved your interview slot." : "We received your application."}</p>
+                ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
@@ -876,13 +904,23 @@ function buildConfirmationEmailHtml({
                     </td>
                   </tr>
                 </table>
+                ` : `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f0f7f0;border:1px solid #c8e0c8;border-left:5px solid #4caf50;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#2e7d32;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Interview reservation</div>
+                      <div style="font-size:16px;line-height:1.5;font-weight:bold;color:#1b5e20;">Someone from the Resala AUC team will contact you soon to schedule your interview.</div>
+                    </td>
+                  </tr>
+                </table>
+                `}
                 ${buildTaskDocumentsHtml(tasks)}
                 ${buildRoleGuideHtml(roleGuideLinks)}
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
-                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">Task deadline</div>
-                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">Submit both tasks by ${escapeHtml(taskDeadline || "30 minutes before your interview")}.</div>
+                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">${hasSlot ? "Task deadline" : "Pre-interview tasks"}</div>
+                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${hasSlot ? `Submit both tasks by ${escapeHtml(taskDeadline || "30 minutes before your interview")}.` : "Please complete your pre-interview tasks as soon as possible so you are ready when your interview is scheduled."}</div>
                       ${buildSubmissionActionHtml()}
                     </td>
                   </tr>

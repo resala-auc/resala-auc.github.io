@@ -120,7 +120,6 @@ function validateForm(): FormErrors {
   }
   if (!getValue("whyThisRole")) errors.whyThisRole = "Tell us why you are applying for this role.";
   if (!getValue("whyChooseYourself")) errors.whyChooseYourself = "Tell us why you would choose yourself for this role.";
-  if (!getSelectedInterviewSlot()) errors.interviewSlot = "Choose one interview slot.";
 
   [
     "fullName",
@@ -249,14 +248,11 @@ function buildPayload(role: RoleOption): ApplicationPayload {
   const interviewSlot = getSelectedInterviewSlot();
   const secondPreference = getSecondPreferenceRole();
 
-  if (!interviewSlot) {
-    throw new Error("Choose one interview slot.");
-  }
   if (!secondPreference || secondPreference.id === role.id) {
     throw new Error("Choose a different role for your second preference.");
   }
 
-  return {
+  const payload: ApplicationPayload = {
     timestamp: now,
     fullName: getValue("fullName"),
     aucEmail: getValue("aucEmail"),
@@ -272,11 +268,13 @@ function buildPayload(role: RoleOption): ApplicationPayload {
     whyChooseYourself: getValue("whyChooseYourself"),
     hopeToLearn: getValue("hopeToLearn"),
     previousResalaExperience: getValue("previousResalaExperience"),
-    interviewSlot: interviewSlot.label,
-    interviewSlotId: interviewSlot.id,
-    interviewSlotLabel: interviewSlot.label,
+    interviewSlot: interviewSlot?.label ?? "",
+    interviewSlotId: interviewSlot?.id ?? "",
+    interviewSlotLabel: interviewSlot?.label ?? "",
     createdAt: now
   };
+
+  return payload;
 }
 
 function showErrorSummary(errors: FormErrors): void {
@@ -359,9 +357,14 @@ form?.addEventListener("submit", async (event) => {
   try {
     payload = buildPayload(role);
     form.hidden = true;
-    if (successSlot) successSlot.textContent = payload.interviewSlot;
+    const hasSlot = Boolean(payload.interviewSlot);
+    const successSlotContainer = document.querySelector<HTMLElement>("[data-success-slot-container]");
+    if (successSlotContainer) successSlotContainer.hidden = !hasSlot;
+    if (successSlot) successSlot.textContent = payload.interviewSlot || "";
     if (successProcessing) {
-      successProcessing.textContent = "Your confirmation email and calendar invite are being prepared in the background.";
+      successProcessing.textContent = hasSlot
+        ? "Your confirmation email and calendar invite are being prepared in the background."
+        : "Your confirmation email is being prepared.";
       successProcessing.classList.remove("success-processing-error");
     }
     if (successState) {
@@ -373,7 +376,9 @@ form?.addEventListener("submit", async (event) => {
     await submitApplication(payload);
 
     if (successProcessing) {
-      successProcessing.textContent = "Your confirmation email and calendar invite are on their way.";
+      successProcessing.textContent = hasSlot
+        ? "Your confirmation email and calendar invite are on their way."
+        : "Your confirmation email is on its way. We will contact you soon to schedule your interview.";
     }
   } catch (error) {
     if (successState && successState.hidden && errorSummary) {
@@ -403,7 +408,8 @@ async function renderInterviewSlots(): Promise<void> {
     const availableSlots = slots.filter((slot) => slot.active && !slot.full);
 
     if (!availableSlots.length) {
-      slotOptions.innerHTML = `<p class="slot-loading">No interview slots are available right now. Please check back later.</p>`;
+      slotOptions.innerHTML = `<p class="slot-loading">No interview slots are available right now. You can still submit your application and we will contact you to schedule your interview.</p>`;
+      slotsReady = true;
       return;
     }
 
@@ -521,7 +527,7 @@ function renderSlotTimes(slots: InterviewSlotOption[], selectedDate: string): st
         .map(
           (slot: InterviewSlotOption) => `
             <label class="slot-option-card">
-              <input class="choice-radio" type="radio" name="interviewSlot" value="${slot.id}" data-slot-label="${slot.label}" required>
+              <input class="choice-radio" type="radio" name="interviewSlot" value="${slot.id}" data-slot-label="${slot.label}">
               <span>${slot.startTime}</span>
               <strong>${slot.startTime} - ${slot.endTime}</strong>
               <small>${slot.remaining} available</small>
