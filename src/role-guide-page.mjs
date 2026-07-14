@@ -41,7 +41,7 @@ function GuideShell({ title, description, stylesheetHref, logoHref, faviconHref,
           </span>
         </a>
         <div class="task-topbar-actions">
-          <a class="button button-secondary" href="${homeHref}apply/">Apply</a>
+          <a class="button button-secondary" href="${homeHref}apply/">Closed</a>
           <a class="button button-primary" href="${homeHref}guides/">How to choose your role</a>
         </div>
       </header>
@@ -66,7 +66,7 @@ function RoleCard(role, basePath) {
       <ul class="guide-mini-list">${shortList(role.actualWork, 2)}</ul>
       <div class="guide-role-actions">
         <a class="role-guide-link" href="${basePath}guides/${role.id}/">View details</a>
-        <a class="role-apply-link" href="${basePath}apply/?role=${role.id}">Apply</a>
+        <a class="role-apply-link role-apply-link--closed" href="${basePath}apply/">Closed</a>
       </div>
     </article>
   `;
@@ -103,7 +103,7 @@ export function renderRoleGuideIndexPage() {
           <p>${escapeHtml(roleGuide.opening[2])}</p>
           <div class="guide-hero-actions">
             <a class="button button-primary" href="#roles">Explore roles</a>
-            <a class="button button-secondary" href="../apply/">Apply now</a>
+            <a class="button button-secondary" href="../apply/">Closed</a>
           </div>
         </div>
         <aside class="guide-contact-panel">
@@ -209,7 +209,7 @@ export function renderRoleGuidePage(role) {
           <h1>${escapeHtml(role.name)}</h1>
           <p>${escapeHtml(role.shortDescription)}</p>
           <div class="guide-hero-actions">
-            <a class="button button-primary" href="../../apply/?role=${role.id}">Apply for this role</a>
+            <a class="button button-primary" href="../../apply/">Closed</a>
             <a class="button button-secondary" href="../">Compare all roles</a>
           </div>
         </div>
@@ -273,7 +273,7 @@ export function renderRoleGuidePage(role) {
           ${role.actualWork.map((item, index) => `<li><span>${String(index + 1).padStart(2, "0")}</span><p>${escapeHtml(item)}</p></li>`).join("")}
         </ol>
         <div class="guide-next-actions">
-          <a class="button button-primary" href="../../apply/?role=${role.id}">Apply for ${escapeHtml(role.name)}</a>
+          <a class="button button-primary" href="../../apply/">Closed</a>
           <a class="button button-secondary" href="../">Back to all roles</a>
         </div>
       </div>

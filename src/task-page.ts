@@ -106,7 +106,7 @@ export function TaskPage(): string {
             </span>
           </a>
           <div class="task-topbar-actions">
-            <a class="button button-secondary apply-back-link" href="../apply/">Application form</a>
+            <a class="button button-secondary apply-back-link" href="../apply/">Applications closed</a>
             <a class="button button-secondary apply-back-link" href="../">Back to landing page</a>
           </div>
         </header>

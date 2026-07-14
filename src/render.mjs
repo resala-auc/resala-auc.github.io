@@ -69,7 +69,7 @@ const navLinks = navItems
   .join("");
 
 function roleApplyHref(role) {
-  return `./apply/?role=${role.id}`;
+  return `./apply/`;
 }
 
 function PhotoFrame({ photo, className, fallbackLabel }) {
@@ -120,7 +120,7 @@ function Header() {
       <nav class="site-nav" id="site-navigation" aria-label="Primary navigation" data-site-nav>
         ${navLinks}
       </nav>
-      <a class="button button-primary header-cta" href="./apply/">Apply Now</a>
+      <a class="button button-primary header-cta" href="./apply/">Applications closed</a>
     </header>
   `;
 }
@@ -168,8 +168,8 @@ function Hero() {
           <p class="arabic-line hero-arabic" lang="ar" dir="rtl">ابني اول خطوة في حياتهم</p>
           <p class="hero-subtitle hero-copy-line">AUC students serving children, families, and community access through visits, logistics, fundraising, media, HR, tech, events, and operations.</p>
           <div class="hero-actions hero-actions-line" aria-label="Campaign actions">
-            <a class="button button-primary" href="./apply/">Start Application</a>
-          <a class="button button-secondary" href="./guides/">How to choose your role</a>
+            <a class="button button-primary" href="./apply/">Applications closed</a>
+          <a class="button button-secondary" href="./tasks/">Submit tasks</a>
           </div>
         </div>
       </div>
@@ -324,7 +324,7 @@ function RolePreviewCards() {
           </dl>
         </div>
           <p class="role-step">${role.step}</p>
-          <a class="role-apply-link" href="${roleApplyHref(role)}" aria-label="Apply for ${role.name}">Apply</a>
+          <a class="role-apply-link role-apply-link--closed" href="${roleApplyHref(role)}" aria-label="Applications closed for ${role.name}">Closed</a>
           <a class="role-guide-link" href="./guides/${role.id}/" aria-label="View details for ${role.name}">Details</a>
         </article>
       `
@@ -386,12 +386,11 @@ function ComingSoonCTA() {
     <section class="section-band applications" id="applications" aria-labelledby="applications-title">
       <div class="container">
         <div class="applications-panel reveal">
-          <p class="eyebrow">Applications are open</p>
-          <h2 id="applications-title">The application form is ready.</h2>
-          <p>Choose the role you want to apply for, answer the application questions clearly, and select the interview slot that works best for you.</p>
+          <p class="eyebrow">Applications are closed</p>
+          <h2 id="applications-title">Thank you for your interest.</h2>
+          <p>Applications for this recruitment cycle are now closed. If you submitted an application, check your email for next steps and submit your pre-interview tasks.</p>
           <div class="application-actions" aria-label="Application actions">
-            <a class="button button-primary" href="./apply/">Open application form</a>
-            <a class="button button-secondary" href="./tasks/">Submit task links</a>
+            <a class="button button-primary" href="./tasks/">Submit tasks</a>
             <a class="button button-secondary" href="./guides/">How to choose your role</a>
           </div>
         </div>

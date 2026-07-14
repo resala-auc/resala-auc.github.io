@@ -1285,6 +1285,17 @@ h3 {
   color: var(--color-ink);
 }
 
+.role-apply-link--closed {
+  background: #e2e8f0;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.role-apply-link--closed:hover {
+  background: #e2e8f0;
+  color: #94a3b8;
+}
+
 .role-guide-link {
   width: fit-content;
   margin-top: 10px;
@@ -5042,4 +5053,46 @@ h3 {
   .stair-puzzle {
     opacity: 0.32;
   }
+}
+
+.closed-content {
+  display: grid;
+  gap: 24px;
+}
+
+.closed-card {
+  background: #fff;
+  border: 1px solid var(--color-outline);
+  border-radius: var(--radius);
+  padding: clamp(28px, 4vw, 40px);
+  display: grid;
+  gap: 12px;
+}
+
+.closed-card-icon {
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-accent-orange);
+  color: #2f1a05;
+  font-family: var(--font-serif);
+  font-weight: 900;
+  font-size: 20px;
+  box-shadow: 0 16px 32px rgba(255, 153, 51, 0.24);
+}
+
+.closed-card h3 {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--color-heading);
+}
+
+.closed-card p {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-muted);
 }

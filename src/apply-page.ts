@@ -293,6 +293,62 @@ export function ApplyPage(): string {
   `;
 }
 
+export function ClosedPage(): string {
+  return `
+    <main class="apply-page">
+      <section class="apply-hero" aria-labelledby="closed-title">
+        <div class="apply-hero-pattern" aria-hidden="true"></div>
+        <header class="apply-topbar">
+          <a class="apply-logo-link" href="../" aria-label="Back to Resala AUC recruitment home">
+            <span class="brand-logo-frame">
+              <img src="${logoPath}" alt="Resala AUC logo" width="420" height="236">
+            </span>
+          </a>
+          <div class="task-topbar-actions">
+            <a class="button button-secondary apply-back-link" href="../tasks/">Submit tasks</a>
+            <a class="button button-secondary apply-back-link" href="../">Back to landing page</a>
+          </div>
+        </header>
+        <div class="container apply-hero-grid">
+          <div class="apply-hero-copy">
+            <p class="eyebrow">Resala AUC Recruitment</p>
+            <h1 id="closed-title">Applications are now closed.</h1>
+            <p>Thank you to everyone who applied. We are reviewing applications and will contact shortlisted candidates.</p>
+          </div>
+          <div class="apply-hero-note" aria-label="Application closed">
+            <span>Closed</span>
+            <strong>Applications for this cycle are no longer being accepted.</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="apply-form-section" aria-label="What happens next">
+        <div class="container apply-form-layout">
+          <div class="apply-side-panel">
+            <span class="side-panel-label">Build the First Step</span>
+            <h2>The first step is complete.</h2>
+            <p>Thank you for your interest in joining Resala AUC. If you already submitted an application, check your email for updates and submit your tasks through the task submission page.</p>
+          </div>
+          <div class="closed-content">
+            <div class="closed-card">
+              <span class="closed-card-icon">01</span>
+              <h3>Submitted an application?</h3>
+              <p>Check your email for your confirmation and interview details. Submit your pre-interview tasks using the task submission page.</p>
+              <a class="button button-primary" href="../tasks/">Submit tasks</a>
+            </div>
+            <div class="closed-card">
+              <span class="closed-card-icon">02</span>
+              <h3>Have questions?</h3>
+              <p>If you have any questions about your application or the recruitment process, reach out to the Resala AUC team. We are here to help.</p>
+              <a class="button button-secondary" href="../">Back to recruitment page</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
 export function renderApplyPage(): string {
   return `<!doctype html>
 <html lang="en">
@@ -300,7 +356,7 @@ export function renderApplyPage(): string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Apply | Resala AUC Recruitment</title>
-    <meta name="description" content="Apply to Resala AUC recruitment and choose the role where you can build the first step.">
+    <meta name="description" content="Applications are now closed for Resala AUC recruitment.">
     <link rel="icon" type="image/png" href="../favicon.png">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -309,9 +365,7 @@ export function renderApplyPage(): string {
     <link rel="stylesheet" href="../styles.css">
   </head>
   <body class="apply-page-body">
-    ${ApplyPage()}
-    <script src="../spreadsheet-config.js"></script>
-    <script type="module" src="../apply.js"></script>
+    ${ClosedPage()}
   </body>
 </html>`;
 }
