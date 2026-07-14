@@ -204,6 +204,14 @@ type AdminUpdateScorePayload = {
   bestStrength2?: string;
 };
 
+type AdminScheduleInterviewPayload = {
+  mode: "admin-schedule-interview";
+  aucEmail: string;
+  date: string;      // YYYY-MM-DD
+  startTime: string; // HH:MM 24h
+  endTime?: string;
+};
+
 type SubmissionPayload =
   | ApplicationPayload
   | TaskSubmissionPayload
@@ -214,7 +222,8 @@ type SubmissionPayload =
   | AdminUpdateInterviewStatusPayload
   | AdminExtendInterviewDurationsPayload
   | AdminLoadApplicantsPayload
-  | AdminUpdateScorePayload;
+  | AdminUpdateScorePayload
+  | AdminScheduleInterviewPayload;
 
 type ConfirmationEmailTemplate = {
   subject: string;
@@ -439,6 +448,19 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminScheduleInterviewPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await scheduleInterviewForApplicant(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isTaskSubmissionPayload(payload)) {
       validateTaskSubmission(payload);
 
@@ -533,6 +555,10 @@ function isAdminLoadApplicantsPayload(payload: SubmissionPayload): payload is Ad
 
 function isAdminUpdateScorePayload(payload: SubmissionPayload): payload is AdminUpdateScorePayload {
   return (payload as AdminUpdateScorePayload).mode === "admin-update-score";
+}
+
+function isAdminScheduleInterviewPayload(payload: SubmissionPayload): payload is AdminScheduleInterviewPayload {
+  return (payload as AdminScheduleInterviewPayload).mode === "admin-schedule-interview";
 }
 
 function authorizeAdminReset(request: Request): void {
@@ -1538,8 +1564,10 @@ async function loadAdminDashboard(token: string): Promise<{
     if (email) appByEmail.set(email, row);
   }
 
+  const reservedEmails = new Set<string>();
   const reservations = reservationRows.map((row: string[], index: number) => {
     const aucEmail = String(row[4] ?? "").trim();
+    if (aucEmail) reservedEmails.add(normalize(aucEmail));
     const app = appByEmail.get(normalize(aucEmail)) ?? [];
     const roleAppliedFor = String(row[12] ?? "").trim() || String(app[7] ?? "").trim();
     const secondPreference = String(row[13] ?? "").trim() || String(app[17] ?? "").trim();
@@ -1567,13 +1595,178 @@ async function loadAdminDashboard(token: string): Promise<{
       whyChooseYourself: app[11] ?? "",
       hopeToLearn: app[12] ?? "",
       previousResalaExperience: app[13] ?? "",
+      noSlot: false,
       ...taskSubmission
     };
   });
 
+  for (const [email, app] of appByEmail) {
+    if (reservedEmails.has(email)) continue;
+    const taskSubmission = getTaskSubmissionState(app);
+    const aucEmail = String(app[2] ?? "").trim();
+    reservations.push({
+      rowIndex: -(appByEmail.size + reservations.length + 1),
+      timestamp: app[0] ?? "",
+      slotId: "",
+      slotLabel: "",
+      fullName: app[1] ?? "",
+      aucEmail,
+      studentId: app[3] ?? "",
+      calendarEventId: "",
+      meetLink: "",
+      interviewStatus: "",
+      reminderSendAt: "",
+      reminderSentAt: "",
+      reminderStatus: "",
+      roleAppliedFor: app[7] ?? "",
+      secondPreference: app[17] ?? "",
+      major: app[4] ?? "",
+      yearLevel: app[5] ?? "",
+      phone: app[6] ?? "",
+      whyThisRole: app[10] ?? "",
+      whyChooseYourself: app[11] ?? "",
+      hopeToLearn: app[12] ?? "",
+      previousResalaExperience: app[13] ?? "",
+      noSlot: true,
+      ...taskSubmission
+    });
+  }
+
   const slots = await getInterviewSlots(token);
 
   return { reservations, slots };
+}
+
+async function scheduleInterviewForApplicant(
+  token: string,
+  payload: AdminScheduleInterviewPayload
+): Promise<{
+  scheduled: boolean;
+  emailSent: boolean;
+  slotLabel: string;
+}> {
+  const { aucEmail, date, startTime: rawStartTime } = payload;
+  const rawEndTime = String(payload.endTime ?? "").trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("Invalid date format. Use YYYY-MM-DD.");
+  }
+
+  if (!/^\d{1,2}:\d{2}$/.test(rawStartTime)) {
+    throw new Error("Invalid time format. Use HH:MM (24h).");
+  }
+
+  const sheetName = await getSheetName(token);
+  const applicationWidth = columnLetter(HEADERS.length);
+  const applicationResponse = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${applicationWidth}`)}`);
+  const applicationRows = (await applicationResponse.json()).values ?? [];
+
+  const appRowIndex = applicationRows.findIndex((row: string[]) => normalize(row[2]) === normalize(aucEmail));
+  if (appRowIndex === -1) {
+    throw new Error(`Applicant not found: ${aucEmail}`);
+  }
+
+  const app = applicationRows[appRowIndex];
+  const sheetRow = appRowIndex + 2;
+  const fullName = String(app[1] ?? "").trim();
+  const studentId = String(app[3] ?? "").trim();
+  const roleAppliedFor = String(app[7] ?? "").trim();
+  const secondPreference = String(app[17] ?? "").trim();
+
+  const [sh, sm] = rawStartTime.split(":").map(Number);
+  const startDateTime = `${date}T${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}:00`;
+
+  const endMinutesTotal = sh * 60 + sm + INTERVIEW_SLOT_DURATION_MINUTES;
+  const eh = Math.floor(endMinutesTotal / 60) % 24;
+  const em = endMinutesTotal % 60;
+  const resolvedEndTime = rawEndTime || `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+  const [reh, rem] = resolvedEndTime.split(":").map(Number);
+  const endDateTime = `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`;
+
+  const displayHour = sh % 12 || 12;
+  const meridiem = sh >= 12 ? "PM" : "AM";
+  const slotLabel = `${date} at ${displayHour}:${String(sm).padStart(2, "0")} ${meridiem}`;
+  const slotId = `admin-${date}-${String(sh).padStart(2, "0")}${String(sm).padStart(2, "0")}`;
+
+  const newSlot: InterviewSlotOption = {
+    id: slotId,
+    label: slotLabel,
+    date,
+    startTime: `${displayHour}:${String(sm).padStart(2, "0")} ${meridiem}`,
+    endTime: `${reh % 12 || 12}:${String(rem).padStart(2, "0")} ${reh >= 12 ? "PM" : "AM"}`,
+    startDateTime,
+    endDateTime,
+    capacity: 1,
+    active: true,
+    reservedCount: 0,
+    remaining: 1,
+    full: false
+  };
+
+  const applicantPayload: ApplicationPayload = {
+    timestamp: new Date().toISOString(),
+    fullName,
+    aucEmail,
+    studentId,
+    major: String(app[4] ?? ""),
+    yearLevel: String(app[5] ?? ""),
+    phone: String(app[6] ?? ""),
+    roleAppliedFor,
+    roleStepTitle: "",
+    roleDescription: "",
+    secondPreference,
+    whyThisRole: "",
+    whyChooseYourself: "",
+    interviewSlot: newSlot.label,
+    interviewSlotId: newSlot.id,
+    interviewSlotLabel: newSlot.label,
+    createdAt: new Date().toISOString()
+  };
+
+  const calendarToken = await getGmailAccessToken();
+  const calendarEvent = await createCalendarEvent(calendarToken, applicantPayload, newSlot);
+
+  const newReminderSendAt = subtractMinutesFromLocalDateTime(newSlot.startDateTime, INTERVIEW_REMINDER_MINUTES);
+
+  await sheetsFetch(token, "POST", `${sheetRange(RESERVATION_SHEET_NAME, "A:N")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    values: [[
+      new Date().toISOString(),
+      slotId,
+      slotLabel,
+      fullName,
+      aucEmail,
+      studentId,
+      calendarEvent.calendarEventId,
+      calendarEvent.meetLink,
+      "Not Done",
+      newReminderSendAt,
+      "",
+      "Pending",
+      roleAppliedFor,
+      secondPreference
+    ]]
+  });
+
+  await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `O${sheetRow}`)}?valueInputOption=RAW`, {
+    values: [[newSlot.label]]
+  });
+  await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `Q${sheetRow}`)}?valueInputOption=RAW`, {
+    values: [["Not Done"]]
+  });
+
+  let emailSent = false;
+  try {
+    await sendConfirmationEmail(applicantPayload, {
+      slot: newSlot,
+      calendarEventId: calendarEvent.calendarEventId,
+      meetLink: calendarEvent.meetLink
+    });
+    emailSent = gmailConfigured();
+  } catch (error) {
+    console.error(`Schedule interview email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { scheduled: true, emailSent, slotLabel };
 }
 
 async function updateReservationInterviewStatus(

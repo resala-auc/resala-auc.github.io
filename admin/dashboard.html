@@ -169,6 +169,7 @@
     .summary-chip.needs::before { background: #f59e0b; }
     .summary-chip.done::before { background: #16a34a; }
     .summary-chip.noshow::before { background: #dc2626; }
+    .summary-chip.none::before { background: #94a3b8; }
 
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
 
@@ -219,6 +220,7 @@
     .reservation-section-title.needs::before { background: #f59e0b; }
     .reservation-section-title.done::before { background: #16a34a; }
     .reservation-section-title.noshow::before { background: #dc2626; }
+    .reservation-section-title.none::before { background: #94a3b8; }
 
     .reservation-row td:first-child {
       box-shadow: inset 5px 0 0 #94a3b8;
@@ -227,6 +229,7 @@
     .reservation-row.status-needs td:first-child { box-shadow: inset 5px 0 0 #f59e0b; }
     .reservation-row.status-done-row td:first-child { box-shadow: inset 5px 0 0 #16a34a; }
     .reservation-row.status-noshow td:first-child { box-shadow: inset 5px 0 0 #dc2626; }
+    .reservation-row.status-none td:first-child { box-shadow: inset 5px 0 0 #94a3b8; }
     .reservation-row.status-done-row { background: #f8fff9; }
     .reservation-row.status-noshow { background: #fff8f8; }
 
@@ -257,6 +260,7 @@
     .flag-needs { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
     .flag-done { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
     .flag-noshow { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .flag-none { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
     .slot-badge {
       display: inline-block;
@@ -319,6 +323,7 @@
     .btn:not(:disabled):hover { opacity: 0.88; }
     .btn-primary { background: #0d2b45; color: #fff; }
     .btn-accent  { background: #f5c46b; color: #0d2b45; }
+    .btn-outline { background: transparent; color: #0d2b45; border: 1px solid #0d2b45; }
     .btn-sm      { padding: 6px 13px; font-size: 12px; }
 
     .status-badge {
@@ -575,6 +580,7 @@
           <input id="res-search" placeholder="Search name, email, role…" oninput="filterRes()">
           <select id="res-status-filter" onchange="filterRes()" aria-label="Filter by interview status">
             <option value="">All statuses</option>
+            <option value="none">No slot</option>
             <option value="needs">Needs interview</option>
             <option value="done">Done</option>
             <option value="noshow">No show</option>
@@ -886,6 +892,7 @@
   }
 
   function reservationStatusKey(r) {
+    if (r.noSlot) return 'none';
     const v = normalize(r.interviewStatus || 'Not Done');
     if (v === 'done') return 'done';
     if (v === 'no show') return 'noshow';
@@ -895,6 +902,7 @@
   function reservationStatusLabel(key) {
     if (key === 'done') return 'Done';
     if (key === 'noshow') return 'No show';
+    if (key === 'none') return 'No slot';
     return 'Needs interview';
   }
 
@@ -907,7 +915,7 @@
     return rows.reduce((counts, r) => {
       counts[reservationStatusKey(r)] += 1;
       return counts;
-    }, { needs: 0, done: 0, noshow: 0 });
+    }, { needs: 0, done: 0, noshow: 0, none: 0 });
   }
 
   function parseTimeToMinutes(value) {
@@ -963,6 +971,7 @@
     if (!summary) return;
     const counts = reservationCounts(rows);
     summary.innerHTML = `
+      <span class="summary-chip none">${counts.none} no slot</span>
       <span class="summary-chip needs">${counts.needs} needs interview</span>
       <span class="summary-chip done">${counts.done} done</span>
       <span class="summary-chip noshow">${counts.noshow} no show</span>
@@ -1011,6 +1020,7 @@
     empty.style.display = 'none';
     const orderedRows = sortReservationsByInterviewTime(rows);
     const groups = [
+      { key: 'none', title: 'No interview slot', rows: orderedRows.filter(r => reservationStatusKey(r) === 'none') },
       { key: 'needs', title: 'Needs interview', rows: orderedRows.filter(r => reservationStatusKey(r) === 'needs') },
       { key: 'done', title: 'Completed interviews', rows: orderedRows.filter(r => reservationStatusKey(r) === 'done') },
       { key: 'noshow', title: 'No show / follow-up', rows: orderedRows.filter(r => reservationStatusKey(r) === 'noshow') }
@@ -1022,7 +1032,8 @@
       ${group.rows.map(r => {
       const hasMeet = !!(r.meetLink);
       const statusKey = reservationStatusKey(r);
-      const rowClass = statusKey === 'done' ? 'status-done-row' : statusKey === 'noshow' ? 'status-noshow' : 'status-needs';
+      const isNoSlot = statusKey === 'none';
+      const rowClass = isNoSlot ? 'status-none' : statusKey === 'done' ? 'status-done-row' : statusKey === 'noshow' ? 'status-noshow' : 'status-needs';
       return `
         <tr id="res-row-${r.rowIndex}" class="reservation-row ${rowClass}">
           <td>
@@ -1039,23 +1050,34 @@
             <div class="role-second">2nd: ${escHtml(r.secondPreference || '—')}</div>
           </td>
           <td style="min-width:170px;">
-            <div><span class="slot-badge">${escHtml(r.slotLabel || r.slotId || '—')}</span></div>
-            ${hasMeet
-              ? `<a class="meet-btn" href="${escHtml(r.meetLink)}" target="_blank" rel="noopener">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.9L15 14"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
-                  Join Meet
-                </a>`
-              : `<span class="meet-btn no-link">No Meet link</span>`
+            ${isNoSlot
+              ? `<span class="slot-badge" style="background:#f1f5f9;border-color:#cbd5e1;color:#64748b;">No slot</span>`
+              : `<div><span class="slot-badge">${escHtml(r.slotLabel || r.slotId || '—')}</span></div>
+                ${hasMeet
+                  ? `<a class="meet-btn" href="${escHtml(r.meetLink)}" target="_blank" rel="noopener">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.9L15 14"/><rect x="1" y="6" width="14" height="12" rx="2"/></svg>
+                      Join Meet
+                    </a>`
+                  : `<span class="meet-btn no-link">No Meet link</span>`
+                }`
             }
           </td>
-          <td>${statusControl(r)}</td>
+          <td>${isNoSlot ? '<span style="color:#94a3b8;font-size:12px;">—</span>' : statusControl(r)}</td>
           <td style="min-width:230px;">
-            <div class="datetime-inputs">
-              <input type="date" id="new-date-${r.rowIndex}" min="${todayStr()}" value="${todayStr()}">
-              <input type="time" id="new-time-${r.rowIndex}" value="15:00">
-            </div>
-            <button class="btn btn-accent btn-sm" id="res-btn-${r.rowIndex}" onclick="reschedule(${r.rowIndex})">Reschedule</button>
-            <div class="row-notice" id="rn-${r.rowIndex}"></div>
+            ${isNoSlot
+              ? `<div class="datetime-inputs">
+                  <input type="date" id="new-date-${r.rowIndex}" min="${todayStr()}" value="${todayStr()}">
+                  <input type="time" id="new-time-${r.rowIndex}" value="15:00">
+                </div>
+                <button class="btn btn-accent btn-sm" id="res-btn-${r.rowIndex}" onclick="scheduleInterview(${r.rowIndex})">Schedule</button>
+                <div class="row-notice" id="rn-${r.rowIndex}"></div>`
+              : `<div class="datetime-inputs">
+                  <input type="date" id="new-date-${r.rowIndex}" min="${todayStr()}" value="${todayStr()}">
+                  <input type="time" id="new-time-${r.rowIndex}" value="15:00">
+                </div>
+                <button class="btn btn-accent btn-sm" id="res-btn-${r.rowIndex}" onclick="reschedule(${r.rowIndex})">Reschedule</button>
+                <div class="row-notice" id="rn-${r.rowIndex}"></div>`
+            }
           </td>
           <td>
             <button class="view-btn" onclick="openModal(${r.rowIndex})">View answers</button>
@@ -1106,6 +1128,31 @@
       showRowNotice(rowIndex, err.message, '#991b1b');
       btn.disabled = false;
       btn.textContent = 'Reschedule';
+    }
+  }
+
+  async function scheduleInterview(rowIndex) {
+    const date = document.getElementById(`new-date-${rowIndex}`)?.value;
+    const time = document.getElementById(`new-time-${rowIndex}`)?.value;
+    if (!date || !time) { showRowNotice(rowIndex, 'Pick date and time.', '#991b1b'); return; }
+
+    const r = allReservations.find(x => x.rowIndex === rowIndex);
+    if (!r || !r.aucEmail) { showRowNotice(rowIndex, 'Applicant not found.', '#991b1b'); return; }
+
+    const btn = document.getElementById(`res-btn-${rowIndex}`);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner-dark"></span>';
+
+    try {
+      const data = await apiFetch({ mode: 'admin-schedule-interview', aucEmail: r.aucEmail, date, startTime: time });
+      const parts = [];
+      if (data.emailSent) parts.push('email sent');
+      showRowNotice(rowIndex, '✓ Scheduled · ' + data.slotLabel, '#166534');
+      setTimeout(() => refresh(), 1400);
+    } catch (err) {
+      showRowNotice(rowIndex, err.message, '#991b1b');
+      btn.disabled = false;
+      btn.textContent = 'Schedule';
     }
   }
 
@@ -1170,7 +1217,14 @@
           </div>
           <a class="meet-btn" href="${escHtml(r.meetLink)}" target="_blank" rel="noopener">Join Meet</a>
         </div>`
-      : '';
+      : r.noSlot
+        ? `<div class="modal-meet" style="background:#f8fafc;border-color:#cbd5e1;">
+            <div style="flex:1">
+              <div class="meet-label" style="color:#64748b;">No interview scheduled</div>
+              <div style="font-size:13px;color:#64748b;">Schedule an interview from the table above.</div>
+            </div>
+          </div>`
+        : '';
     document.getElementById('modal-meet-section').innerHTML = meetHtml;
 
     // Meta grid
@@ -1179,8 +1233,8 @@
       { label: 'Major', val: r.major },
       { label: 'Year / Level', val: r.yearLevel },
       { label: 'Phone', val: r.phone },
-      { label: 'Interview Slot', val: r.slotLabel || r.slotId },
-      { label: 'Status', val: r.interviewStatus || 'Pending' }
+      { label: 'Interview Slot', val: r.noSlot ? 'Not scheduled' : (r.slotLabel || r.slotId) },
+      { label: 'Status', val: r.interviewStatus || (r.noSlot ? 'No slot' : 'Pending') }
     ];
     document.getElementById('modal-meta').innerHTML = metas.map(m =>
       `<div class="meta-item"><div class="meta-label">${escHtml(m.label)}</div><div class="meta-val">${escHtml(m.val || '—')}</div></div>`
