@@ -82,6 +82,11 @@ const TASK_SCORE_HEADERS = [
   "Task 2 Total Score"
 ];
 
+const TASK_NOTE_HEADERS = [
+  "Task 1 Evaluation Notes",
+  "Task 2 Evaluation Notes"
+];
+
 const SLOT_HEADERS = [
   "Slot ID",
   "Date",
@@ -234,6 +239,8 @@ type AdminUpdateTaskScorePayload = {
   task2InitiativeScore?: string;
   task2ClarityScore?: string;
   task2TotalScore?: string;
+  task1Notes?: string;
+  task2Notes?: string;
 };
 
 type AdminScheduleInterviewPayload = {
@@ -1983,14 +1990,28 @@ async function ensureTaskScoreHeaders(token: string, sheetName: string): Promise
   }
 }
 
+async function ensureTaskNoteHeaders(token: string, sheetName: string): Promise<void> {
+  const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + 1);
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}`);
+  const current = (await response.json()).values?.[0] ?? [];
+  const match = TASK_NOTE_HEADERS.every((h, i) => current[i] === h);
+  if (!match) {
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}?valueInputOption=RAW`, {
+      values: [TASK_NOTE_HEADERS]
+    });
+  }
+}
+
 async function loadAdminApplicants(token: string): Promise<{
   applicants: Array<Record<string, string | number>>;
 }> {
   const sheetName = await getSheetName(token);
   await ensureInterviewScoreHeaders(token, sheetName);
   await ensureTaskScoreHeaders(token, sheetName);
+  await ensureTaskNoteHeaders(token, sheetName);
 
-  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length;
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length;
   const width = columnLetter(totalCols);
   const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
   const rows = (await response.json()).values ?? [];
@@ -2002,6 +2023,10 @@ async function loadAdminApplicants(token: string): Promise<{
     studentId: row[3] ?? "",
     phone: row[6] ?? "",
     roleAppliedFor: row[7] ?? "",
+    whyThisRole: row[10] ?? "",
+    whyChooseYourself: row[11] ?? "",
+    hopeToLearn: row[12] ?? "",
+    previousResalaExperience: row[13] ?? "",
     secondPreference: row[17] ?? "",
     interviewSlot: row[14] ?? "",
     status: row[16] ?? "",
@@ -2030,7 +2055,9 @@ async function loadAdminApplicants(token: string): Promise<{
     task2PracticalityScore: row[44] ?? "",
     task2InitiativeScore: row[45] ?? "",
     task2ClarityScore: row[46] ?? "",
-    task2TotalScore: row[47] ?? ""
+    task2TotalScore: row[47] ?? "",
+    task1Notes: row[48] ?? "",
+    task2Notes: row[49] ?? ""
   }));
 
   return { applicants };
@@ -2085,8 +2112,9 @@ async function updateApplicantTaskScore(
   const sheetName = await getSheetName(token);
   await ensureInterviewScoreHeaders(token, sheetName);
   await ensureTaskScoreHeaders(token, sheetName);
+  await ensureTaskNoteHeaders(token, sheetName);
 
-  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length;
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length;
   const width = columnLetter(totalCols);
   const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
   const rows = (await response.json()).values ?? [];
@@ -2098,7 +2126,7 @@ async function updateApplicantTaskScore(
 
   const sheetRow = rowIndex + 2;
   const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + 1);
-  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length);
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length);
 
   await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}${sheetRow}:${endCol}${sheetRow}`)}?valueInputOption=RAW`, {
     values: [[
@@ -2113,7 +2141,9 @@ async function updateApplicantTaskScore(
       payload.task2PracticalityScore ?? "",
       payload.task2InitiativeScore ?? "",
       payload.task2ClarityScore ?? "",
-      payload.task2TotalScore ?? ""
+      payload.task2TotalScore ?? "",
+      payload.task1Notes ?? "",
+      payload.task2Notes ?? ""
     ]]
   });
 
