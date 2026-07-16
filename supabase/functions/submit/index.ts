@@ -67,6 +67,21 @@ const INTERVIEW_SCORE_HEADERS = [
   "Best Strength 2"
 ];
 
+const TASK_SCORE_HEADERS = [
+  "Task 1 Understanding Score",
+  "Task 1 Execution Score",
+  "Task 1 Practicality Score",
+  "Task 1 Initiative Score",
+  "Task 1 Clarity Score",
+  "Task 1 Total Score",
+  "Task 2 Understanding Score",
+  "Task 2 Execution Score",
+  "Task 2 Practicality Score",
+  "Task 2 Initiative Score",
+  "Task 2 Clarity Score",
+  "Task 2 Total Score"
+];
+
 const SLOT_HEADERS = [
   "Slot ID",
   "Date",
@@ -204,6 +219,23 @@ type AdminUpdateScorePayload = {
   bestStrength2?: string;
 };
 
+type AdminUpdateTaskScorePayload = {
+  mode: "admin-update-task-score";
+  aucEmail: string;
+  task1UnderstandingScore?: string;
+  task1ExecutionScore?: string;
+  task1PracticalityScore?: string;
+  task1InitiativeScore?: string;
+  task1ClarityScore?: string;
+  task1TotalScore?: string;
+  task2UnderstandingScore?: string;
+  task2ExecutionScore?: string;
+  task2PracticalityScore?: string;
+  task2InitiativeScore?: string;
+  task2ClarityScore?: string;
+  task2TotalScore?: string;
+};
+
 type AdminScheduleInterviewPayload = {
   mode: "admin-schedule-interview";
   aucEmail: string;
@@ -223,6 +255,7 @@ type SubmissionPayload =
   | AdminExtendInterviewDurationsPayload
   | AdminLoadApplicantsPayload
   | AdminUpdateScorePayload
+  | AdminUpdateTaskScorePayload
   | AdminScheduleInterviewPayload;
 
 type ConfirmationEmailTemplate = {
@@ -448,6 +481,19 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminUpdateTaskScorePayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await updateApplicantTaskScore(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isAdminScheduleInterviewPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -555,6 +601,10 @@ function isAdminLoadApplicantsPayload(payload: SubmissionPayload): payload is Ad
 
 function isAdminUpdateScorePayload(payload: SubmissionPayload): payload is AdminUpdateScorePayload {
   return (payload as AdminUpdateScorePayload).mode === "admin-update-score";
+}
+
+function isAdminUpdateTaskScorePayload(payload: SubmissionPayload): payload is AdminUpdateTaskScorePayload {
+  return (payload as AdminUpdateTaskScorePayload).mode === "admin-update-task-score";
 }
 
 function isAdminScheduleInterviewPayload(payload: SubmissionPayload): payload is AdminScheduleInterviewPayload {
@@ -1920,13 +1970,27 @@ async function ensureInterviewScoreHeaders(token: string, sheetName: string): Pr
   }
 }
 
+async function ensureTaskScoreHeaders(token: string, sheetName: string): Promise<void> {
+  const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + 1);
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}`);
+  const current = (await response.json()).values?.[0] ?? [];
+  const match = TASK_SCORE_HEADERS.every((h, i) => current[i] === h);
+  if (!match) {
+    await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}?valueInputOption=RAW`, {
+      values: [TASK_SCORE_HEADERS]
+    });
+  }
+}
+
 async function loadAdminApplicants(token: string): Promise<{
   applicants: Array<Record<string, string | number>>;
 }> {
   const sheetName = await getSheetName(token);
   await ensureInterviewScoreHeaders(token, sheetName);
+  await ensureTaskScoreHeaders(token, sheetName);
 
-  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length;
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length;
   const width = columnLetter(totalCols);
   const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
   const rows = (await response.json()).values ?? [];
@@ -1954,7 +2018,19 @@ async function loadAdminApplicants(token: string): Promise<{
     finalJudgmentScore: row[32] ?? "",
     totalScore: row[33] ?? "",
     bestStrength1: row[34] ?? "",
-    bestStrength2: row[35] ?? ""
+    bestStrength2: row[35] ?? "",
+    task1UnderstandingScore: row[36] ?? "",
+    task1ExecutionScore: row[37] ?? "",
+    task1PracticalityScore: row[38] ?? "",
+    task1InitiativeScore: row[39] ?? "",
+    task1ClarityScore: row[40] ?? "",
+    task1TotalScore: row[41] ?? "",
+    task2UnderstandingScore: row[42] ?? "",
+    task2ExecutionScore: row[43] ?? "",
+    task2PracticalityScore: row[44] ?? "",
+    task2InitiativeScore: row[45] ?? "",
+    task2ClarityScore: row[46] ?? "",
+    task2TotalScore: row[47] ?? ""
   }));
 
   return { applicants };
@@ -1996,6 +2072,48 @@ async function updateApplicantScore(
       payload.totalScore ?? "",
       payload.bestStrength1 ?? "",
       payload.bestStrength2 ?? ""
+    ]]
+  });
+
+  return { updated: true };
+}
+
+async function updateApplicantTaskScore(
+  token: string,
+  payload: AdminUpdateTaskScorePayload
+): Promise<{ updated: boolean }> {
+  const sheetName = await getSheetName(token);
+  await ensureInterviewScoreHeaders(token, sheetName);
+  await ensureTaskScoreHeaders(token, sheetName);
+
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length;
+  const width = columnLetter(totalCols);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`);
+  const rows = (await response.json()).values ?? [];
+
+  const rowIndex = rows.findIndex((row: string[]) => normalize(row[2]) === normalize(payload.aucEmail));
+  if (rowIndex === -1) {
+    throw new Error(`Applicant not found: ${payload.aucEmail}`);
+  }
+
+  const sheetRow = rowIndex + 2;
+  const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + 1);
+  const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length);
+
+  await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `${startCol}${sheetRow}:${endCol}${sheetRow}`)}?valueInputOption=RAW`, {
+    values: [[
+      payload.task1UnderstandingScore ?? "",
+      payload.task1ExecutionScore ?? "",
+      payload.task1PracticalityScore ?? "",
+      payload.task1InitiativeScore ?? "",
+      payload.task1ClarityScore ?? "",
+      payload.task1TotalScore ?? "",
+      payload.task2UnderstandingScore ?? "",
+      payload.task2ExecutionScore ?? "",
+      payload.task2PracticalityScore ?? "",
+      payload.task2InitiativeScore ?? "",
+      payload.task2ClarityScore ?? "",
+      payload.task2TotalScore ?? ""
     ]]
   });
 
