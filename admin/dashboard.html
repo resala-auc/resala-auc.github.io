@@ -672,7 +672,7 @@
         <div class="card-head">
           <div>
             <h2>Task-Based Role Comparison</h2>
-            <div class="count">Score submitted tasks role-by-role, then rank by task quality.</div>
+            <div class="count">AI-evaluated task scores, breakdown, and notes — role-by-role, ranked by task quality.</div>
           </div>
         </div>
         <div style="padding:0 24px 20px;">
@@ -1550,6 +1550,7 @@
     }
     empty.style.display = 'none';
 
+    // Unscored candidates (no total yet) sort to the bottom, in original order.
     const sorted = [...candidates].sort((x, y) => {
       const sx = parseFloat(taskRubricTotal(x.a, x.pref));
       const sy = parseFloat(taskRubricTotal(y.a, y.pref));
@@ -1562,116 +1563,36 @@
       const link = taskLinkForPref(a, pref);
       const total = taskRubricTotal(a, pref);
       const prefix = taskRubricPrefix(pref);
-      const rubricInputs = TASK_RUBRIC_FIELDS.map(field => `
-        <div class="score-field">
-          <label for="${prefix}${field.key}-${a.rowIndex}">${escHtml(field.label)}</label>
-          <div class="score-field-input">
-            <input type="number" id="${prefix}${field.key}-${a.rowIndex}" class="tc-part" min="0" max="${field.max}" step="0.5"
-              value="${escHtml(a[`${prefix}${field.key}Score`])}" data-row-index="${escHtml(a.rowIndex)}" placeholder="0"${link ? '' : ' disabled'}>
-            <span>/${field.max}</span>
+      const notes = a[`${prefix}Notes`];
+      const hasScore = total !== '';
+
+      const breakdown = TASK_RUBRIC_FIELDS.map(field => {
+        const raw = a[`${prefix}${field.key}Score`];
+        return `
+          <div class="score-field">
+            <label>${escHtml(field.label)}</label>
+            <div class="score-field-input" style="font-weight:600;color:#0d2b45;">${raw !== '' && raw != null ? escHtml(raw) : '—'} <span>/${field.max}</span></div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       return `
         <div class="card" style="padding:16px 20px;" id="tc-card-${a.rowIndex}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
             <div>
-              <div class="rank-num ${cls(i)}" style="display:inline-block;margin-right:10px;">#${i + 1}</div>
+              ${hasScore ? `<div class="rank-num ${cls(i)}" style="display:inline-block;margin-right:10px;">#${i + 1}</div>` : ''}
               <strong style="font-size:15px;">${escHtml(a.fullName)}</strong>
               <span class="slot-badge" style="font-size:11px;margin-left:8px;">${pref === 1 ? '1st preference' : '2nd preference'}</span>
               <div class="rank-email">${escHtml(a.aucEmail)}</div>
               ${link ? `<a href="${escHtml(link)}" target="_blank" rel="noopener" style="font-size:13px;color:#2563eb;">📄 Open submitted task</a>` : '<span style="font-size:13px;color:#b45309;font-weight:700;">No task submitted</span>'}
-              ${a.taskNotes ? `<div class="qa-a" style="margin-top:6px;font-size:13px;">${escHtml(a.taskNotes)}</div>` : ''}
             </div>
-            <div class="score-total" style="text-align:right;"><strong id="tc-total-${a.rowIndex}">${escHtml(total)}</strong> <span>/50</span></div>
+            <div class="score-total" style="text-align:right;"><strong>${hasScore ? escHtml(total) : '—'}</strong> <span>/50</span></div>
           </div>
-          <div class="score-summary-grid" style="margin-top:14px;">${rubricInputs}</div>
-          <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
-            <button type="button" class="btn btn-primary btn-sm tc-save-btn" data-row-index="${escHtml(a.rowIndex)}" data-pref="${pref}"${link ? '' : ' disabled'}>Save task score</button>
-            <div class="row-notice" id="tc-notice-${a.rowIndex}"></div>
-          </div>
+          ${hasScore ? `<div class="score-summary-grid" style="margin-top:14px;">${breakdown}</div>` : ''}
+          ${notes ? `<div class="qa-block" style="margin-top:14px;"><div class="qa-q">Evaluation Notes</div><div class="qa-a">${escHtml(notes)}</div></div>` : (!hasScore && link ? '<div style="margin-top:10px;font-size:13px;color:#94a3b8;font-style:italic;">Not yet evaluated.</div>' : '')}
         </div>
       `;
     }).join('');
-
-    list.querySelectorAll('.tc-save-btn').forEach(button => {
-      button.addEventListener('click', () => saveTaskScore(Number(button.dataset.rowIndex), Number(button.dataset.pref), role));
-    });
-    list.querySelectorAll('.tc-part').forEach(input => {
-      input.addEventListener('input', () => {
-        const rowIndex = Number(input.dataset.rowIndex);
-        const prefix = list.querySelector(`.tc-save-btn[data-row-index="${rowIndex}"]`).dataset.pref;
-        let sum = 0, any = false;
-        TASK_RUBRIC_FIELDS.forEach(field => {
-          const el = document.getElementById(`task${prefix}${field.key}-${rowIndex}`);
-          const raw = el?.value.trim() ?? '';
-          if (raw) { any = true; sum += Number(raw) || 0; }
-        });
-        document.getElementById(`tc-total-${rowIndex}`).textContent = any ? String(sum) : '';
-      });
-    });
-  }
-
-  async function saveTaskScore(rowIndex, pref, role) {
-    const app = allApplicants.find(x => x.rowIndex === rowIndex);
-    if (!app?.aucEmail) return;
-    const prefix = taskRubricPrefix(pref);
-    const btn = document.querySelector(`#tc-card-${rowIndex} .tc-save-btn`);
-
-    const values = {};
-    let sum = 0, any = false;
-    for (const field of TASK_RUBRIC_FIELDS) {
-      const el = document.getElementById(`${prefix}${field.key}-${rowIndex}`);
-      const raw = el?.value.trim() ?? '';
-      if (raw) {
-        const num = Number(raw);
-        if (!Number.isFinite(num) || num < 0 || num > field.max) {
-          document.getElementById(`tc-notice-${rowIndex}`).textContent = `${field.label} must be between 0 and ${field.max}.`;
-          document.getElementById(`tc-notice-${rowIndex}`).style.color = '#991b1b';
-          return;
-        }
-        any = true;
-        sum += num;
-      }
-      values[`${prefix}${field.key}Score`] = raw;
-    }
-    values[`${prefix}TotalScore`] = any ? String(sum) : '';
-
-    const payload = {
-      mode: 'admin-update-task-score',
-      aucEmail: app.aucEmail,
-      task1UnderstandingScore: app.task1UnderstandingScore ?? '',
-      task1ExecutionScore: app.task1ExecutionScore ?? '',
-      task1PracticalityScore: app.task1PracticalityScore ?? '',
-      task1InitiativeScore: app.task1InitiativeScore ?? '',
-      task1ClarityScore: app.task1ClarityScore ?? '',
-      task1TotalScore: app.task1TotalScore ?? '',
-      task2UnderstandingScore: app.task2UnderstandingScore ?? '',
-      task2ExecutionScore: app.task2ExecutionScore ?? '',
-      task2PracticalityScore: app.task2PracticalityScore ?? '',
-      task2InitiativeScore: app.task2InitiativeScore ?? '',
-      task2ClarityScore: app.task2ClarityScore ?? '',
-      task2TotalScore: app.task2TotalScore ?? '',
-      ...values
-    };
-
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-    try {
-      await apiFetch(payload);
-      Object.assign(app, values);
-      renderTaskCompare();
-      const notice = document.getElementById(`tc-notice-${rowIndex}`);
-      if (notice) { notice.textContent = '✓ Saved'; notice.style.color = '#166534'; }
-    } catch (err) {
-      const notice = document.getElementById(`tc-notice-${rowIndex}`);
-      notice.textContent = err.message;
-      notice.style.color = '#991b1b';
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Save task score';
-    }
   }
 </script>
 </body>
