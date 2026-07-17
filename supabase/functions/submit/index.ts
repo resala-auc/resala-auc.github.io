@@ -128,7 +128,7 @@ const SAME_DAY_SLOT_CUTOFF_HOUR = 11;
 const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
 
 const HIERARCHY_SHEET_NAME = "Board Hierarchy";
-const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email"];
+const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email", "Phone"];
 
 const BOARD_ONBOARDING_SHEET_NAME = "Board Onboarding";
 const BOARD_ONBOARDING_HEADERS = [
@@ -319,6 +319,7 @@ type HierarchyEntry = {
   positionType: string;
   name: string;
   aucEmail?: string;
+  phone?: string;
 };
 
 type AdminSaveHierarchyPayload = {
@@ -2618,7 +2619,8 @@ async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[]
       department: String(row[1] ?? ""),
       positionType: String(row[2] ?? ""),
       name: String(row[3] ?? ""),
-      aucEmail: String(row[4] ?? "")
+      aucEmail: String(row[4] ?? ""),
+      phone: String(row[5] ?? "")
     }));
 
   return { entries };
@@ -2631,17 +2633,18 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
       department: String(entry.department ?? "").trim(),
       positionType: String(entry.positionType ?? "").trim(),
       name: String(entry.name ?? "").trim(),
-      aucEmail: String(entry.aucEmail ?? "").trim()
+      aucEmail: String(entry.aucEmail ?? "").trim(),
+      phone: String(entry.phone ?? "").trim()
     }))
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
-  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:E")}:clear`, {});
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}:clear`, {});
 
   if (cleaned.length) {
     const timestamp = new Date().toISOString();
-    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
-      values: cleaned.map((entry) => [timestamp, entry.department, entry.positionType, entry.name, entry.aucEmail])
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:F")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      values: cleaned.map((entry) => [timestamp, entry.department, entry.positionType, entry.name, entry.aucEmail, entry.phone])
     });
   }
 

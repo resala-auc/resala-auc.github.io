@@ -1657,7 +1657,7 @@
     return allApplicants
       .map(a => ({ a, pref: taskPrefForRole(a, role) }))
       .filter(c => c.pref > 0)
-      .map(({ a, pref }) => ({ name: a.fullName, email: a.aucEmail, score: taskRubricTotal(a, pref), pref }))
+      .map(({ a, pref }) => ({ name: a.fullName, email: a.aucEmail, phone: a.phone || '', score: taskRubricTotal(a, pref), pref }))
       .sort((x, y) => {
         const sx = parseFloat(x.score), sy = parseFloat(y.score);
         return (Number.isFinite(sy) ? sy : -Infinity) - (Number.isFinite(sx) ? sx : -Infinity);
@@ -1668,18 +1668,18 @@
     return 'hier-dl-' + role.replace(/[^a-z0-9]/gi, '-');
   }
 
-  function emailForCandidateName(role, name) {
-    const match = candidatesForDept(role).find(c => normalize(c.name) === normalize(name));
-    return match ? match.email : '';
+  function candidateForName(role, name) {
+    return candidatesForDept(role).find(c => normalize(c.name) === normalize(name));
   }
 
-  function hierSlotRowHtml(role, slotType, removable, name, email) {
+  function hierSlotRowHtml(role, slotType, removable, name, email, phone) {
     const dlId = hierDatalistId(role);
     return `
       <div class="hier-slot-row" data-slot-type="${escHtml(slotType)}">
         <span class="hier-label">${escHtml(slotType)}</span>
         <input type="text" list="${dlId}" data-field="name" placeholder="Type or pick a name" value="${escHtml(name || '')}">
         <input type="text" data-field="email" placeholder="Email (optional)" value="${escHtml(email || '')}">
+        <input type="text" data-field="phone" placeholder="Phone (optional)" value="${escHtml(phone || '')}">
         ${removable ? '<button type="button" class="btn btn-sm hier-remove" data-action="remove-row">✕</button>' : ''}
       </div>
     `;
@@ -1741,10 +1741,11 @@
       if (!input) return;
       const deptCard = input.closest('.hier-dept-card');
       const role = deptCard.dataset.dept;
-      const email = emailForCandidateName(role, input.value);
-      if (email) {
+      const match = candidateForName(role, input.value);
+      if (match) {
         const row = input.closest('.hier-slot-row');
-        row.querySelector('input[data-field="email"]').value = email;
+        row.querySelector('input[data-field="email"]').value = match.email || '';
+        row.querySelector('input[data-field="phone"]').value = match.phone || '';
       }
     });
 
@@ -1775,13 +1776,14 @@
         const entry = deptEntries.filter(e => e.positionType === label)[idx];
         row.querySelector('input[data-field="name"]').value = entry ? entry.name : '';
         row.querySelector('input[data-field="email"]').value = entry ? entry.aucEmail : '';
+        row.querySelector('input[data-field="phone"]').value = entry ? entry.phone : '';
       });
 
       const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
-      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Vice-Director', true, assistant.name, assistant.aucEmail) : '';
+      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Vice-Director', true, assistant.name, assistant.aucEmail, assistant.phone) : '';
 
       const headsList = deptCard.querySelector('.hier-heads-list');
-      headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail)).join('');
+      headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail, h.phone)).join('');
     });
   }
 
@@ -1819,7 +1821,8 @@
         const name = row.querySelector('input[data-field="name"]').value.trim();
         if (!name) return;
         const email = row.querySelector('input[data-field="email"]').value.trim();
-        entries.push({ department: role, positionType: row.dataset.slotType, name, aucEmail: email });
+        const phone = row.querySelector('input[data-field="phone"]').value.trim();
+        entries.push({ department: role, positionType: row.dataset.slotType, name, aucEmail: email, phone });
       });
     });
 
