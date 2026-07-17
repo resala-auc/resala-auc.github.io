@@ -239,14 +239,14 @@
       }
 
       async function init() {
-        if (!email) return;
-
         try {
           const slotsResult = await apiCall({ mode: "board-onboarding-slots" });
           renderSlots(slotsResult.slots);
         } catch (error) {
           slotGrid.innerHTML = `<div class="onboarding-notice error">Could not load slots: ${error.message}</div>`;
         }
+
+        if (!email) return;
 
         try {
           const statusResult = await apiCall({ mode: "board-onboarding-status", aucEmail: email });

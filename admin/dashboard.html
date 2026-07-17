@@ -733,8 +733,16 @@
               <input id="hier-president" placeholder="Name">
             </div>
             <div class="hier-field">
+              <label>President Email</label>
+              <input id="hier-president-email" placeholder="Email (optional)">
+            </div>
+            <div class="hier-field">
               <label>Vice President</label>
               <input id="hier-vp" placeholder="Name">
+            </div>
+            <div class="hier-field">
+              <label>Vice President Email</label>
+              <input id="hier-vp-email" placeholder="Email (optional)">
             </div>
           </div>
           <div id="hier-departments"></div>
@@ -1743,9 +1751,11 @@
     hierarchyInitialized = true;
   }
 
-  function applyHierarchyState(president, vicePresident, entries) {
+  function applyHierarchyState(president, presidentEmail, vicePresident, vpEmail, entries) {
     document.getElementById('hier-president').value = president || '';
+    document.getElementById('hier-president-email').value = presidentEmail || '';
     document.getElementById('hier-vp').value = vicePresident || '';
+    document.getElementById('hier-vp-email').value = vpEmail || '';
 
     ROLE_OPTIONS.forEach(role => {
       const deptCard = document.querySelector(`.hier-dept-card[data-dept="${CSS.escape(role)}"]`);
@@ -1783,7 +1793,11 @@
       const president = entries.find(e => !e.department && e.positionType === 'President');
       const vp = entries.find(e => !e.department && e.positionType === 'Vice President');
       const deptEntries = entries.filter(e => e.department);
-      applyHierarchyState(president ? president.name : '', vp ? vp.name : '', deptEntries);
+      applyHierarchyState(
+        president ? president.name : '', president ? president.aucEmail : '',
+        vp ? vp.name : '', vp ? vp.aucEmail : '',
+        deptEntries
+      );
     } catch (err) {
       document.getElementById('hier-notice').textContent = err.message;
       document.getElementById('hier-notice').style.color = '#c0392b';
@@ -1793,9 +1807,11 @@
   function collectHierarchyEntries() {
     const entries = [];
     const president = document.getElementById('hier-president').value.trim();
+    const presidentEmail = document.getElementById('hier-president-email').value.trim();
     const vp = document.getElementById('hier-vp').value.trim();
-    if (president) entries.push({ department: '', positionType: 'President', name: president, aucEmail: '' });
-    if (vp) entries.push({ department: '', positionType: 'Vice President', name: vp, aucEmail: '' });
+    const vpEmail = document.getElementById('hier-vp-email').value.trim();
+    if (president) entries.push({ department: '', positionType: 'President', name: president, aucEmail: presidentEmail });
+    if (vp) entries.push({ department: '', positionType: 'Vice President', name: vp, aucEmail: vpEmail });
 
     document.querySelectorAll('.hier-dept-card').forEach(deptCard => {
       const role = deptCard.dataset.dept;
