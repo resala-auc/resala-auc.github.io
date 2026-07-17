@@ -188,6 +188,7 @@
 
       let selectedSlotId = null;
       let existingSlotId = null;
+      let confirmMode = false;
 
       if (!email || !name) {
         missingParams.hidden = false;
@@ -202,7 +203,15 @@
       if (hasPartner) {
         partnerBox.hidden = false;
         partnerDetails.textContent = `${partnerName} — ${partnerEmail}`;
-        slotDesc.textContent = "Sunday, July 19 — pick a 1-hour slot together with your partner. Whoever books first locks the slot for both of you.";
+      }
+
+      function enterConfirmMode(slot) {
+        confirmMode = true;
+        selectedSlotId = slot.id;
+        existingSlotId = slot.id;
+        slotDesc.textContent = `${partnerName} already reserved your onboarding slot: ${slot.label}. Just confirm below — no need to pick one.`;
+        slotGrid.innerHTML = `<div class="slot-option selected" style="cursor:default;">${slot.label}</div>`;
+        submitButton.textContent = "Confirm this slot";
       }
 
       async function apiCall(payload) {
@@ -262,9 +271,26 @@
             }
             formNotice.textContent = "You've already submitted this checklist — you can update it below.";
             formNotice.className = "onboarding-notice success";
+            return;
           }
         } catch (error) {
-          // no existing record or lookup failed silently; user can still submit fresh
+          // no existing record for self; fall through to partner check
+        }
+
+        // Self hasn't booked yet. If the partner already reserved a slot, this
+        // person only confirms it -- they never get to pick a different slot,
+        // so a pair can never consume two slots.
+        if (hasPartner) {
+          try {
+            const partnerStatus = await apiCall({ mode: "board-onboarding-status", aucEmail: partnerEmail });
+            if (partnerStatus.found && partnerStatus.record && partnerStatus.record.slotId) {
+              enterConfirmMode({ id: partnerStatus.record.slotId, label: partnerStatus.record.slotLabel });
+            } else {
+              slotDesc.textContent = "Sunday, July 19 — pick a 1-hour slot. Reserving locks it for you and your partner together.";
+            }
+          } catch (error) {
+            slotDesc.textContent = "Sunday, July 19 — pick a 1-hour slot. Reserving locks it for you and your partner together.";
+          }
         }
       }
 
