@@ -2339,6 +2339,20 @@ async function submitBoardOnboarding(
     throw new Error("That appointment slot was just booked by someone else. Please pick another.");
   }
 
+  // Re-check right before committing: closes the race window where both
+  // partners open their links around the same time and neither sees the
+  // other's booking yet.
+  const freshRows = await readBoardOnboardingRows(token);
+  if (freshRows.some((row) => normalize(row[8]) === normalize(slotId))) {
+    throw new Error("That appointment slot was just booked by someone else. Please pick another.");
+  }
+  if (hasPartner) {
+    const freshPartnerRowIndex = findBoardOnboardingRowIndex(freshRows, partnerEmailRaw);
+    if (freshPartnerRowIndex !== -1 && String(freshRows[freshPartnerRowIndex][8] ?? "").trim()) {
+      throw new Error("Your partner just booked a slot. Refresh the page to confirm the same one.");
+    }
+  }
+
   const applicantPayload: ApplicationPayload = {
     timestamp: new Date().toISOString(),
     fullName,

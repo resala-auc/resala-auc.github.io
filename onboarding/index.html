@@ -205,13 +205,18 @@
         partnerDetails.textContent = `${partnerName} — ${partnerEmail}`;
       }
 
-      function enterConfirmMode(slot) {
+      function lockSlot(slot, { partner = false, alreadySubmitted = false } = {}) {
         confirmMode = true;
         selectedSlotId = slot.id;
         existingSlotId = slot.id;
-        slotDesc.textContent = `${partnerName} already reserved your onboarding slot: ${slot.label}. Just confirm below — no need to pick one.`;
+        if (partner) {
+          slotDesc.textContent = `${partnerName} already reserved your onboarding slot: ${slot.label}. Just confirm below — no need to pick one.`;
+          submitButton.textContent = "Confirm this slot";
+        } else {
+          slotDesc.textContent = `Your onboarding slot: ${slot.label}.`;
+          submitButton.textContent = alreadySubmitted ? "Update my checklist" : "Confirm this slot";
+        }
         slotGrid.innerHTML = `<div class="slot-option selected" style="cursor:default;">${slot.label}</div>`;
-        submitButton.textContent = "Confirm this slot";
       }
 
       async function apiCall(payload) {
@@ -264,12 +269,9 @@
             whatsappCheckbox.checked = record.whatsappJoined === "Yes";
             videoCheckbox.checked = record.videoWatched === "Yes";
             if (record.slotId) {
-              existingSlotId = record.slotId;
-              selectedSlotId = record.slotId;
-              const slotsResult = await apiCall({ mode: "board-onboarding-slots" });
-              renderSlots(slotsResult.slots);
+              lockSlot({ id: record.slotId, label: record.slotLabel }, { alreadySubmitted: true });
             }
-            formNotice.textContent = "You've already submitted this checklist — you can update it below.";
+            formNotice.textContent = "You've already started this checklist — update it below.";
             formNotice.className = "onboarding-notice success";
             return;
           }
@@ -284,7 +286,7 @@
           try {
             const partnerStatus = await apiCall({ mode: "board-onboarding-status", aucEmail: partnerEmail });
             if (partnerStatus.found && partnerStatus.record && partnerStatus.record.slotId) {
-              enterConfirmMode({ id: partnerStatus.record.slotId, label: partnerStatus.record.slotLabel });
+              lockSlot({ id: partnerStatus.record.slotId, label: partnerStatus.record.slotLabel }, { partner: true });
             } else {
               slotDesc.textContent = "Sunday, July 19 — pick a 1-hour slot. Reserving locks it for you and your partner together.";
             }
