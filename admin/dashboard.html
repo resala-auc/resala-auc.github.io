@@ -427,6 +427,21 @@
 
     .rank-list { display: flex; flex-direction: column; gap: 10px; }
 
+    .hier-org-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .hier-field { display: flex; flex-direction: column; gap: 6px; min-width: 220px; }
+    .hier-field label { font-size: 12px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; }
+    .hier-field input { border: 1px solid #e6edf2; border-radius: 9px; padding: 9px 12px; font-size: 14px; outline: none; }
+    .hier-field input:focus { border-color: #0d2b45; }
+    .hier-dept-card { background: #fff; border: 1px solid #eadfca; border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
+    .hier-dept-card h3 { margin: 0 0 12px; font-size: 15px; color: #0d2b45; }
+    .hier-slot-row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .hier-slot-row .hier-label { width: 130px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: #4d5577; }
+    .hier-slot-row input { flex: 1; min-width: 160px; border: 1px solid #e6edf2; border-radius: 9px; padding: 8px 12px; font-size: 13px; outline: none; }
+    .hier-slot-row input:focus { border-color: #0d2b45; }
+    .hier-slot-row .hier-remove { flex-shrink: 0; }
+    .hier-heads-list { margin-top: 4px; }
+    .hier-add-row { margin-top: 6px; }
+
     .rank-card {
       background: #fff;
       border: 1px solid #eadfca;
@@ -562,6 +577,7 @@
       <button class="tab-btn active" data-tab="reservations" onclick="switchTab(this,'reservations')">Reservations</button>
       <button class="tab-btn" data-tab="score" onclick="switchTab(this,'score')">Score &amp; Rank</button>
       <button class="tab-btn" data-tab="taskcompare" onclick="switchTab(this,'taskcompare')">Task Compare</button>
+      <button class="tab-btn" data-tab="hierarchy" onclick="switchTab(this,'hierarchy')">Hierarchy</button>
     </div>
 
     <!-- ── RESERVATIONS TAB ── -->
@@ -693,6 +709,35 @@
           </div>
           <div id="tc-empty" class="empty" style="display:none;">Select a role to begin.</div>
           <div id="tc-list" style="display:flex;flex-direction:column;gap:14px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HIERARCHY TAB ── -->
+    <div class="tab-panel" id="tab-hierarchy">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Board Hierarchy</h2>
+            <div class="count">Pick the final org chart. Names are suggested from task rankings, but any field accepts free text.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div id="hier-notice" style="font-size:13px;font-weight:600;"></div>
+            <button class="btn btn-primary btn-sm" onclick="saveHierarchy()">Save hierarchy</button>
+          </div>
+        </div>
+        <div style="padding:0 24px 24px;">
+          <div class="hier-org-row">
+            <div class="hier-field">
+              <label>President</label>
+              <input id="hier-president" placeholder="Name">
+            </div>
+            <div class="hier-field">
+              <label>Vice President</label>
+              <input id="hier-vp" placeholder="Name">
+            </div>
+          </div>
+          <div id="hier-departments"></div>
         </div>
       </div>
     </div>
@@ -1047,6 +1092,7 @@
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`tab-${name}`).classList.add('active');
+    if (name === 'hierarchy') loadHierarchyTab();
   }
 
   // ── reservations tab ───────────────────────────────────────────────────────
@@ -1593,6 +1639,171 @@
         </div>
       `;
     }).join('');
+  }
+
+  // ── HIERARCHY TAB ──────────────────────────────────────────────────────────
+
+  let hierarchyInitialized = false;
+
+  function candidatesForDept(role) {
+    return allApplicants
+      .map(a => ({ a, pref: taskPrefForRole(a, role) }))
+      .filter(c => c.pref > 0)
+      .map(({ a, pref }) => ({ name: a.fullName, email: a.aucEmail, score: taskRubricTotal(a, pref), pref }))
+      .sort((x, y) => {
+        const sx = parseFloat(x.score), sy = parseFloat(y.score);
+        return (Number.isFinite(sy) ? sy : -Infinity) - (Number.isFinite(sx) ? sx : -Infinity);
+      });
+  }
+
+  function hierDatalistId(role) {
+    return 'hier-dl-' + role.replace(/[^a-z0-9]/gi, '-');
+  }
+
+  function emailForCandidateName(role, name) {
+    const match = candidatesForDept(role).find(c => normalize(c.name) === normalize(name));
+    return match ? match.email : '';
+  }
+
+  function hierSlotRowHtml(role, slotType, removable, name, email) {
+    const dlId = hierDatalistId(role);
+    return `
+      <div class="hier-slot-row" data-slot-type="${escHtml(slotType)}">
+        <span class="hier-label">${escHtml(slotType)}</span>
+        <input type="text" list="${dlId}" data-field="name" placeholder="Type or pick a name" value="${escHtml(name || '')}">
+        <input type="text" data-field="email" placeholder="Email (optional)" value="${escHtml(email || '')}">
+        ${removable ? '<button type="button" class="btn btn-sm hier-remove" data-action="remove-row">✕</button>' : ''}
+      </div>
+    `;
+  }
+
+  function initHierarchyDepartments() {
+    const datalists = ROLE_OPTIONS.map(role => {
+      const options = candidatesForDept(role).map(c =>
+        `<option value="${escHtml(c.name)}">${escHtml(c.name)} — ${c.score !== '' ? c.score + '/50' : 'unscored'} (${c.pref === 1 ? '1st' : '2nd'} pref)</option>`
+      ).join('');
+      return `<datalist id="${hierDatalistId(role)}">${options}</datalist>`;
+    }).join('');
+
+    const cards = ROLE_OPTIONS.map(role => `
+      <div class="hier-dept-card" data-dept="${escHtml(role)}">
+        <h3>${escHtml(role)}</h3>
+        <div class="hier-director-row">${hierSlotRowHtml(role, 'Director', false, '', '')}</div>
+        <div class="hier-assistant-wrap"></div>
+        <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Assistant Director</button></div>
+        <div class="hier-heads-list"></div>
+        <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-head">+ Add Head</button></div>
+      </div>
+    `).join('');
+
+    document.getElementById('hier-departments').innerHTML = datalists + cards;
+
+    document.getElementById('hier-departments').addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-action]');
+      if (!btn) return;
+      const deptCard = btn.closest('.hier-dept-card');
+      const role = deptCard.dataset.dept;
+
+      if (btn.dataset.action === 'add-assistant') {
+        const wrap = deptCard.querySelector('.hier-assistant-wrap');
+        if (wrap.children.length) return;
+        wrap.innerHTML = hierSlotRowHtml(role, 'Assistant Director', true, '', '');
+      } else if (btn.dataset.action === 'add-head') {
+        const list = deptCard.querySelector('.hier-heads-list');
+        list.insertAdjacentHTML('beforeend', hierSlotRowHtml(role, 'Head', true, '', ''));
+      } else if (btn.dataset.action === 'remove-row') {
+        btn.closest('.hier-slot-row').remove();
+      }
+    });
+
+    document.getElementById('hier-departments').addEventListener('change', (event) => {
+      const input = event.target.closest('input[data-field="name"]');
+      if (!input) return;
+      const deptCard = input.closest('.hier-dept-card');
+      const role = deptCard.dataset.dept;
+      const email = emailForCandidateName(role, input.value);
+      if (email) {
+        const row = input.closest('.hier-slot-row');
+        row.querySelector('input[data-field="email"]').value = email;
+      }
+    });
+
+    hierarchyInitialized = true;
+  }
+
+  function applyHierarchyState(president, vicePresident, entries) {
+    document.getElementById('hier-president').value = president || '';
+    document.getElementById('hier-vp').value = vicePresident || '';
+
+    ROLE_OPTIONS.forEach(role => {
+      const deptCard = document.querySelector(`.hier-dept-card[data-dept="${CSS.escape(role)}"]`);
+      if (!deptCard) return;
+
+      const deptEntries = entries.filter(e => normalize(e.department) === normalize(role));
+      const director = deptEntries.find(e => e.positionType === 'Director');
+      const assistant = deptEntries.find(e => e.positionType === 'Assistant Director');
+      const heads = deptEntries.filter(e => e.positionType === 'Head');
+
+      const directorRow = deptCard.querySelector('.hier-director-row .hier-slot-row');
+      directorRow.querySelector('input[data-field="name"]').value = director ? director.name : '';
+      directorRow.querySelector('input[data-field="email"]').value = director ? director.aucEmail : '';
+
+      const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
+      assistantWrap.innerHTML = assistant ? hierSlotRowHtml(role, 'Assistant Director', true, assistant.name, assistant.aucEmail) : '';
+
+      const headsList = deptCard.querySelector('.hier-heads-list');
+      headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail)).join('');
+    });
+  }
+
+  async function loadHierarchyTab() {
+    if (!hierarchyInitialized) initHierarchyDepartments();
+    try {
+      const result = await apiFetch({ mode: 'admin-load-hierarchy' });
+      const entries = result.entries ?? [];
+      const president = entries.find(e => !e.department && e.positionType === 'President');
+      const vp = entries.find(e => !e.department && e.positionType === 'Vice President');
+      const deptEntries = entries.filter(e => e.department);
+      applyHierarchyState(president ? president.name : '', vp ? vp.name : '', deptEntries);
+    } catch (err) {
+      document.getElementById('hier-notice').textContent = err.message;
+      document.getElementById('hier-notice').style.color = '#c0392b';
+    }
+  }
+
+  function collectHierarchyEntries() {
+    const entries = [];
+    const president = document.getElementById('hier-president').value.trim();
+    const vp = document.getElementById('hier-vp').value.trim();
+    if (president) entries.push({ department: '', positionType: 'President', name: president, aucEmail: '' });
+    if (vp) entries.push({ department: '', positionType: 'Vice President', name: vp, aucEmail: '' });
+
+    document.querySelectorAll('.hier-dept-card').forEach(deptCard => {
+      const role = deptCard.dataset.dept;
+      deptCard.querySelectorAll('.hier-slot-row').forEach(row => {
+        const name = row.querySelector('input[data-field="name"]').value.trim();
+        if (!name) return;
+        const email = row.querySelector('input[data-field="email"]').value.trim();
+        entries.push({ department: role, positionType: row.dataset.slotType, name, aucEmail: email });
+      });
+    });
+
+    return entries;
+  }
+
+  async function saveHierarchy() {
+    const notice = document.getElementById('hier-notice');
+    notice.textContent = 'Saving…';
+    notice.style.color = '#4d5577';
+    try {
+      const entries = collectHierarchyEntries();
+      await apiFetch({ mode: 'admin-save-hierarchy', entries });
+      notice.textContent = '✓ Saved';
+      notice.style.color = '#2f9e5c';
+    } catch (err) {
+      notice.textContent = err.message;
+      notice.style.color = '#c0392b';
+    }
   }
 </script>
 </body>

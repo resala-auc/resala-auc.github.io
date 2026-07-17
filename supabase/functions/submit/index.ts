@@ -127,6 +127,60 @@ const DAILY_SLOT_TIMES = [
 const SAME_DAY_SLOT_CUTOFF_HOUR = 11;
 const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
 
+const HIERARCHY_SHEET_NAME = "Board Hierarchy";
+const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email"];
+
+const BOARD_ONBOARDING_SHEET_NAME = "Board Onboarding";
+const BOARD_ONBOARDING_HEADERS = [
+  "Timestamp",
+  "Full Name",
+  "AUC Email",
+  "Department",
+  "Position Type",
+  "WhatsApp Joined",
+  "Video Watched",
+  "Retreat Days",
+  "Slot ID",
+  "Slot Label",
+  "Calendar Event ID",
+  "Meet Link"
+];
+const BOARD_ONBOARDING_DATE = "2026-07-19";
+const BOARD_ONBOARDING_SLOT_START_HOUR = 12;
+const BOARD_ONBOARDING_SLOT_END_HOUR = 22;
+const BOARD_RETREAT_DAYS = ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30"];
+
+type BoardOnboardingSlot = {
+  id: string;
+  label: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  startDateTime: string;
+  endDateTime: string;
+};
+
+function buildBoardOnboardingSlots(): BoardOnboardingSlot[] {
+  const slots: BoardOnboardingSlot[] = [];
+  for (let hour = BOARD_ONBOARDING_SLOT_START_HOUR; hour < BOARD_ONBOARDING_SLOT_END_HOUR; hour++) {
+    const endHour = hour + 1;
+    const startDisplay = `${hour % 12 || 12}:00 ${hour >= 12 ? "PM" : "AM"}`;
+    const endDisplay = `${endHour % 12 || 12}:00 ${endHour >= 12 ? "PM" : "AM"}`;
+    slots.push({
+      id: `board-${BOARD_ONBOARDING_DATE}-${String(hour).padStart(2, "0")}00`,
+      label: `${startDisplay} - ${endDisplay}`,
+      date: BOARD_ONBOARDING_DATE,
+      startTime: startDisplay,
+      endTime: endDisplay,
+      startDateTime: `${BOARD_ONBOARDING_DATE}T${String(hour).padStart(2, "0")}:00:00`,
+      endDateTime: `${BOARD_ONBOARDING_DATE}T${String(endHour).padStart(2, "0")}:00:00`
+    });
+  }
+  return slots;
+}
+
+const BOARD_ONBOARDING_SLOTS = buildBoardOnboardingSlots();
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-admin-reset-secret",
@@ -251,6 +305,43 @@ type AdminScheduleInterviewPayload = {
   endTime?: string;
 };
 
+type AdminLoadHierarchyPayload = {
+  mode: "admin-load-hierarchy";
+};
+
+type HierarchyEntry = {
+  department: string;
+  positionType: string;
+  name: string;
+  aucEmail?: string;
+};
+
+type AdminSaveHierarchyPayload = {
+  mode: "admin-save-hierarchy";
+  entries: HierarchyEntry[];
+};
+
+type BoardOnboardingSlotsPayload = {
+  mode: "board-onboarding-slots";
+};
+
+type BoardOnboardingStatusPayload = {
+  mode: "board-onboarding-status";
+  aucEmail: string;
+};
+
+type BoardOnboardingSubmitPayload = {
+  mode: "board-onboarding-submit";
+  aucEmail: string;
+  fullName: string;
+  department: string;
+  positionType: string;
+  whatsappJoined?: boolean;
+  videoWatched?: boolean;
+  retreatDays?: string[];
+  slotId: string;
+};
+
 type SubmissionPayload =
   | ApplicationPayload
   | TaskSubmissionPayload
@@ -263,7 +354,12 @@ type SubmissionPayload =
   | AdminLoadApplicantsPayload
   | AdminUpdateScorePayload
   | AdminUpdateTaskScorePayload
-  | AdminScheduleInterviewPayload;
+  | AdminScheduleInterviewPayload
+  | AdminLoadHierarchyPayload
+  | AdminSaveHierarchyPayload
+  | BoardOnboardingSlotsPayload
+  | BoardOnboardingStatusPayload
+  | BoardOnboardingSubmitPayload;
 
 type ConfirmationEmailTemplate = {
   subject: string;
@@ -514,6 +610,65 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminLoadHierarchyPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await loadHierarchy(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isAdminSaveHierarchyPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await saveHierarchy(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isBoardOnboardingSlotsPayload(payload)) {
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await getBoardOnboardingSlots(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isBoardOnboardingStatusPayload(payload)) {
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await getBoardOnboardingStatus(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isBoardOnboardingSubmitPayload(payload)) {
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await submitBoardOnboarding(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isTaskSubmissionPayload(payload)) {
       validateTaskSubmission(payload);
 
@@ -616,6 +771,26 @@ function isAdminUpdateTaskScorePayload(payload: SubmissionPayload): payload is A
 
 function isAdminScheduleInterviewPayload(payload: SubmissionPayload): payload is AdminScheduleInterviewPayload {
   return (payload as AdminScheduleInterviewPayload).mode === "admin-schedule-interview";
+}
+
+function isAdminLoadHierarchyPayload(payload: SubmissionPayload): payload is AdminLoadHierarchyPayload {
+  return (payload as AdminLoadHierarchyPayload).mode === "admin-load-hierarchy";
+}
+
+function isAdminSaveHierarchyPayload(payload: SubmissionPayload): payload is AdminSaveHierarchyPayload {
+  return (payload as AdminSaveHierarchyPayload).mode === "admin-save-hierarchy";
+}
+
+function isBoardOnboardingSlotsPayload(payload: SubmissionPayload): payload is BoardOnboardingSlotsPayload {
+  return (payload as BoardOnboardingSlotsPayload).mode === "board-onboarding-slots";
+}
+
+function isBoardOnboardingStatusPayload(payload: SubmissionPayload): payload is BoardOnboardingStatusPayload {
+  return (payload as BoardOnboardingStatusPayload).mode === "board-onboarding-status";
+}
+
+function isBoardOnboardingSubmitPayload(payload: SubmissionPayload): payload is BoardOnboardingSubmitPayload {
+  return (payload as BoardOnboardingSubmitPayload).mode === "board-onboarding-submit";
 }
 
 function authorizeAdminReset(request: Request): void {
@@ -1828,6 +2003,179 @@ async function scheduleInterviewForApplicant(
   return { scheduled: true, emailSent, slotLabel };
 }
 
+async function ensureBoardOnboardingSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, BOARD_ONBOARDING_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_ONBOARDING_SHEET_NAME, BOARD_ONBOARDING_HEADERS);
+}
+
+async function readBoardOnboardingRows(token: string): Promise<string[][]> {
+  const width = columnLetter(BOARD_ONBOARDING_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, `A2:${width}`)}`);
+  return ((await response.json()).values ?? []) as string[][];
+}
+
+async function getBoardOnboardingSlots(token: string): Promise<{ slots: (BoardOnboardingSlot & { remaining: number; full: boolean })[] }> {
+  await ensureBoardOnboardingSheet(token);
+  const rows = await readBoardOnboardingRows(token);
+  const bookedSlotIds = new Set(rows.map((row) => normalize(row[8])).filter(Boolean));
+
+  const slots = BOARD_ONBOARDING_SLOTS.map((slot) => {
+    const full = bookedSlotIds.has(normalize(slot.id));
+    return { ...slot, remaining: full ? 0 : 1, full };
+  });
+
+  return { slots };
+}
+
+function findBoardOnboardingRowIndex(rows: string[][], aucEmail: string): number {
+  const target = normalize(aucEmail);
+  return rows.findIndex((row) => normalize(row[2]) === target);
+}
+
+async function getBoardOnboardingStatus(
+  token: string,
+  payload: BoardOnboardingStatusPayload
+): Promise<{ found: boolean; record: Record<string, string> | null }> {
+  const email = String(payload.aucEmail ?? "").trim();
+  if (!isValidAucEmail(email)) {
+    throw new Error("Provide a valid AUC email.");
+  }
+
+  await ensureBoardOnboardingSheet(token);
+  const rows = await readBoardOnboardingRows(token);
+  const rowIndex = findBoardOnboardingRowIndex(rows, email);
+
+  if (rowIndex === -1) {
+    return { found: false, record: null };
+  }
+
+  const row = rows[rowIndex];
+  return {
+    found: true,
+    record: {
+      fullName: row[1] ?? "",
+      aucEmail: row[2] ?? "",
+      department: row[3] ?? "",
+      positionType: row[4] ?? "",
+      whatsappJoined: row[5] ?? "",
+      videoWatched: row[6] ?? "",
+      retreatDays: row[7] ?? "",
+      slotId: row[8] ?? "",
+      slotLabel: row[9] ?? "",
+      meetLink: row[11] ?? ""
+    }
+  };
+}
+
+async function submitBoardOnboarding(
+  token: string,
+  payload: BoardOnboardingSubmitPayload
+): Promise<{ slotLabel: string; meetLink: string; calendarInviteSent: boolean }> {
+  const email = String(payload.aucEmail ?? "").trim();
+  const fullName = String(payload.fullName ?? "").trim();
+  const department = String(payload.department ?? "").trim();
+  const positionType = String(payload.positionType ?? "").trim();
+  const slotId = String(payload.slotId ?? "").trim();
+  const retreatDays = Array.isArray(payload.retreatDays)
+    ? payload.retreatDays.filter((day) => BOARD_RETREAT_DAYS.includes(String(day)))
+    : [];
+
+  if (!isValidAucEmail(email)) {
+    throw new Error("Provide a valid AUC email.");
+  }
+  if (!fullName) {
+    throw new Error("Full name is required.");
+  }
+  if (!department || !positionType) {
+    throw new Error("Department and position are required.");
+  }
+
+  const slot = BOARD_ONBOARDING_SLOTS.find((candidate) => candidate.id === slotId);
+  if (!slot) {
+    throw new Error("Invalid or missing appointment slot.");
+  }
+
+  await ensureBoardOnboardingSheet(token);
+  const rows = await readBoardOnboardingRows(token);
+  const existingRowIndex = findBoardOnboardingRowIndex(rows, email);
+
+  if (existingRowIndex !== -1) {
+    const existing = rows[existingRowIndex];
+    const sheetRow = existingRowIndex + 2;
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, `F${sheetRow}:H${sheetRow}`)}?valueInputOption=RAW`,
+      { values: [[payload.whatsappJoined ? "Yes" : "No", payload.videoWatched ? "Yes" : "No", retreatDays.join(", ")]] }
+    );
+
+    return {
+      slotLabel: existing[9] ?? slot.label,
+      meetLink: existing[11] ?? "",
+      calendarInviteSent: false
+    };
+  }
+
+  const slotAlreadyTaken = rows.some((row) => normalize(row[8]) === normalize(slotId));
+  if (slotAlreadyTaken) {
+    throw new Error("That appointment slot was just booked by someone else. Please pick another.");
+  }
+
+  const calendarToken = await getGmailAccessToken();
+  const applicantPayload: ApplicationPayload = {
+    timestamp: new Date().toISOString(),
+    fullName,
+    aucEmail: email,
+    studentId: "",
+    major: "",
+    yearLevel: "",
+    phone: "",
+    roleAppliedFor: positionType,
+    roleStepTitle: "",
+    roleDescription: "",
+    secondPreference: department,
+    whyThisRole: "",
+    whyChooseYourself: "",
+    createdAt: new Date().toISOString()
+  };
+
+  const boardSlot: InterviewSlotOption = {
+    id: slot.id,
+    label: slot.label,
+    date: slot.date,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    startDateTime: slot.startDateTime,
+    endDateTime: slot.endDateTime,
+    capacity: 1,
+    active: true,
+    reservedCount: 0,
+    remaining: 1,
+    full: false
+  };
+
+  const calendarEvent = await createCalendarEvent(calendarToken, applicantPayload, boardSlot);
+
+  await sheetsFetch(token, "POST", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, "A:L")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    values: [[
+      new Date().toISOString(),
+      fullName,
+      email,
+      department,
+      positionType,
+      payload.whatsappJoined ? "Yes" : "No",
+      payload.videoWatched ? "Yes" : "No",
+      retreatDays.join(", "),
+      slot.id,
+      slot.label,
+      calendarEvent.calendarEventId,
+      calendarEvent.meetLink
+    ]]
+  });
+
+  return { slotLabel: slot.label, meetLink: calendarEvent.meetLink, calendarInviteSent: true };
+}
+
 async function updateReservationInterviewStatus(
   token: string,
   payload: AdminUpdateInterviewStatusPayload
@@ -1982,6 +2330,7 @@ async function ensureInterviewScoreHeaders(token: string, sheetName: string): Pr
 async function ensureTaskScoreHeaders(token: string, sheetName: string): Promise<void> {
   const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + 1);
   const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length);
+  await ensureColumnCount(token, sheetName, HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length);
   const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}`);
   const current = (await response.json()).values?.[0] ?? [];
   const match = TASK_SCORE_HEADERS.every((h, i) => current[i] === h);
@@ -1995,6 +2344,7 @@ async function ensureTaskScoreHeaders(token: string, sheetName: string): Promise
 async function ensureTaskNoteHeaders(token: string, sheetName: string): Promise<void> {
   const startCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + 1);
   const endCol = columnLetter(HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length);
+  await ensureColumnCount(token, sheetName, HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length);
   const response = await sheetsFetch(token, "GET", `${sheetRange(sheetName, `${startCol}1:${endCol}1`)}`);
   const current = (await response.json()).values?.[0] ?? [];
   const match = TASK_NOTE_HEADERS.every((h, i) => current[i] === h);
@@ -2150,6 +2500,53 @@ async function updateApplicantTaskScore(
   });
 
   return { updated: true };
+}
+
+async function ensureHierarchySheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HIERARCHY_SHEET_NAME);
+  await ensureSheetHeaders(token, HIERARCHY_SHEET_NAME, HIERARCHY_HEADERS);
+}
+
+async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[] }> {
+  await ensureHierarchySheet(token);
+  const width = columnLetter(HIERARCHY_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HIERARCHY_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const entries: HierarchyEntry[] = rows
+    .filter((row) => normalize(row[3]))
+    .map((row) => ({
+      department: String(row[1] ?? ""),
+      positionType: String(row[2] ?? ""),
+      name: String(row[3] ?? ""),
+      aucEmail: String(row[4] ?? "")
+    }));
+
+  return { entries };
+}
+
+async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload): Promise<{ saved: number }> {
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const cleaned = entries
+    .map((entry) => ({
+      department: String(entry.department ?? "").trim(),
+      positionType: String(entry.positionType ?? "").trim(),
+      name: String(entry.name ?? "").trim(),
+      aucEmail: String(entry.aucEmail ?? "").trim()
+    }))
+    .filter((entry) => entry.positionType && entry.name);
+
+  await ensureHierarchySheet(token);
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:E")}:clear`, {});
+
+  if (cleaned.length) {
+    const timestamp = new Date().toISOString();
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      values: cleaned.map((entry) => [timestamp, entry.department, entry.positionType, entry.name, entry.aucEmail])
+    });
+  }
+
+  return { saved: cleaned.length };
 }
 
 async function rescheduleInterview(
@@ -2473,6 +2870,33 @@ function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: stri
     </table>
   </body>
 </html>`;
+}
+
+async function ensureColumnCount(token: string, sheetName: string, minColumnCount: number): Promise<void> {
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}?fields=sheets.properties(sheetId,title,gridProperties)`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Google Sheets metadata request failed: ${errorText}`);
+  }
+
+  const body = await response.json();
+  const sheet = (body?.sheets ?? []).find((s: { properties?: { title?: string } }) => s?.properties?.title === sheetName);
+  const sheetId = sheet?.properties?.sheetId;
+  const currentColumnCount = sheet?.properties?.gridProperties?.columnCount ?? 0;
+
+  if (typeof sheetId !== "number" || currentColumnCount >= minColumnCount) return;
+
+  await batchUpdateSpreadsheet(token, [{
+    appendDimension: {
+      sheetId,
+      dimension: "COLUMNS",
+      length: minColumnCount - currentColumnCount
+    }
+  }]);
 }
 
 async function getSpreadsheetSheetIds(token: string): Promise<Map<string, number>> {

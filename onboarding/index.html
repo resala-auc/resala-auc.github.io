@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Board Onboarding | Resala AUC</title>
+    <meta name="description" content="Resala AUC board onboarding checklist: join the WhatsApp group, watch the intro video, confirm the retreat, and book your intro appointment.">
+    <link rel="icon" type="image/png" href="../favicon.png">
+    <link rel="apple-touch-icon" href="../favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans:wght@400;500;600;700;800&family=Roboto+Slab:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+    <style>
+      .onboarding-page {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 20px 80px;
+      }
+      .onboarding-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .onboarding-header img {
+        width: 120px;
+        height: auto;
+      }
+      .onboarding-hero {
+        background: var(--color-primary);
+        color: var(--color-white);
+        border-radius: var(--radius-large);
+        padding: 28px 24px;
+        margin-bottom: 28px;
+      }
+      .onboarding-hero .eyebrow {
+        color: var(--color-accent-orange);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 13px;
+        margin: 0 0 8px;
+      }
+      .onboarding-hero h1 {
+        font-family: var(--font-display);
+        font-size: 28px;
+        margin: 0 0 8px;
+      }
+      .onboarding-hero p {
+        margin: 0;
+        color: var(--color-primary-pale);
+      }
+      .onboarding-step {
+        background: var(--color-surface);
+        border: 1px solid var(--color-primary-pale);
+        border-radius: var(--radius-large);
+        padding: 22px;
+        margin-bottom: 18px;
+      }
+      .onboarding-step.done {
+        border-color: #2f9e5c;
+        background: #f2fbf6;
+      }
+      .step-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-family: var(--font-display);
+        font-size: 18px;
+        color: var(--color-ink);
+        margin: 0 0 6px;
+      }
+      .step-number {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: var(--color-primary);
+        color: var(--color-white);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-family: var(--font-sans);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .onboarding-step.done .step-number {
+        background: #2f9e5c;
+      }
+      .step-desc {
+        color: var(--color-muted);
+        font-size: 15px;
+        margin: 0 0 14px;
+      }
+      .checklist-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .checklist-row label {
+        font-size: 15px;
+        color: var(--color-ink);
+      }
+      .day-grid, .slot-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+        gap: 10px;
+        margin-top: 6px;
+      }
+      .day-option, .slot-option {
+        border: 1px solid var(--color-primary-pale);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+        text-align: center;
+        cursor: pointer;
+        font-size: 14px;
+        background: var(--color-white);
+        user-select: none;
+      }
+      .day-option.selected {
+        background: var(--color-primary);
+        color: var(--color-white);
+        border-color: var(--color-primary);
+      }
+      .slot-option.selected {
+        background: var(--color-accent-orange);
+        color: var(--color-white);
+        border-color: var(--color-accent-orange);
+      }
+      .slot-option.full {
+        opacity: 0.4;
+        cursor: not-allowed;
+        text-decoration: line-through;
+      }
+      .onboarding-submit {
+        position: sticky;
+        bottom: 16px;
+        text-align: center;
+        margin-top: 24px;
+      }
+      .onboarding-notice {
+        text-align: center;
+        font-size: 14px;
+        margin-top: 10px;
+        color: var(--color-muted);
+      }
+      .onboarding-notice.error { color: #c0392b; }
+      .onboarding-notice.success { color: #2f9e5c; }
+      .field-missing-warning {
+        background: #fff3e6;
+        border: 1px solid var(--color-accent-orange);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        font-size: 14px;
+        color: var(--color-ink);
+        margin-bottom: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="onboarding-page">
+      <header class="onboarding-header">
+        <a href="../" aria-label="Resala AUC">
+          <img src="../The brand System/logos/Resala Logo - source.svg" alt="Resala AUC logo">
+        </a>
+      </header>
+
+      <section class="onboarding-hero">
+        <p class="eyebrow">Build the First Step</p>
+        <h1 id="hero-title">Welcome to the board</h1>
+        <p id="hero-subtitle">Complete the checklist below before our first meeting.</p>
+      </section>
+
+      <div id="missing-params" class="field-missing-warning" hidden>
+        This link is missing your details. Please use the personalized link from your welcome email, or contact the board if it's not working.
+      </div>
+
+      <form id="onboarding-form">
+        <div class="onboarding-step" id="step-whatsapp">
+          <p class="step-title"><span class="step-number">1</span> Join the board WhatsApp group</p>
+          <p class="step-desc">This is where day-to-day coordination happens.</p>
+          <a class="button button-primary" href="https://chat.whatsapp.com/Ia7XqYqmlQ9G14yfeEqQVP?s=sh&amp;p=i&amp;ilr=4&amp;amv=2" target="_blank" rel="noopener">Join WhatsApp group</a>
+          <div class="checklist-row">
+            <input type="checkbox" id="whatsappJoined">
+            <label for="whatsappJoined">I've joined the group</label>
+          </div>
+        </div>
+
+        <div class="onboarding-step" id="step-video">
+          <p class="step-title"><span class="step-number">2</span> Watch this before our meeting</p>
+          <p class="step-desc">A short watch that sets up what we'll talk about.</p>
+          <a class="button button-secondary" href="https://youtu.be/qzoIAJYPQwo?si=TbPSQgUGnT-PHQhk" target="_blank" rel="noopener">Watch the video</a>
+          <div class="checklist-row">
+            <input type="checkbox" id="videoWatched">
+            <label for="videoWatched">I've watched it</label>
+          </div>
+        </div>
+
+        <div class="onboarding-step" id="step-confirm">
+          <p class="step-title"><span class="step-number">3</span> Confirm you're taking the role</p>
+          <p class="step-desc">Reply to your welcome email within 24 hours confirming your name and that you're accepting the role. That reply is what actually confirms you — this page doesn't replace it.</p>
+        </div>
+
+        <div class="onboarding-step" id="step-retreat">
+          <p class="step-title"><span class="step-number">4</span> Retreat availability</p>
+          <p class="step-desc">One night in Ain Sokhna, sometime between July 27&ndash;30. Select every day you're free.</p>
+          <div class="day-grid" id="day-grid">
+            <div class="day-option" data-day="2026-07-27">Mon, Jul 27</div>
+            <div class="day-option" data-day="2026-07-28">Tue, Jul 28</div>
+            <div class="day-option" data-day="2026-07-29">Wed, Jul 29</div>
+            <div class="day-option" data-day="2026-07-30">Thu, Jul 30</div>
+          </div>
+        </div>
+
+        <div class="onboarding-step" id="step-slot">
+          <p class="step-title"><span class="step-number">5</span> Book your intro appointment</p>
+          <p class="step-desc">Sunday, July 19 &mdash; pick a 1-hour slot. You'll get a calendar invite with a Meet link and a reminder.</p>
+          <div class="slot-grid" id="slot-grid">
+            <div class="onboarding-notice">Loading slots&hellip;</div>
+          </div>
+        </div>
+
+        <div class="onboarding-submit">
+          <button type="submit" class="button button-primary" id="submit-button">Save my checklist</button>
+          <p class="onboarding-notice" id="form-notice"></p>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+      const params = new URLSearchParams(window.location.search);
+      const name = (params.get("name") || "").trim();
+      const email = (params.get("email") || "").trim();
+      const department = (params.get("department") || "").trim();
+      const position = (params.get("position") || "").trim();
+
+      const missingParams = document.getElementById("missing-params");
+      const heroTitle = document.getElementById("hero-title");
+      const heroSubtitle = document.getElementById("hero-subtitle");
+      const dayGrid = document.getElementById("day-grid");
+      const slotGrid = document.getElementById("slot-grid");
+      const form = document.getElementById("onboarding-form");
+      const submitButton = document.getElementById("submit-button");
+      const formNotice = document.getElementById("form-notice");
+      const whatsappCheckbox = document.getElementById("whatsappJoined");
+      const videoCheckbox = document.getElementById("videoWatched");
+
+      const selectedDays = new Set();
+      let selectedSlotId = null;
+      let existingSlotId = null;
+
+      if (!email || !name) {
+        missingParams.hidden = false;
+      } else {
+        const firstName = name.split(" ")[0];
+        heroTitle.textContent = `Welcome, ${firstName}`;
+        heroSubtitle.textContent = position && department
+          ? `${position} of ${department} — complete the checklist below before our first meeting.`
+          : "Complete the checklist below before our first meeting.";
+      }
+
+      dayGrid.addEventListener("click", (event) => {
+        const target = event.target.closest(".day-option");
+        if (!target) return;
+        const day = target.dataset.day;
+        if (selectedDays.has(day)) {
+          selectedDays.delete(day);
+          target.classList.remove("selected");
+        } else {
+          selectedDays.add(day);
+          target.classList.add("selected");
+        }
+      });
+
+      async function apiCall(payload) {
+        const response = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+        const body = await response.json();
+        if (!response.ok || !body.ok) {
+          throw new Error(body.error || "Something went wrong.");
+        }
+        return body;
+      }
+
+      function renderSlots(slots) {
+        slotGrid.innerHTML = "";
+        slots.forEach((slot) => {
+          const el = document.createElement("div");
+          el.className = "slot-option" + (slot.full && slot.id !== existingSlotId ? " full" : "");
+          el.textContent = slot.label;
+          el.dataset.slotId = slot.id;
+          if (slot.id === existingSlotId || slot.id === selectedSlotId) {
+            el.classList.add("selected");
+          }
+          el.addEventListener("click", () => {
+            if (el.classList.contains("full")) return;
+            selectedSlotId = slot.id;
+            document.querySelectorAll(".slot-option").forEach((node) => node.classList.remove("selected"));
+            el.classList.add("selected");
+          });
+          slotGrid.appendChild(el);
+        });
+      }
+
+      async function init() {
+        if (!email) return;
+
+        try {
+          const slotsResult = await apiCall({ mode: "board-onboarding-slots" });
+          renderSlots(slotsResult.slots);
+        } catch (error) {
+          slotGrid.innerHTML = `<div class="onboarding-notice error">Could not load slots: ${error.message}</div>`;
+        }
+
+        try {
+          const statusResult = await apiCall({ mode: "board-onboarding-status", aucEmail: email });
+          if (statusResult.found && statusResult.record) {
+            const record = statusResult.record;
+            whatsappCheckbox.checked = record.whatsappJoined === "Yes";
+            videoCheckbox.checked = record.videoWatched === "Yes";
+            (record.retreatDays || "").split(",").map((d) => d.trim()).filter(Boolean).forEach((day) => {
+              selectedDays.add(day);
+              const el = dayGrid.querySelector(`[data-day="${day}"]`);
+              if (el) el.classList.add("selected");
+            });
+            if (record.slotId) {
+              existingSlotId = record.slotId;
+              selectedSlotId = record.slotId;
+              const slotsResult = await apiCall({ mode: "board-onboarding-slots" });
+              renderSlots(slotsResult.slots);
+            }
+            formNotice.textContent = "You've already submitted this checklist — you can update it below.";
+            formNotice.className = "onboarding-notice success";
+          }
+        } catch (error) {
+          // no existing record or lookup failed silently; user can still submit fresh
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!email || !name) {
+          formNotice.textContent = "Missing your details — use the link from your welcome email.";
+          formNotice.className = "onboarding-notice error";
+          return;
+        }
+        if (!selectedSlotId) {
+          formNotice.textContent = "Pick an intro appointment slot before saving.";
+          formNotice.className = "onboarding-notice error";
+          return;
+        }
+
+        submitButton.disabled = true;
+        formNotice.textContent = "Saving…";
+        formNotice.className = "onboarding-notice";
+
+        try {
+          const result = await apiCall({
+            mode: "board-onboarding-submit",
+            aucEmail: email,
+            fullName: name,
+            department,
+            positionType: position,
+            whatsappJoined: whatsappCheckbox.checked,
+            videoWatched: videoCheckbox.checked,
+            retreatDays: Array.from(selectedDays),
+            slotId: selectedSlotId
+          });
+          formNotice.textContent = `Saved! Your appointment: ${result.slotLabel}. Check your email for the calendar invite.`;
+          formNotice.className = "onboarding-notice success";
+        } catch (error) {
+          formNotice.textContent = error.message || "Could not save. Please try again.";
+          formNotice.className = "onboarding-notice error";
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+
+      init();
+    </script>
+  </body>
+</html>
