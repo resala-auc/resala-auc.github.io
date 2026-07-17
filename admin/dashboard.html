@@ -1678,11 +1678,11 @@
   }
 
   const DEPARTMENT_CONFIG = {
-    'Treasurer': { primaryLabel: 'Co-Treasurer', primaryCount: 2, allowAssistant: false }
+    'Treasurer': { primaryLabels: ['Treasurer', 'Co-Treasurer', 'Co-Treasurer'], allowAssistant: false }
   };
 
   function deptConfig(role) {
-    return DEPARTMENT_CONFIG[role] || { primaryLabel: 'Director', primaryCount: 1, allowAssistant: true };
+    return DEPARTMENT_CONFIG[role] || { primaryLabels: ['Director'], allowAssistant: true };
   }
 
   function initHierarchyDepartments() {
@@ -1695,7 +1695,7 @@
 
     const cards = ROLE_OPTIONS.map(role => {
       const cfg = deptConfig(role);
-      const primaryRows = Array.from({ length: cfg.primaryCount }, () => hierSlotRowHtml(role, cfg.primaryLabel, false, '', '')).join('');
+      const primaryRows = cfg.primaryLabels.map(label => hierSlotRowHtml(role, label, false, '', '')).join('');
       return `
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
         <h3>${escHtml(role)}</h3>
@@ -1753,14 +1753,18 @@
 
       const cfg = deptConfig(role);
       const deptEntries = entries.filter(e => normalize(e.department) === normalize(role));
-      const primaryEntries = deptEntries.filter(e => e.positionType === cfg.primaryLabel);
       const assistant = deptEntries.find(e => e.positionType === 'Assistant Director');
       const heads = deptEntries.filter(e => e.positionType === 'Head');
 
+      const labelUsed = {};
       const primaryRows = deptCard.querySelectorAll('.hier-director-row .hier-slot-row');
       primaryRows.forEach((row, i) => {
-        row.querySelector('input[data-field="name"]').value = primaryEntries[i] ? primaryEntries[i].name : '';
-        row.querySelector('input[data-field="email"]').value = primaryEntries[i] ? primaryEntries[i].aucEmail : '';
+        const label = cfg.primaryLabels[i];
+        const idx = labelUsed[label] || 0;
+        labelUsed[label] = idx + 1;
+        const entry = deptEntries.filter(e => e.positionType === label)[idx];
+        row.querySelector('input[data-field="name"]').value = entry ? entry.name : '';
+        row.querySelector('input[data-field="email"]').value = entry ? entry.aucEmail : '';
       });
 
       const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
