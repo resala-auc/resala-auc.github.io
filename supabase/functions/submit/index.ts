@@ -305,6 +305,11 @@ type AdminScheduleInterviewPayload = {
   endTime?: string;
 };
 
+type AdminResetBoardOnboardingPayload = {
+  mode: "admin-reset-board-onboarding";
+  aucEmail: string;
+};
+
 type AdminLoadHierarchyPayload = {
   mode: "admin-load-hierarchy";
 };
@@ -340,6 +345,8 @@ type BoardOnboardingSubmitPayload = {
   videoWatched?: boolean;
   retreatDays?: string[];
   slotId: string;
+  partnerName?: string;
+  partnerEmail?: string;
 };
 
 type SubmissionPayload =
@@ -355,6 +362,7 @@ type SubmissionPayload =
   | AdminUpdateScorePayload
   | AdminUpdateTaskScorePayload
   | AdminScheduleInterviewPayload
+  | AdminResetBoardOnboardingPayload
   | AdminLoadHierarchyPayload
   | AdminSaveHierarchyPayload
   | BoardOnboardingSlotsPayload
@@ -610,6 +618,19 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminResetBoardOnboardingPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await resetBoardOnboardingApplicant(token, payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isAdminLoadHierarchyPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -771,6 +792,10 @@ function isAdminUpdateTaskScorePayload(payload: SubmissionPayload): payload is A
 
 function isAdminScheduleInterviewPayload(payload: SubmissionPayload): payload is AdminScheduleInterviewPayload {
   return (payload as AdminScheduleInterviewPayload).mode === "admin-schedule-interview";
+}
+
+function isAdminResetBoardOnboardingPayload(payload: SubmissionPayload): payload is AdminResetBoardOnboardingPayload {
+  return (payload as AdminResetBoardOnboardingPayload).mode === "admin-reset-board-onboarding";
 }
 
 function isAdminLoadHierarchyPayload(payload: SubmissionPayload): payload is AdminLoadHierarchyPayload {
@@ -2067,6 +2092,27 @@ async function getBoardOnboardingStatus(
   };
 }
 
+async function resetBoardOnboardingApplicant(token: string, payload: AdminResetBoardOnboardingPayload): Promise<{ removed: number }> {
+  const email = String(payload.aucEmail ?? "").trim();
+  if (!isValidAucEmail(email)) {
+    throw new Error("Provide a valid AUC email.");
+  }
+
+  await ensureBoardOnboardingSheet(token);
+  const rows = await readBoardOnboardingRows(token);
+  const remaining = rows.filter((row) => normalize(row[2]) !== normalize(email));
+  const removed = rows.length - remaining.length;
+
+  await sheetsFetch(token, "POST", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, "A2:L")}:clear`, {});
+  if (remaining.length) {
+    await sheetsFetch(token, "POST", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, "A:L")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      values: remaining
+    });
+  }
+
+  return { removed };
+}
+
 async function submitBoardOnboarding(
   token: string,
   payload: BoardOnboardingSubmitPayload
@@ -2116,12 +2162,69 @@ async function submitBoardOnboarding(
     };
   }
 
+  const partnerName = String(payload.partnerName ?? "").trim();
+  const partnerEmailRaw = String(payload.partnerEmail ?? "").trim();
+  const hasPartner = Boolean(partnerName && partnerEmailRaw);
+  if (hasPartner && !isValidAucEmail(partnerEmailRaw)) {
+    throw new Error("Partner email looks invalid.");
+  }
+
+  const partnerRowIndex = hasPartner ? findBoardOnboardingRowIndex(rows, partnerEmailRaw) : -1;
+  const partnerRow = partnerRowIndex !== -1 ? rows[partnerRowIndex] : null;
+  const partnerAlreadyBookedSlotId = partnerRow ? String(partnerRow[8] ?? "").trim() : "";
+
+  const rowValues = (name: string, personEmail: string, calendarEventId: string, meetLink: string) => [
+    new Date().toISOString(),
+    name,
+    personEmail,
+    department,
+    positionType,
+    personEmail === email ? (payload.whatsappJoined ? "Yes" : "No") : "",
+    personEmail === email ? (payload.videoWatched ? "Yes" : "No") : "",
+    personEmail === email ? retreatDays.join(", ") : "",
+    slotId,
+    slot.label,
+    calendarEventId,
+    meetLink
+  ];
+
+  const calendarToken = await getGmailAccessToken();
+
+  // Partner already booked a slot -- join them there instead of creating a second event.
+  if (hasPartner && partnerAlreadyBookedSlotId) {
+    const partnerSlot = BOARD_ONBOARDING_SLOTS.find((candidate) => candidate.id === partnerAlreadyBookedSlotId) ?? slot;
+    const partnerCalendarEventId = String(partnerRow?.[10] ?? "").trim();
+    const partnerMeetLink = String(partnerRow?.[11] ?? "").trim();
+
+    if (partnerCalendarEventId) {
+      await addCalendarEventAttendee(calendarToken, partnerCalendarEventId, { email, displayName: fullName });
+    }
+
+    await sheetsFetch(token, "POST", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, "A:L")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      values: [[
+        new Date().toISOString(),
+        fullName,
+        email,
+        department,
+        positionType,
+        payload.whatsappJoined ? "Yes" : "No",
+        payload.videoWatched ? "Yes" : "No",
+        retreatDays.join(", "),
+        partnerSlot.id,
+        partnerSlot.label,
+        partnerCalendarEventId,
+        partnerMeetLink
+      ]]
+    });
+
+    return { slotLabel: partnerSlot.label, meetLink: partnerMeetLink, calendarInviteSent: Boolean(partnerCalendarEventId) };
+  }
+
   const slotAlreadyTaken = rows.some((row) => normalize(row[8]) === normalize(slotId));
   if (slotAlreadyTaken) {
     throw new Error("That appointment slot was just booked by someone else. Please pick another.");
   }
 
-  const calendarToken = await getGmailAccessToken();
   const applicantPayload: ApplicationPayload = {
     timestamp: new Date().toISOString(),
     fullName,
@@ -2156,21 +2259,17 @@ async function submitBoardOnboarding(
 
   const calendarEvent = await createCalendarEvent(calendarToken, applicantPayload, boardSlot);
 
+  if (hasPartner) {
+    await addCalendarEventAttendee(calendarToken, calendarEvent.calendarEventId, { email: partnerEmailRaw, displayName: partnerName });
+  }
+
+  const appendValues = [rowValues(fullName, email, calendarEvent.calendarEventId, calendarEvent.meetLink)];
+  if (hasPartner && partnerRowIndex === -1) {
+    appendValues.push(rowValues(partnerName, partnerEmailRaw, calendarEvent.calendarEventId, calendarEvent.meetLink));
+  }
+
   await sheetsFetch(token, "POST", `${sheetRange(BOARD_ONBOARDING_SHEET_NAME, "A:L")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
-    values: [[
-      new Date().toISOString(),
-      fullName,
-      email,
-      department,
-      positionType,
-      payload.whatsappJoined ? "Yes" : "No",
-      payload.videoWatched ? "Yes" : "No",
-      retreatDays.join(", "),
-      slot.id,
-      slot.label,
-      calendarEvent.calendarEventId,
-      calendarEvent.meetLink
-    ]]
+    values: appendValues
   });
 
   return { slotLabel: slot.label, meetLink: calendarEvent.meetLink, calendarInviteSent: true };
@@ -3216,6 +3315,43 @@ async function reserveInterviewSlot(token: string, payload: ApplicationPayload):
     calendarEventId: calendarEvent.calendarEventId,
     meetLink: calendarEvent.meetLink
   };
+}
+
+async function addCalendarEventAttendee(
+  token: string,
+  calendarEventId: string,
+  attendee: { email: string; displayName: string }
+): Promise<void> {
+  if (!CALENDAR_ID) {
+    throw new Error("CALENDAR_ID is not configured.");
+  }
+
+  const getResponse = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(calendarEventId)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const eventBody = await getResponse.json();
+  if (!getResponse.ok) {
+    throw new Error(`Could not load calendar event: ${JSON.stringify(eventBody)}`);
+  }
+
+  const existingAttendees: { email: string; displayName?: string }[] = eventBody.attendees ?? [];
+  if (existingAttendees.some((a) => normalize(a.email) === normalize(attendee.email))) {
+    return;
+  }
+
+  const patchResponse = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(calendarEventId)}?sendUpdates=all`,
+    {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ attendees: [...existingAttendees, attendee] })
+    }
+  );
+  if (!patchResponse.ok) {
+    const patchBody = await patchResponse.json();
+    throw new Error(`Could not add attendee to calendar event: ${JSON.stringify(patchBody)}`);
+  }
 }
 
 async function createCalendarEvent(
