@@ -305,6 +305,19 @@ type AdminScheduleInterviewPayload = {
   endTime?: string;
 };
 
+type AdminLoadBoardOnboardingPayload = {
+  mode: "admin-load-board-onboarding";
+};
+
+type AdminSendBoardEmailPayload = {
+  mode: "admin-send-board-email";
+  to: string;
+  cc?: string;
+  subject: string;
+  html: string;
+  text: string;
+};
+
 type AdminResetBoardOnboardingPayload = {
   mode: "admin-reset-board-onboarding";
   aucEmail: string;
@@ -363,6 +376,8 @@ type SubmissionPayload =
   | AdminUpdateScorePayload
   | AdminUpdateTaskScorePayload
   | AdminScheduleInterviewPayload
+  | AdminLoadBoardOnboardingPayload
+  | AdminSendBoardEmailPayload
   | AdminResetBoardOnboardingPayload
   | AdminLoadHierarchyPayload
   | AdminSaveHierarchyPayload
@@ -619,6 +634,27 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminLoadBoardOnboardingPayload(payload)) {
+      authorizeAdminReset(request);
+
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await loadBoardOnboardingRecords(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
+    if (isAdminSendBoardEmailPayload(payload)) {
+      authorizeAdminReset(request);
+
+      const result = await sendBoardEmail(payload);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isAdminResetBoardOnboardingPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -793,6 +829,14 @@ function isAdminUpdateTaskScorePayload(payload: SubmissionPayload): payload is A
 
 function isAdminScheduleInterviewPayload(payload: SubmissionPayload): payload is AdminScheduleInterviewPayload {
   return (payload as AdminScheduleInterviewPayload).mode === "admin-schedule-interview";
+}
+
+function isAdminLoadBoardOnboardingPayload(payload: SubmissionPayload): payload is AdminLoadBoardOnboardingPayload {
+  return (payload as AdminLoadBoardOnboardingPayload).mode === "admin-load-board-onboarding";
+}
+
+function isAdminSendBoardEmailPayload(payload: SubmissionPayload): payload is AdminSendBoardEmailPayload {
+  return (payload as AdminSendBoardEmailPayload).mode === "admin-send-board-email";
 }
 
 function isAdminResetBoardOnboardingPayload(payload: SubmissionPayload): payload is AdminResetBoardOnboardingPayload {
@@ -1454,6 +1498,7 @@ async function getGmailAccessToken(): Promise<string> {
 function buildRawEmailMessage({
   from,
   to,
+  cc,
   subject,
   text,
   html,
@@ -1461,6 +1506,7 @@ function buildRawEmailMessage({
 }: {
   from: string;
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html: string;
@@ -1486,6 +1532,7 @@ function buildRawEmailMessage({
   const headers = [
     `From: ${from}`,
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     "MIME-Version: 1.0",
     `Subject: ${subject}`
   ];
@@ -2091,6 +2138,72 @@ async function getBoardOnboardingStatus(
       meetLink: row[11] ?? ""
     }
   };
+}
+
+async function loadBoardOnboardingRecords(token: string): Promise<{ records: Record<string, string>[] }> {
+  await ensureBoardOnboardingSheet(token);
+  const rows = await readBoardOnboardingRows(token);
+
+  const records = rows
+    .filter((row) => normalize(row[2]))
+    .map((row) => ({
+      fullName: row[1] ?? "",
+      aucEmail: row[2] ?? "",
+      department: row[3] ?? "",
+      positionType: row[4] ?? "",
+      whatsappJoined: row[5] ?? "",
+      videoWatched: row[6] ?? "",
+      retreatDays: row[7] ?? "",
+      slotId: row[8] ?? "",
+      slotLabel: row[9] ?? "",
+      meetLink: row[11] ?? ""
+    }));
+
+  return { records };
+}
+
+async function sendBoardEmail(payload: AdminSendBoardEmailPayload): Promise<{ sent: boolean }> {
+  const to = String(payload.to ?? "").trim();
+  const cc = String(payload.cc ?? "").trim();
+  const subject = String(payload.subject ?? "").trim();
+  const html = String(payload.html ?? "");
+  const text = String(payload.text ?? "");
+
+  if (!isValidAucEmail(to)) {
+    throw new Error("Provide a valid AUC email for 'to'.");
+  }
+  if (!subject || !html || !text) {
+    throw new Error("subject, html, and text are all required.");
+  }
+  if (!gmailConfigured()) {
+    throw new Error("Gmail is not configured on this deployment.");
+  }
+
+  const token = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to,
+    cc: cc || undefined,
+    subject,
+    text,
+    html
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    const body = await response.json();
+    throw new Error(`Gmail send failed: ${JSON.stringify(body)}`);
+  }
+
+  return { sent: true };
 }
 
 async function resetBoardOnboardingApplicant(token: string, payload: AdminResetBoardOnboardingPayload): Promise<{ removed: number }> {

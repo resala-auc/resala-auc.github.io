@@ -578,6 +578,7 @@
       <button class="tab-btn" data-tab="score" onclick="switchTab(this,'score')">Score &amp; Rank</button>
       <button class="tab-btn" data-tab="taskcompare" onclick="switchTab(this,'taskcompare')">Task Compare</button>
       <button class="tab-btn" data-tab="hierarchy" onclick="switchTab(this,'hierarchy')">Hierarchy</button>
+      <button class="tab-btn" data-tab="onboarding" onclick="switchTab(this,'onboarding')">Onboarding</button>
     </div>
 
     <!-- ── RESERVATIONS TAB ── -->
@@ -747,6 +748,51 @@
           </div>
           <div id="hier-departments"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── ONBOARDING TAB ── -->
+    <div class="tab-panel" id="tab-onboarding">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Sunday, July 19 — Schedule</h2>
+            <div class="count" id="ob-schedule-count"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="loadOnboardingTab()">↺ Refresh</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Who's booked</th>
+              <th>Meet link</th>
+            </tr>
+          </thead>
+          <tbody id="ob-schedule-body"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Checklist Status</h2>
+            <div class="count" id="ob-checklist-count"></div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Role</th>
+              <th>WhatsApp</th>
+              <th>Video</th>
+              <th>Slot</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="ob-checklist-body"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -1101,6 +1147,7 @@
     btn.classList.add('active');
     document.getElementById(`tab-${name}`).classList.add('active');
     if (name === 'hierarchy') loadHierarchyTab();
+    if (name === 'onboarding') loadOnboardingTab();
   }
 
   // ── reservations tab ───────────────────────────────────────────────────────
@@ -1841,6 +1888,90 @@
     } catch (err) {
       notice.textContent = err.message;
       notice.style.color = '#c0392b';
+    }
+  }
+
+  // ── ONBOARDING TAB ─────────────────────────────────────────────────────────
+
+  function yesNoBadge(value) {
+    return value === 'Yes'
+      ? '<span style="color:#2f9e5c;font-weight:700;">✓</span>'
+      : '<span style="color:#c0392b;font-weight:700;">✕</span>';
+  }
+
+  function renderOnboardingSchedule(slots, records) {
+    const tbody = document.getElementById('ob-schedule-body');
+    const booked = slots.filter(s => s.full).length;
+    document.getElementById('ob-schedule-count').textContent = `${booked} of ${slots.length} slots booked`;
+
+    tbody.innerHTML = slots.map(slot => {
+      const inSlot = records.filter(r => r.slotId === slot.id);
+      const who = inSlot.length
+        ? inSlot.map(r => `${escHtml(r.fullName)} <span style="color:#94a3b8;">(${escHtml(r.department)})</span>`).join('<br>')
+        : '<span style="color:#94a3b8;">— open —</span>';
+      const meetLink = inSlot[0]?.meetLink
+        ? `<a href="${escHtml(inSlot[0].meetLink)}" target="_blank" rel="noopener" style="color:#2563eb;">Join</a>`
+        : '';
+      return `<tr><td>${escHtml(slot.label)}</td><td>${who}</td><td>${meetLink}</td></tr>`;
+    }).join('');
+  }
+
+  function renderOnboardingChecklist(hierarchyEntries, records) {
+    const tbody = document.getElementById('ob-checklist-body');
+    const roster = hierarchyEntries.filter(e => e.name);
+    document.getElementById('ob-checklist-count').textContent = countLabel(roster.length, 'person');
+
+    tbody.innerHTML = roster.map(entry => {
+      const record = records.find(r => normalize(r.aucEmail) === normalize(entry.aucEmail));
+      const role = entry.department ? chip_label_dashboard(entry.positionType, entry.department) : entry.positionType;
+
+      if (!record) {
+        return `<tr>
+          <td>${escHtml(entry.name)}</td>
+          <td>${role}</td>
+          <td colspan="3" style="color:#94a3b8;">Hasn't opened their checklist yet</td>
+          <td><span class="slot-badge" style="background:#fee2e2;color:#991b1b;">Not started</span></td>
+        </tr>`;
+      }
+
+      const complete = record.whatsappJoined === 'Yes' && record.videoWatched === 'Yes' && record.slotId;
+      const started = record.whatsappJoined === 'Yes' || record.videoWatched === 'Yes' || record.slotId;
+      const statusBadge = complete
+        ? '<span class="slot-badge" style="background:#dcfce7;color:#166534;">Complete</span>'
+        : started
+          ? '<span class="slot-badge" style="background:#fef3c7;color:#92400e;">Partial</span>'
+          : '<span class="slot-badge" style="background:#fee2e2;color:#991b1b;">Not started</span>';
+
+      return `<tr>
+        <td>${escHtml(entry.name)}</td>
+        <td>${role}</td>
+        <td>${yesNoBadge(record.whatsappJoined)}</td>
+        <td>${yesNoBadge(record.videoWatched)}</td>
+        <td>${record.slotLabel ? escHtml(record.slotLabel) : '<span style="color:#c0392b;">Not booked</span>'}</td>
+        <td>${statusBadge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function chip_label_dashboard(positionType, department) {
+    if (positionType === department) return escHtml(positionType);
+    if (department.endsWith('Director') && (positionType === 'Director' || positionType === 'Vice-Director')) {
+      return escHtml(positionType === 'Director' ? department : `Vice ${department}`);
+    }
+    return `${escHtml(positionType)} &middot; ${escHtml(department)}`;
+  }
+
+  async function loadOnboardingTab() {
+    try {
+      const [slotsResult, recordsResult, hierarchyResult] = await Promise.all([
+        apiFetch({ mode: 'board-onboarding-slots' }),
+        apiFetch({ mode: 'admin-load-board-onboarding' }),
+        apiFetch({ mode: 'admin-load-hierarchy' })
+      ]);
+      renderOnboardingSchedule(slotsResult.slots, recordsResult.records ?? []);
+      renderOnboardingChecklist(hierarchyResult.entries ?? [], recordsResult.records ?? []);
+    } catch (err) {
+      showNotice(err.message, 'error');
     }
   }
 </script>
