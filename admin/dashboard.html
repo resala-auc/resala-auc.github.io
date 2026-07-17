@@ -1677,6 +1677,14 @@
     `;
   }
 
+  const DEPARTMENT_CONFIG = {
+    'Treasurer': { primaryLabel: 'Co-Treasurer', primaryCount: 2, allowAssistant: false }
+  };
+
+  function deptConfig(role) {
+    return DEPARTMENT_CONFIG[role] || { primaryLabel: 'Director', primaryCount: 1, allowAssistant: true };
+  }
+
   function initHierarchyDepartments() {
     const datalists = ROLE_OPTIONS.map(role => {
       const options = candidatesForDept(role).map(c =>
@@ -1685,16 +1693,20 @@
       return `<datalist id="${hierDatalistId(role)}">${options}</datalist>`;
     }).join('');
 
-    const cards = ROLE_OPTIONS.map(role => `
+    const cards = ROLE_OPTIONS.map(role => {
+      const cfg = deptConfig(role);
+      const primaryRows = Array.from({ length: cfg.primaryCount }, () => hierSlotRowHtml(role, cfg.primaryLabel, false, '', '')).join('');
+      return `
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
         <h3>${escHtml(role)}</h3>
-        <div class="hier-director-row">${hierSlotRowHtml(role, 'Director', false, '', '')}</div>
+        <div class="hier-director-row">${primaryRows}</div>
         <div class="hier-assistant-wrap"></div>
-        <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Assistant Director</button></div>
+        ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Assistant Director</button></div>` : ''}
         <div class="hier-heads-list"></div>
         <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-head">+ Add Head</button></div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     document.getElementById('hier-departments').innerHTML = datalists + cards;
 
@@ -1739,17 +1751,20 @@
       const deptCard = document.querySelector(`.hier-dept-card[data-dept="${CSS.escape(role)}"]`);
       if (!deptCard) return;
 
+      const cfg = deptConfig(role);
       const deptEntries = entries.filter(e => normalize(e.department) === normalize(role));
-      const director = deptEntries.find(e => e.positionType === 'Director');
+      const primaryEntries = deptEntries.filter(e => e.positionType === cfg.primaryLabel);
       const assistant = deptEntries.find(e => e.positionType === 'Assistant Director');
       const heads = deptEntries.filter(e => e.positionType === 'Head');
 
-      const directorRow = deptCard.querySelector('.hier-director-row .hier-slot-row');
-      directorRow.querySelector('input[data-field="name"]').value = director ? director.name : '';
-      directorRow.querySelector('input[data-field="email"]').value = director ? director.aucEmail : '';
+      const primaryRows = deptCard.querySelectorAll('.hier-director-row .hier-slot-row');
+      primaryRows.forEach((row, i) => {
+        row.querySelector('input[data-field="name"]').value = primaryEntries[i] ? primaryEntries[i].name : '';
+        row.querySelector('input[data-field="email"]').value = primaryEntries[i] ? primaryEntries[i].aucEmail : '';
+      });
 
       const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
-      assistantWrap.innerHTML = assistant ? hierSlotRowHtml(role, 'Assistant Director', true, assistant.name, assistant.aucEmail) : '';
+      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Assistant Director', true, assistant.name, assistant.aucEmail) : '';
 
       const headsList = deptCard.querySelector('.hier-heads-list');
       headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail)).join('');
