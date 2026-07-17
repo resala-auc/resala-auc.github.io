@@ -1701,7 +1701,7 @@
         <h3>${escHtml(role)}</h3>
         <div class="hier-director-row">${primaryRows}</div>
         <div class="hier-assistant-wrap"></div>
-        ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Assistant Director</button></div>` : ''}
+        ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Vice-Director</button></div>` : ''}
         <div class="hier-heads-list"></div>
         <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-head">+ Add Head</button></div>
       </div>
@@ -1719,7 +1719,7 @@
       if (btn.dataset.action === 'add-assistant') {
         const wrap = deptCard.querySelector('.hier-assistant-wrap');
         if (wrap.children.length) return;
-        wrap.innerHTML = hierSlotRowHtml(role, 'Assistant Director', true, '', '');
+        wrap.innerHTML = hierSlotRowHtml(role, 'Vice-Director', true, '', '');
       } else if (btn.dataset.action === 'add-head') {
         const list = deptCard.querySelector('.hier-heads-list');
         list.insertAdjacentHTML('beforeend', hierSlotRowHtml(role, 'Head', true, '', ''));
@@ -1753,7 +1753,7 @@
 
       const cfg = deptConfig(role);
       const deptEntries = entries.filter(e => normalize(e.department) === normalize(role));
-      const assistant = deptEntries.find(e => e.positionType === 'Assistant Director');
+      const assistant = deptEntries.find(e => e.positionType === 'Vice-Director');
       const heads = deptEntries.filter(e => e.positionType === 'Head');
 
       const labelUsed = {};
@@ -1768,7 +1768,7 @@
       });
 
       const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
-      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Assistant Director', true, assistant.name, assistant.aucEmail) : '';
+      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Vice-Director', true, assistant.name, assistant.aucEmail) : '';
 
       const headsList = deptCard.querySelector('.hier-heads-list');
       headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail)).join('');
