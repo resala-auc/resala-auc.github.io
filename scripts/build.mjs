@@ -30,6 +30,7 @@ await cp("src/spreadsheet-config.js", "dist/spreadsheet-config.js");
 await cp("The brand System", "dist/The brand System", { recursive: true });
 await cp("admin", "dist/admin", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
+await cp("director", "dist/director", { recursive: true });
 
 const applyConfigSource = await readFile("src/apply-config.ts", "utf8");
 const applySource = await readFile("src/apply.ts", "utf8");

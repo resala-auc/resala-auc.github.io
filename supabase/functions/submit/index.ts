@@ -340,6 +340,11 @@ type AdminSaveHierarchyPayload = {
   entries: HierarchyEntry[];
 };
 
+type DirectorLoadApplicantsPayload = {
+  mode: "director-load-applicants";
+  email: string;
+};
+
 type BoardOnboardingSlotsPayload = {
   mode: "board-onboarding-slots";
 };
@@ -381,6 +386,7 @@ type SubmissionPayload =
   | AdminResetBoardOnboardingPayload
   | AdminLoadHierarchyPayload
   | AdminSaveHierarchyPayload
+  | DirectorLoadApplicantsPayload
   | BoardOnboardingSlotsPayload
   | BoardOnboardingStatusPayload
   | BoardOnboardingSubmitPayload;
@@ -694,6 +700,17 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isDirectorLoadApplicantsPayload(payload)) {
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+      const result = await loadDirectorApplicants(token, payload.email);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isBoardOnboardingSlotsPayload(payload)) {
       if (!SHEET_ID) {
         throw new Error("SHEET_ID is not configured.");
@@ -849,6 +866,10 @@ function isAdminLoadHierarchyPayload(payload: SubmissionPayload): payload is Adm
 
 function isAdminSaveHierarchyPayload(payload: SubmissionPayload): payload is AdminSaveHierarchyPayload {
   return (payload as AdminSaveHierarchyPayload).mode === "admin-save-hierarchy";
+}
+
+function isDirectorLoadApplicantsPayload(payload: SubmissionPayload): payload is DirectorLoadApplicantsPayload {
+  return (payload as DirectorLoadApplicantsPayload).mode === "director-load-applicants";
 }
 
 function isBoardOnboardingSlotsPayload(payload: SubmissionPayload): payload is BoardOnboardingSlotsPayload {
@@ -2640,6 +2661,131 @@ async function loadAdminApplicants(token: string): Promise<{
   }));
 
   return { applicants };
+}
+
+async function loadDirectorApplicants(
+  token: string,
+  email: string
+): Promise<{
+  department: string;
+  positionType: string;
+  directorName: string;
+  applicants: Array<Record<string, string | number>>;
+}> {
+  const normalizedEmail = normalize(email);
+  if (!normalizedEmail) {
+    throw new Error("Enter your AUC email.");
+  }
+
+  const { entries } = await loadHierarchy(token);
+  const match = entries.find(
+    (entry) =>
+      normalize(entry.aucEmail ?? "") === normalizedEmail &&
+      Boolean(entry.department) &&
+      (entry.positionType === "Director" || entry.positionType === "Vice-Director")
+  );
+
+  if (!match) {
+    throw new Error("No director access found for this email.");
+  }
+
+  const department = match.department;
+
+  const sheetName = await getSheetName(token);
+  await ensureInterviewScoreHeaders(token, sheetName);
+  await ensureTaskScoreHeaders(token, sheetName);
+  await ensureTaskNoteHeaders(token, sheetName);
+
+  const totalCols = HEADERS.length + INTERVIEW_SCORE_HEADERS.length + TASK_SCORE_HEADERS.length + TASK_NOTE_HEADERS.length;
+  const width = columnLetter(totalCols);
+
+  const [applicationResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${width}`)}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`)
+  ]);
+
+  const rows = ((await applicationResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const interviewStatusByEmail = new Map<string, string>();
+  for (const row of reservationRows) {
+    const resEmail = normalize(String(row[4] ?? ""));
+    const status = String(row[8] ?? "").trim();
+    if (resEmail && status) interviewStatusByEmail.set(resEmail, status);
+  }
+
+  const applicants = rows
+    .map((row) => {
+      const roleAppliedFor = row[7] ?? "";
+      const secondPreference = row[17] ?? "";
+      const preferenceMatch =
+        normalizeRole(roleAppliedFor) === normalizeRole(department)
+          ? 1
+          : normalizeRole(secondPreference) === normalizeRole(department)
+            ? 2
+            : 0;
+      if (!preferenceMatch) return null;
+
+      const applicantEmail = normalize(String(row[2] ?? ""));
+      const interviewStatus = interviewStatusByEmail.get(applicantEmail) ?? "";
+      const taskSubmission = getTaskSubmissionState(row);
+
+      if (interviewStatus !== "Done" || taskSubmission.taskSubmissionStatus !== "Submitted") return null;
+
+      return {
+        fullName: row[1] ?? "",
+        aucEmail: row[2] ?? "",
+        studentId: row[3] ?? "",
+        major: row[4] ?? "",
+        yearLevel: row[5] ?? "",
+        phone: row[6] ?? "",
+        roleAppliedFor,
+        secondPreference,
+        preferenceMatch,
+        whyThisRole: row[10] ?? "",
+        whyChooseYourself: row[11] ?? "",
+        hopeToLearn: row[12] ?? "",
+        previousResalaExperience: row[13] ?? "",
+        interviewSlot: row[14] ?? "",
+        interviewStatus,
+        ...taskSubmission,
+        notesUrl: row[23] ?? "",
+        firstPreferenceScore: row[24] ?? "",
+        secondPreferenceScore: row[25] ?? "",
+        recommendedRole: row[26] ?? "",
+        visionMotivationScore: row[27] ?? "",
+        leadershipScore: row[28] ?? "",
+        ownershipScore: row[29] ?? "",
+        selfAwarenessCommitmentScore: row[30] ?? "",
+        roleSpecificModulesScore: row[31] ?? "",
+        finalJudgmentScore: row[32] ?? "",
+        totalScore: row[33] ?? "",
+        bestStrength1: row[34] ?? "",
+        bestStrength2: row[35] ?? "",
+        task1UnderstandingScore: row[36] ?? "",
+        task1ExecutionScore: row[37] ?? "",
+        task1PracticalityScore: row[38] ?? "",
+        task1InitiativeScore: row[39] ?? "",
+        task1ClarityScore: row[40] ?? "",
+        task1TotalScore: row[41] ?? "",
+        task2UnderstandingScore: row[42] ?? "",
+        task2ExecutionScore: row[43] ?? "",
+        task2PracticalityScore: row[44] ?? "",
+        task2InitiativeScore: row[45] ?? "",
+        task2ClarityScore: row[46] ?? "",
+        task2TotalScore: row[47] ?? "",
+        task1Notes: row[48] ?? "",
+        task2Notes: row[49] ?? ""
+      };
+    })
+    .filter((applicant): applicant is NonNullable<typeof applicant> => applicant !== null);
+
+  return {
+    department,
+    positionType: match.positionType,
+    directorName: match.name,
+    applicants
+  };
 }
 
 async function updateApplicantScore(
