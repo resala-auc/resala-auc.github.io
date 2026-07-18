@@ -2714,6 +2714,10 @@ async function loadDirectorApplicants(
     if (resEmail && status) interviewStatusByEmail.set(resEmail, status);
   }
 
+  const acceptedEmails = new Set(
+    entries.map((entry) => normalize(entry.aucEmail ?? "")).filter(Boolean)
+  );
+
   const applicants = rows
     .map((row) => {
       const roleAppliedFor = row[7] ?? "";
@@ -2727,6 +2731,8 @@ async function loadDirectorApplicants(
       if (!preferenceMatch) return null;
 
       const applicantEmail = normalize(String(row[2] ?? ""));
+      if (acceptedEmails.has(applicantEmail)) return null;
+
       const interviewStatus = interviewStatusByEmail.get(applicantEmail) ?? "";
       const taskSubmission = getTaskSubmissionState(row);
 
