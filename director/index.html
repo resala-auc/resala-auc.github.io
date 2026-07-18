@@ -230,13 +230,6 @@
     }
     .ac-meta strong { color: #172033; }
 
-    .ac-score {
-      margin-top: 10px;
-      font-size: 13px;
-      color: #64748b;
-    }
-    .ac-score strong { color: #0d2b45; font-size: 15px; }
-
     /* ── modal ─────────────────────────────────────────────────────────── */
     .modal-backdrop {
       display: none;
@@ -296,19 +289,6 @@
     .qa-block { margin-bottom: 12px; }
     .qa-q { font-size: 13px; font-weight: bold; color: #172033; margin-bottom: 3px; }
     .qa-a { font-size: 14px; color: #475569; line-height: 1.55; white-space: pre-wrap; }
-
-    .score-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-      gap: 10px;
-    }
-    .score-cell {
-      background: #f7f3ea;
-      border-radius: 10px;
-      padding: 10px 12px;
-    }
-    .score-cell .label { font-size: 11px; color: #94a3b8; margin-bottom: 2px; }
-    .score-cell .val { font-size: 15px; font-weight: bold; color: #0d2b45; }
 
     .link-row a {
       display: inline-block;
@@ -475,13 +455,12 @@
       }
       emptyEl.style.display = 'none';
 
-      const sorted = [...filtered].sort((a, b) => (parseFloat(b.totalScore) || -Infinity) - (parseFloat(a.totalScore) || -Infinity));
+      const sorted = [...filtered].sort((a, b) => a.fullName.localeCompare(b.fullName));
 
       listEl.innerHTML = sorted.map((a, i) => {
         const prefBadge = a.preferenceMatch === 1
           ? '<span class="badge pref1">1st preference</span>'
           : '<span class="badge pref2">2nd preference</span>';
-        const hasScore = a.totalScore !== '' && a.totalScore != null;
         return `
           <div class="applicant-card" onclick="openModal(${i})" data-idx="${i}">
             <div class="ac-top">
@@ -495,7 +474,6 @@
               <span><strong>${escHtml(a.major || '—')}</strong> · ${escHtml(a.yearLevel || '—')}</span>
               <span>${escHtml(a.phone || 'No phone')}</span>
             </div>
-            <div class="ac-score">Total score: <strong>${hasScore ? escHtml(String(a.totalScore)) : '—'}</strong></div>
           </div>
         `;
       }).join('');
@@ -506,15 +484,9 @@
       const filtered = applicants.filter(a =>
         !q || normalize(a.fullName).includes(q) || normalize(a.aucEmail).includes(q)
       );
-      const sorted = [...filtered].sort((a, b) => (parseFloat(b.totalScore) || -Infinity) - (parseFloat(a.totalScore) || -Infinity));
+      const sorted = [...filtered].sort((a, b) => a.fullName.localeCompare(b.fullName));
       const a = sorted[idx];
       if (!a) return;
-
-      const scoreCell = (label, val) => `
-        <div class="score-cell">
-          <div class="label">${escHtml(label)}</div>
-          <div class="val">${val !== '' && val != null ? escHtml(String(val)) : '—'}</div>
-        </div>`;
 
       const qa = (q, ans) => ans ? `
         <div class="qa-block">
@@ -535,55 +507,17 @@
         <div class="ac-meta" style="margin-bottom:8px;">
           <span>1st preference: <strong>${escHtml(a.roleAppliedFor)}</strong></span>
           <span>2nd preference: <strong>${escHtml(a.secondPreference || '—')}</strong></span>
-          <span>Interview slot: <strong>${escHtml(a.interviewSlot || '—')}</strong></span>
         </div>
         ${qa('Why this role?', a.whyThisRole)}
         ${qa('Why choose yourself?', a.whyChooseYourself)}
         ${qa('What do you hope to learn?', a.hopeToLearn)}
         ${qa('Previous Resala experience', a.previousResalaExperience)}
 
-        <div class="section-title">Interview Scores</div>
-        <div class="score-grid">
-          ${scoreCell('Vision + Motivation', a.visionMotivationScore)}
-          ${scoreCell('Leadership', a.leadershipScore)}
-          ${scoreCell('Ownership', a.ownershipScore)}
-          ${scoreCell('Self-awareness + Commitment', a.selfAwarenessCommitmentScore)}
-          ${scoreCell('Role-Specific Module(s)', a.roleSpecificModulesScore)}
-          ${scoreCell('Final Judgment', a.finalJudgmentScore)}
-          ${scoreCell('Total Score', a.totalScore)}
-        </div>
-        ${a.recommendedRole ? `<div class="qa-block" style="margin-top:10px;"><div class="qa-q">Recommended role</div><div class="qa-a">${escHtml(a.recommendedRole)}</div></div>` : ''}
-        ${(a.bestStrength1 || a.bestStrength2) ? `<div class="qa-block"><div class="qa-q">Best strengths</div><div class="qa-a">${escHtml([a.bestStrength1, a.bestStrength2].filter(Boolean).join(' · '))}</div></div>` : ''}
-        ${a.notesUrl ? `<div class="link-row" style="margin-top:6px;"><a href="${escHtml(a.notesUrl)}" target="_blank" rel="noopener">📄 Interview notes</a></div>` : ''}
-
         <div class="section-title">Task Submission</div>
         <div class="link-row">
           ${a.firstPreferenceTaskLink ? `<a href="${escHtml(a.firstPreferenceTaskLink)}" target="_blank" rel="noopener">1st preference task/portfolio ↗</a>` : ''}
           ${a.secondPreferenceTaskLink ? `<a href="${escHtml(a.secondPreferenceTaskLink)}" target="_blank" rel="noopener">2nd preference task/portfolio ↗</a>` : ''}
         </div>
-        ${qa('Task notes', a.taskNotes)}
-
-        <div class="section-title">Task 1 Scores</div>
-        <div class="score-grid">
-          ${scoreCell('Understanding', a.task1UnderstandingScore)}
-          ${scoreCell('Execution', a.task1ExecutionScore)}
-          ${scoreCell('Practicality', a.task1PracticalityScore)}
-          ${scoreCell('Initiative', a.task1InitiativeScore)}
-          ${scoreCell('Clarity', a.task1ClarityScore)}
-          ${scoreCell('Total', a.task1TotalScore)}
-        </div>
-        ${qa('Task 1 evaluation notes', a.task1Notes)}
-
-        <div class="section-title">Task 2 Scores</div>
-        <div class="score-grid">
-          ${scoreCell('Understanding', a.task2UnderstandingScore)}
-          ${scoreCell('Execution', a.task2ExecutionScore)}
-          ${scoreCell('Practicality', a.task2PracticalityScore)}
-          ${scoreCell('Initiative', a.task2InitiativeScore)}
-          ${scoreCell('Clarity', a.task2ClarityScore)}
-          ${scoreCell('Total', a.task2TotalScore)}
-        </div>
-        ${qa('Task 2 evaluation notes', a.task2Notes)}
       `;
 
       document.getElementById('modal-backdrop').classList.add('open');
