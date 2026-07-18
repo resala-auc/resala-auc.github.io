@@ -2752,8 +2752,7 @@ async function loadDirectorApplicants(
         whyChooseYourself: row[11] ?? "",
         hopeToLearn: row[12] ?? "",
         previousResalaExperience: row[13] ?? "",
-        firstPreferenceTaskLink: taskSubmission.firstPreferenceTaskLink,
-        secondPreferenceTaskLink: taskSubmission.secondPreferenceTaskLink
+        taskLink: preferenceMatch === 1 ? taskSubmission.firstPreferenceTaskLink : taskSubmission.secondPreferenceTaskLink
       };
     })
     .filter((applicant): applicant is NonNullable<typeof applicant> => applicant !== null);
