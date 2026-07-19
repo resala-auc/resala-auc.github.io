@@ -747,6 +747,17 @@
       <div class="card">
         <div class="card-head">
           <div>
+            <h2>Heads Onboarding Meeting</h2>
+            <div class="count">Creates a Google Calendar event (Tue, July 22, 2026 · 3:00–4:00 PM Cairo time) with a Meet link, for the acceptance email.</div>
+          </div>
+          <button class="btn btn-primary btn-sm" id="meeting-btn" onclick="createHeadsMeeting()">Create Meeting</button>
+        </div>
+        <div style="padding:0 24px 24px;" id="meeting-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
             <h2>Current Roster — All Committees</h2>
             <div class="count" id="roster-count">Validate before sending welcome/results emails.</div>
           </div>
@@ -1755,6 +1766,31 @@
   // ── HIERARCHY TAB ──────────────────────────────────────────────────────────
 
   // ── decisions tab ────────────────────────────────────────────────────────
+
+  async function createHeadsMeeting() {
+    const btn = document.getElementById('meeting-btn');
+    const result = document.getElementById('meeting-result');
+    btn.disabled = true;
+    result.innerHTML = '<div class="dec-empty">Creating…</div>';
+    try {
+      const data = await apiFetch({ mode: 'admin-create-heads-meeting' });
+      result.innerHTML = `
+        <div class="dec-candidate-row">
+          <span>Meet link</span>
+          <a href="${escHtml(data.meetLink)}" target="_blank" rel="noopener">${escHtml(data.meetLink)}</a>
+        </div>
+        <div class="dec-candidate-row">
+          <span>Add-to-calendar link (share per person)</span>
+          <a href="${escHtml(data.addToCalendarUrl)}" target="_blank" rel="noopener">Preview</a>
+        </div>
+        <p style="font-size:12px;color:#94a3b8;margin-top:6px;">Copy both links into the acceptance email draft.</p>
+      `;
+    } catch (err) {
+      result.innerHTML = `<div class="dec-empty" style="color:#c0392b;">${escHtml(err.message)}</div>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
 
   let decisionsHierarchyEntries = [];
 

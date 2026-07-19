@@ -150,6 +150,10 @@ const BOARD_ONBOARDING_SLOT_START_HOUR = 12;
 const BOARD_ONBOARDING_SLOT_END_HOUR = 22;
 const BOARD_RETREAT_DAYS = ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30"];
 
+const HEADS_ONBOARDING_MEETING_DATE = "2026-07-22";
+const HEADS_ONBOARDING_MEETING_START = "15:00";
+const HEADS_ONBOARDING_MEETING_END = "16:00";
+
 type BoardOnboardingSlot = {
   id: string;
   label: string;
@@ -345,6 +349,10 @@ type DirectorLoadApplicantsPayload = {
   email: string;
 };
 
+type AdminCreateHeadsMeetingPayload = {
+  mode: "admin-create-heads-meeting";
+};
+
 type BoardOnboardingSlotsPayload = {
   mode: "board-onboarding-slots";
 };
@@ -387,6 +395,7 @@ type SubmissionPayload =
   | AdminLoadHierarchyPayload
   | AdminSaveHierarchyPayload
   | DirectorLoadApplicantsPayload
+  | AdminCreateHeadsMeetingPayload
   | BoardOnboardingSlotsPayload
   | BoardOnboardingStatusPayload
   | BoardOnboardingSubmitPayload;
@@ -711,6 +720,15 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminCreateHeadsMeetingPayload(payload)) {
+      authorizeAdminReset(request);
+
+      const token = await getGoogleAccessToken();
+      const result = await createHeadsOnboardingMeeting(token);
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isBoardOnboardingSlotsPayload(payload)) {
       if (!SHEET_ID) {
         throw new Error("SHEET_ID is not configured.");
@@ -870,6 +888,10 @@ function isAdminSaveHierarchyPayload(payload: SubmissionPayload): payload is Adm
 
 function isDirectorLoadApplicantsPayload(payload: SubmissionPayload): payload is DirectorLoadApplicantsPayload {
   return (payload as DirectorLoadApplicantsPayload).mode === "director-load-applicants";
+}
+
+function isAdminCreateHeadsMeetingPayload(payload: SubmissionPayload): payload is AdminCreateHeadsMeetingPayload {
+  return (payload as AdminCreateHeadsMeetingPayload).mode === "admin-create-heads-meeting";
 }
 
 function isBoardOnboardingSlotsPayload(payload: SubmissionPayload): payload is BoardOnboardingSlotsPayload {
@@ -3686,6 +3708,96 @@ async function createCalendarEvent(
     calendarEventId: body.id,
     meetLink
   };
+}
+
+function buildGoogleCalendarAddUrl({
+  summary,
+  description,
+  location,
+  startDateTime,
+  endDateTime
+}: {
+  summary: string;
+  description: string;
+  location: string;
+  startDateTime: string;
+  endDateTime: string;
+}): string {
+  const toCompact = (dateTime: string) => dateTime.replace(/[-:]/g, "");
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: summary,
+    details: description,
+    location,
+    dates: `${toCompact(startDateTime)}/${toCompact(endDateTime)}`,
+    ctz: CALENDAR_TIME_ZONE
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+async function createHeadsOnboardingMeeting(token: string): Promise<{
+  calendarEventId: string;
+  meetLink: string;
+  addToCalendarUrl: string;
+  startDateTime: string;
+  endDateTime: string;
+}> {
+  if (!CALENDAR_ID) {
+    throw new Error("CALENDAR_ID is not configured.");
+  }
+
+  const startDateTime = buildLocalDateTime(HEADS_ONBOARDING_MEETING_DATE, HEADS_ONBOARDING_MEETING_START);
+  const endDateTime = buildLocalDateTime(HEADS_ONBOARDING_MEETING_DATE, HEADS_ONBOARDING_MEETING_END);
+  const summary = "Resala AUC — Heads Onboarding Meeting";
+  const description = "Onboarding meeting for newly accepted committee heads.";
+
+  const response = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        summary,
+        description,
+        start: { dateTime: startDateTime, timeZone: CALENDAR_TIME_ZONE },
+        end: { dateTime: endDateTime, timeZone: CALENDAR_TIME_ZONE },
+        conferenceData: {
+          createRequest: {
+            requestId: `resala-heads-meeting-${Date.now()}`,
+            conferenceSolutionKey: { type: "hangoutsMeet" }
+          }
+        }
+      })
+    }
+  );
+
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(`Google Calendar event creation failed: ${JSON.stringify(body)}`);
+  }
+
+  const meetLink =
+    body.hangoutLink ??
+    body.conferenceData?.entryPoints?.find((entryPoint: { entryPointType?: string; uri?: string }) => entryPoint.entryPointType === "video")
+      ?.uri ??
+    "";
+
+  if (!body.id || !meetLink) {
+    throw new Error("Google Calendar did not return a Meet link.");
+  }
+
+  const addToCalendarUrl = buildGoogleCalendarAddUrl({
+    summary,
+    description: `${description}\n\nJoin: ${meetLink}`,
+    location: meetLink,
+    startDateTime,
+    endDateTime
+  });
+
+  return { calendarEventId: body.id, meetLink, addToCalendarUrl, startDateTime, endDateTime };
 }
 
 async function updateSlotCalendarFields(
