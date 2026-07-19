@@ -1818,9 +1818,13 @@
       return decSlotSelectHtml(role, label, entry ? entry.aucEmail : '', entry ? entry.name : '');
     }).join('');
 
-    const assistantRow = cfg.allowAssistant
-      ? decSlotSelectHtml(role, 'Vice-Director', (deptEntries.find(e => e.positionType === 'Vice-Director') || {}).aucEmail || '', (deptEntries.find(e => e.positionType === 'Vice-Director') || {}).name || '')
-      : '';
+    let assistantRows = '';
+    if (cfg.allowAssistant) {
+      const assistants = deptEntries.filter(e => e.positionType === 'Vice-Director');
+      assistantRows = (assistants.length ? assistants : [{ aucEmail: '', name: '' }])
+        .map(a => decSlotSelectHtml(role, 'Vice-Director', a.aucEmail, a.name))
+        .join('');
+    }
 
     const pool = decisionCandidatesForRole(role, decisionAcceptedEmails());
     const poolHtml = pool.length
@@ -1837,7 +1841,8 @@
     return `
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
         <h3>${escHtml(role)}</h3>
-        <div class="dec-slots">${primaryRows}${assistantRow}</div>
+        <div class="dec-slots">${primaryRows}${assistantRows}</div>
+        ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-vd" data-role="${escHtml(role)}">+ Add another Vice-Director</button></div>` : ''}
         <details class="dec-pool">
           <summary>Qualified candidates (${pool.length})</summary>
           ${poolHtml}
@@ -1846,7 +1851,22 @@
     `;
   }
 
+  let decisionsListenerAttached = false;
+
+  function attachDecisionsListeners() {
+    if (decisionsListenerAttached) return;
+    decisionsListenerAttached = true;
+    document.getElementById('dec-departments').addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-action="add-vd"]');
+      if (!btn) return;
+      const role = btn.dataset.role;
+      const wrap = btn.closest('.hier-dept-card').querySelector('.dec-slots');
+      wrap.insertAdjacentHTML('beforeend', decSlotSelectHtml(role, 'Vice-Director', '', ''));
+    });
+  }
+
   function renderDecisionsTab() {
+    attachDecisionsListeners();
     document.getElementById('dec-departments').innerHTML = ROLE_OPTIONS.map(decDeptCardHtml).join('');
   }
 
@@ -2037,7 +2057,7 @@
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
         <h3>${escHtml(role)}</h3>
         <div class="hier-director-row">${primaryRows}</div>
-        <div class="hier-assistant-wrap"></div>
+        <div class="hier-assistant-list"></div>
         ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Vice-Director</button></div>` : ''}
         <div class="hier-heads-list"></div>
         <div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-head">+ Add Head</button></div>
@@ -2054,9 +2074,8 @@
       const role = deptCard.dataset.dept;
 
       if (btn.dataset.action === 'add-assistant') {
-        const wrap = deptCard.querySelector('.hier-assistant-wrap');
-        if (wrap.children.length) return;
-        wrap.innerHTML = hierSlotRowHtml(role, 'Vice-Director', true, '', '');
+        const list = deptCard.querySelector('.hier-assistant-list');
+        list.insertAdjacentHTML('beforeend', hierSlotRowHtml(role, 'Vice-Director', true, '', ''));
       } else if (btn.dataset.action === 'add-head') {
         const list = deptCard.querySelector('.hier-heads-list');
         list.insertAdjacentHTML('beforeend', hierSlotRowHtml(role, 'Head', true, '', ''));
@@ -2093,7 +2112,7 @@
 
       const cfg = deptConfig(role);
       const deptEntries = entries.filter(e => normalize(e.department) === normalize(role));
-      const assistant = deptEntries.find(e => e.positionType === 'Vice-Director');
+      const assistants = deptEntries.filter(e => e.positionType === 'Vice-Director');
       const heads = deptEntries.filter(e => e.positionType === 'Head');
 
       const labelUsed = {};
@@ -2108,8 +2127,10 @@
         row.querySelector('input[data-field="phone"]').value = entry ? entry.phone : '';
       });
 
-      const assistantWrap = deptCard.querySelector('.hier-assistant-wrap');
-      assistantWrap.innerHTML = (cfg.allowAssistant && assistant) ? hierSlotRowHtml(role, 'Vice-Director', true, assistant.name, assistant.aucEmail, assistant.phone) : '';
+      const assistantList = deptCard.querySelector('.hier-assistant-list');
+      assistantList.innerHTML = cfg.allowAssistant
+        ? assistants.map(a => hierSlotRowHtml(role, 'Vice-Director', true, a.name, a.aucEmail, a.phone)).join('')
+        : '';
 
       const headsList = deptCard.querySelector('.hier-heads-list');
       headsList.innerHTML = heads.map(h => hierSlotRowHtml(role, 'Head', true, h.name, h.aucEmail, h.phone)).join('');
