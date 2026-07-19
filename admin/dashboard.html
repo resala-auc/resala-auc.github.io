@@ -442,6 +442,33 @@
     .hier-heads-list { margin-top: 4px; }
     .hier-add-row { margin-top: 6px; }
 
+    .dec-slots { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .dec-slot-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .dec-slot-row .hier-label { width: 130px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: #4d5577; }
+    .dec-select { flex: 1; min-width: 220px; border: 1px solid #e6edf2; border-radius: 9px; padding: 8px 12px; font-size: 13px; outline: none; background: #fff; }
+    .dec-select:focus { border-color: #0d2b45; }
+
+    .dec-pool { margin-top: 8px; }
+    .dec-pool summary { cursor: pointer; font-size: 13px; font-weight: 600; color: #4d5577; }
+    .dec-candidate-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 4px;
+      border-bottom: 1px solid #f1ede1;
+      font-size: 13px;
+    }
+    .dec-candidate-row:last-child { border-bottom: none; }
+    .dec-candidate-row span:first-child { flex: 1; font-weight: 600; color: #172033; }
+    .dec-score { color: #94a3b8; font-size: 12px; min-width: 30px; text-align: right; }
+    .dec-candidate-row a { color: #0d2b45; font-weight: 600; font-size: 12px; text-decoration: none; }
+    .dec-candidate-row a:hover { text-decoration: underline; }
+    .dec-empty { padding: 8px 4px; color: #94a3b8; font-size: 13px; }
+
+    .pref-badge { display: inline-block; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+    .pref-badge.pref1 { background: #eaf6ec; color: #227a45; }
+    .pref-badge.pref2 { background: #fdf3e0; color: #a06a12; }
+
     .rank-card {
       background: #fff;
       border: 1px solid #eadfca;
@@ -577,6 +604,7 @@
       <button class="tab-btn active" data-tab="reservations" onclick="switchTab(this,'reservations')">Reservations</button>
       <button class="tab-btn" data-tab="score" onclick="switchTab(this,'score')">Score &amp; Rank</button>
       <button class="tab-btn" data-tab="taskcompare" onclick="switchTab(this,'taskcompare')">Task Compare</button>
+      <button class="tab-btn" data-tab="decisions" onclick="switchTab(this,'decisions')">Decisions</button>
       <button class="tab-btn" data-tab="hierarchy" onclick="switchTab(this,'hierarchy')">Hierarchy</button>
       <button class="tab-btn" data-tab="onboarding" onclick="switchTab(this,'onboarding')">Onboarding</button>
     </div>
@@ -711,6 +739,23 @@
           <div id="tc-empty" class="empty" style="display:none;">Select a role to begin.</div>
           <div id="tc-list" style="display:flex;flex-direction:column;gap:14px;"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ── DECISIONS TAB ── -->
+    <div class="tab-panel" id="tab-decisions">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Final Decisions</h2>
+            <div class="count">Only applicants who completed their interview and submitted their task appear as candidates. Choosing someone here saves directly to the Board Hierarchy.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div id="dec-notice" style="font-size:13px;font-weight:600;"></div>
+            <button class="btn btn-primary btn-sm" onclick="saveDecisions()">Save Decisions</button>
+          </div>
+        </div>
+        <div style="padding:0 24px 24px;" id="dec-departments"></div>
       </div>
     </div>
 
@@ -1146,6 +1191,7 @@
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`tab-${name}`).classList.add('active');
+    if (name === 'decisions') loadDecisionsTab();
     if (name === 'hierarchy') loadHierarchyTab();
     if (name === 'onboarding') loadOnboardingTab();
   }
@@ -1697,6 +1743,179 @@
   }
 
   // ── HIERARCHY TAB ──────────────────────────────────────────────────────────
+
+  // ── decisions tab ────────────────────────────────────────────────────────
+
+  let decisionsHierarchyEntries = [];
+
+  function decisionAcceptedEmails() {
+    return new Set(decisionsHierarchyEntries.map(e => normalize(e.aucEmail || '')).filter(Boolean));
+  }
+
+  function decisionCandidatesForRole(role, excludeEmails) {
+    return allReservations
+      .filter(r => {
+        const pref = taskPrefForRole(r, role);
+        if (!pref) return false;
+        if (normalize(r.interviewStatus) !== 'done') return false;
+        if (r.taskSubmissionStatus !== 'Submitted') return false;
+        if (excludeEmails.has(normalize(r.aucEmail))) return false;
+        return true;
+      })
+      .map(r => {
+        const app = allApplicants.find(a => normalize(a.aucEmail) === normalize(r.aucEmail));
+        return {
+          rowIndex: r.rowIndex,
+          fullName: r.fullName,
+          aucEmail: r.aucEmail,
+          pref: taskPrefForRole(r, role),
+          totalScore: app ? app.totalScore : ''
+        };
+      })
+      .sort((x, y) => (parseFloat(y.totalScore) || -Infinity) - (parseFloat(x.totalScore) || -Infinity));
+  }
+
+  function decSlotSelectHtml(role, label, selectedEmail, selectedName) {
+    const candidates = decisionCandidatesForRole(role, decisionAcceptedEmails());
+    let matchedCurrent = false;
+    let options = `<option value="">— Not yet decided —</option>`;
+    candidates.forEach(c => {
+      const isSel = normalize(c.aucEmail) === normalize(selectedEmail || '');
+      if (isSel) matchedCurrent = true;
+      const scoreLabel = c.totalScore !== '' && c.totalScore != null ? ` · ${c.totalScore}` : '';
+      options += `<option value="${escHtml(c.aucEmail)}" data-name="${escHtml(c.fullName)}" ${isSel ? 'selected' : ''}>${escHtml(c.fullName)} — ${c.pref === 1 ? '1st' : '2nd'} pref${scoreLabel}</option>`;
+    });
+    if (selectedEmail && !matchedCurrent) {
+      options += `<option value="${escHtml(selectedEmail)}" data-name="${escHtml(selectedName || selectedEmail)}" selected>${escHtml(selectedName || selectedEmail)} (already saved)</option>`;
+    }
+    return `
+      <div class="dec-slot-row" data-slot-type="${escHtml(label)}">
+        <span class="hier-label">${escHtml(label)}</span>
+        <select class="dec-select" data-role="${escHtml(role)}">${options}</select>
+      </div>
+    `;
+  }
+
+  function decDeptCardHtml(role) {
+    const cfg = deptConfig(role);
+    const deptEntries = decisionsHierarchyEntries.filter(e => normalize(e.department) === normalize(role));
+
+    const labelUsed = {};
+    const primaryRows = cfg.primaryLabels.map(label => {
+      const idx = labelUsed[label] || 0;
+      labelUsed[label] = idx + 1;
+      const entry = deptEntries.filter(e => e.positionType === label)[idx];
+      return decSlotSelectHtml(role, label, entry ? entry.aucEmail : '', entry ? entry.name : '');
+    }).join('');
+
+    const assistantRow = cfg.allowAssistant
+      ? decSlotSelectHtml(role, 'Vice-Director', (deptEntries.find(e => e.positionType === 'Vice-Director') || {}).aucEmail || '', (deptEntries.find(e => e.positionType === 'Vice-Director') || {}).name || '')
+      : '';
+
+    const pool = decisionCandidatesForRole(role, decisionAcceptedEmails());
+    const poolHtml = pool.length
+      ? pool.map(c => `
+          <div class="dec-candidate-row">
+            <span>${escHtml(c.fullName)}</span>
+            <span class="pref-badge ${c.pref === 1 ? 'pref1' : 'pref2'}">${c.pref === 1 ? '1st' : '2nd'} pref</span>
+            <span class="dec-score">${c.totalScore !== '' && c.totalScore != null ? escHtml(String(c.totalScore)) : '—'}</span>
+            <a href="#" onclick="openModal(${c.rowIndex});return false;">View answers</a>
+          </div>
+        `).join('')
+      : '<div class="dec-empty">No qualified candidates left for this role.</div>';
+
+    return `
+      <div class="hier-dept-card" data-dept="${escHtml(role)}">
+        <h3>${escHtml(role)}</h3>
+        <div class="dec-slots">${primaryRows}${assistantRow}</div>
+        <details class="dec-pool">
+          <summary>Qualified candidates (${pool.length})</summary>
+          ${poolHtml}
+        </details>
+      </div>
+    `;
+  }
+
+  function renderDecisionsTab() {
+    document.getElementById('dec-departments').innerHTML = ROLE_OPTIONS.map(decDeptCardHtml).join('');
+  }
+
+  async function loadDecisionsTab() {
+    try {
+      const result = await apiFetch({ mode: 'admin-load-hierarchy' });
+      decisionsHierarchyEntries = (result.entries ?? []).filter(e => e.department);
+      renderDecisionsTab();
+    } catch (err) {
+      document.getElementById('dec-notice').textContent = err.message;
+      document.getElementById('dec-notice').style.color = '#c0392b';
+    }
+  }
+
+  function collectDecisionSelections() {
+    const selections = [];
+    document.querySelectorAll('#dec-departments .dec-slot-row').forEach(row => {
+      const select = row.querySelector('.dec-select');
+      const email = select.value;
+      if (!email) return;
+      const opt = select.options[select.selectedIndex];
+      selections.push({
+        department: select.dataset.role,
+        positionType: row.dataset.slotType,
+        name: opt.dataset.name || '',
+        aucEmail: email,
+        phone: ''
+      });
+    });
+    return selections;
+  }
+
+  function decisionManagedSlotKeys() {
+    const keys = new Set();
+    ROLE_OPTIONS.forEach(role => {
+      const cfg = deptConfig(role);
+      cfg.primaryLabels.forEach(label => keys.add(`${normalize(role)}|${normalize(label)}`));
+      if (cfg.allowAssistant) keys.add(`${normalize(role)}|vice-director`);
+    });
+    return keys;
+  }
+
+  async function saveDecisions() {
+    const notice = document.getElementById('dec-notice');
+    notice.textContent = 'Saving…';
+    notice.style.color = '#4d5577';
+    try {
+      const selections = collectDecisionSelections();
+
+      const seen = new Map();
+      for (const s of selections) {
+        const key = normalize(s.aucEmail);
+        if (seen.has(key)) {
+          throw new Error(`${s.name} is picked for two roles (${seen.get(key)} and ${s.department} · ${s.positionType}). Fix before saving.`);
+        }
+        seen.set(key, `${s.department} · ${s.positionType}`);
+      }
+
+      const fullResult = await apiFetch({ mode: 'admin-load-hierarchy' });
+      const currentEntries = fullResult.entries ?? [];
+      const managedKeys = decisionManagedSlotKeys();
+      const preserved = currentEntries.filter(e => {
+        if (!e.department) return true;
+        return !managedKeys.has(`${normalize(e.department)}|${normalize(e.positionType)}`);
+      });
+
+      const merged = [...preserved, ...selections];
+      await apiFetch({ mode: 'admin-save-hierarchy', entries: merged });
+
+      decisionsHierarchyEntries = merged.filter(e => e.department);
+      renderDecisionsTab();
+
+      notice.textContent = '✓ Saved';
+      notice.style.color = '#2f9e5c';
+    } catch (err) {
+      notice.textContent = err.message;
+      notice.style.color = '#c0392b';
+    }
+  }
 
   let hierarchyInitialized = false;
 
