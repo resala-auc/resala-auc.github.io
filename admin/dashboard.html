@@ -747,6 +747,16 @@
       <div class="card">
         <div class="card-head">
           <div>
+            <h2>Current Roster — All Committees</h2>
+            <div class="count" id="roster-count">Validate before sending welcome/results emails.</div>
+          </div>
+        </div>
+        <div style="padding:0 24px 24px;" id="dec-roster"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
             <h2>Final Decisions</h2>
             <div class="count">Only applicants who completed their interview and submitted their task appear as candidates. Choosing someone here saves directly to the Board Hierarchy.</div>
           </div>
@@ -1840,11 +1850,63 @@
     document.getElementById('dec-departments').innerHTML = ROLE_OPTIONS.map(decDeptCardHtml).join('');
   }
 
+  const ROSTER_POSITION_ORDER = { 'Director': 0, 'Treasurer': 0, 'Vice-Director': 1, 'Co-Treasurer': 2, 'Head': 3 };
+
+  function rosterPersonRow(entry) {
+    return `
+      <div class="dec-candidate-row">
+        <span>${escHtml(entry.name)}</span>
+        <span class="pref-badge pref1">${escHtml(entry.positionType)}</span>
+        <span style="flex:2;color:#64748b;font-size:12px;">${escHtml(entry.aucEmail || '—')}</span>
+      </div>
+    `;
+  }
+
+  function renderRosterSummary() {
+    const el = document.getElementById('dec-roster');
+    if (!el) return;
+
+    const byDept = {};
+    ROLE_OPTIONS.forEach(role => { byDept[role] = []; });
+    decisionsHierarchyEntries.forEach(e => {
+      if (!byDept[e.department]) byDept[e.department] = [];
+      byDept[e.department].push(e);
+    });
+
+    el.innerHTML = ROLE_OPTIONS.map(role => {
+      const entries = (byDept[role] || []).slice().sort(
+        (a, b) => (ROSTER_POSITION_ORDER[a.positionType] ?? 9) - (ROSTER_POSITION_ORDER[b.positionType] ?? 9)
+      );
+      const heads = entries.filter(e => e.positionType === 'Head');
+      const leads = entries.filter(e => e.positionType !== 'Head');
+      const statusHtml = leads.length
+        ? '<span style="color:#2f9e5c;font-size:12px;font-weight:700;">✓ leads set</span>'
+        : '<span style="color:#c0392b;font-size:12px;font-weight:700;">awaiting decision</span>';
+
+      return `
+        <div class="hier-dept-card" data-dept="${escHtml(role)}">
+          <h3>${escHtml(role)} &nbsp;${statusHtml}</h3>
+          ${leads.length ? leads.map(rosterPersonRow).join('') : '<div class="dec-empty">No director/vice-director picked yet.</div>'}
+          ${heads.length ? `
+            <div style="margin-top:8px;">
+              <div style="font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;margin-bottom:4px;">Heads (${heads.length})</div>
+              ${heads.map(rosterPersonRow).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    document.getElementById('roster-count').textContent =
+      `${decisionsHierarchyEntries.length} accepted so far across all committees · validate before sending welcome/results emails.`;
+  }
+
   async function loadDecisionsTab() {
     try {
       const result = await apiFetch({ mode: 'admin-load-hierarchy' });
       decisionsHierarchyEntries = (result.entries ?? []).filter(e => e.department);
       renderDecisionsTab();
+      renderRosterSummary();
     } catch (err) {
       document.getElementById('dec-notice').textContent = err.message;
       document.getElementById('dec-notice').style.color = '#c0392b';
@@ -1908,6 +1970,7 @@
 
       decisionsHierarchyEntries = merged.filter(e => e.department);
       renderDecisionsTab();
+      renderRosterSummary();
 
       notice.textContent = '✓ Saved';
       notice.style.color = '#2f9e5c';
