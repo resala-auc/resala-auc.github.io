@@ -151,8 +151,8 @@ const BOARD_ONBOARDING_SLOT_END_HOUR = 22;
 const BOARD_RETREAT_DAYS = ["2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30"];
 
 const HEADS_ONBOARDING_MEETING_DATE = "2026-07-22";
-const HEADS_ONBOARDING_MEETING_START = "15:00";
-const HEADS_ONBOARDING_MEETING_END = "16:00";
+const HEADS_ONBOARDING_MEETING_START = "3:00 PM";
+const HEADS_ONBOARDING_MEETING_END = "4:00 PM";
 
 type BoardOnboardingSlot = {
   id: string;
@@ -723,8 +723,7 @@ Deno.serve(async (request) => {
     if (isAdminCreateHeadsMeetingPayload(payload)) {
       authorizeAdminReset(request);
 
-      const token = await getGoogleAccessToken();
-      const result = await createHeadsOnboardingMeeting(token);
+      const result = await createHeadsOnboardingMeeting();
 
       return jsonResponse({ ok: true, ...result });
     }
@@ -3735,7 +3734,7 @@ function buildGoogleCalendarAddUrl({
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-async function createHeadsOnboardingMeeting(token: string): Promise<{
+async function createHeadsOnboardingMeeting(): Promise<{
   calendarEventId: string;
   meetLink: string;
   addToCalendarUrl: string;
@@ -3746,48 +3745,49 @@ async function createHeadsOnboardingMeeting(token: string): Promise<{
     throw new Error("CALENDAR_ID is not configured.");
   }
 
+  const calendarToken = await getGmailAccessToken();
+
   const startDateTime = buildLocalDateTime(HEADS_ONBOARDING_MEETING_DATE, HEADS_ONBOARDING_MEETING_START);
   const endDateTime = buildLocalDateTime(HEADS_ONBOARDING_MEETING_DATE, HEADS_ONBOARDING_MEETING_END);
+  if (!startDateTime || !endDateTime) {
+    throw new Error("Invalid meeting date/time configuration.");
+  }
+
   const summary = "Resala AUC — Heads Onboarding Meeting";
   const description = "Onboarding meeting for newly accepted committee heads.";
 
-  const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        summary,
-        description,
-        start: { dateTime: startDateTime, timeZone: CALENDAR_TIME_ZONE },
-        end: { dateTime: endDateTime, timeZone: CALENDAR_TIME_ZONE },
-        conferenceData: {
-          createRequest: {
-            requestId: `resala-heads-meeting-${Date.now()}`,
-            conferenceSolutionKey: { type: "hangoutsMeet" }
-          }
-        }
-      })
-    }
-  );
+  const syntheticPayload: ApplicationPayload = {
+    timestamp: new Date().toISOString(),
+    fullName: "Resala AUC Heads",
+    aucEmail: GMAIL_SENDER_EMAIL || "resala@aucegypt.edu",
+    studentId: "heads-meeting",
+    major: "",
+    yearLevel: "",
+    phone: "",
+    roleAppliedFor: "Heads Onboarding",
+    roleStepTitle: "",
+    roleDescription: "",
+    secondPreference: "",
+    whyThisRole: "",
+    whyChooseYourself: "",
+    createdAt: new Date().toISOString()
+  };
+  const syntheticSlot: InterviewSlotOption = {
+    id: "heads-onboarding-meeting",
+    label: summary,
+    date: HEADS_ONBOARDING_MEETING_DATE,
+    startTime: HEADS_ONBOARDING_MEETING_START,
+    endTime: HEADS_ONBOARDING_MEETING_END,
+    startDateTime,
+    endDateTime,
+    capacity: 999,
+    active: true,
+    reservedCount: 0,
+    remaining: 999,
+    full: false
+  };
 
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(`Google Calendar event creation failed: ${JSON.stringify(body)}`);
-  }
-
-  const meetLink =
-    body.hangoutLink ??
-    body.conferenceData?.entryPoints?.find((entryPoint: { entryPointType?: string; uri?: string }) => entryPoint.entryPointType === "video")
-      ?.uri ??
-    "";
-
-  if (!body.id || !meetLink) {
-    throw new Error("Google Calendar did not return a Meet link.");
-  }
+  const { calendarEventId, meetLink } = await createCalendarEvent(calendarToken, syntheticPayload, syntheticSlot);
 
   const addToCalendarUrl = buildGoogleCalendarAddUrl({
     summary,
@@ -3797,7 +3797,7 @@ async function createHeadsOnboardingMeeting(token: string): Promise<{
     endDateTime
   });
 
-  return { calendarEventId: body.id, meetLink, addToCalendarUrl, startDateTime, endDateTime };
+  return { calendarEventId, meetLink, addToCalendarUrl, startDateTime, endDateTime };
 }
 
 async function updateSlotCalendarFields(
