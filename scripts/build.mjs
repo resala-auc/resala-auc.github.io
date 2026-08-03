@@ -1,5 +1,6 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
+import { build as viteBuild } from "vite";
 import { renderPage } from "../src/render.mjs";
 import { renderApplyPage } from "../src/apply-page.ts";
 import { renderRoleGuideIndexPage, renderRoleGuidePage } from "../src/role-guide-page.mjs";
@@ -40,5 +41,8 @@ await writeFile("dist/apply-config.js", stripTypeScriptTypes(applyConfigSource),
 await writeFile("dist/apply.js", stripTypeScriptTypes(applySource), "utf8");
 await writeFile("dist/tasks.js", stripTypeScriptTypes(tasksSource), "utf8");
 await cp("src/role-guide-data.mjs", "dist/role-guide-data.mjs");
+
+// The animated recruitment experience is a Vite app; it emits into dist/join/.
+await viteBuild();
 
 console.log("Built static site to dist/");

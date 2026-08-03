@@ -12,7 +12,10 @@ const mimeTypes = new Map([
   [".js", "text/javascript; charset=utf-8"],
   [".svg", "image/svg+xml"],
   [".png", "image/png"],
-  [".json", "application/json; charset=utf-8"]
+  [".json", "application/json; charset=utf-8"],
+  [".mp3", "audio/mpeg"],
+  [".mp4", "video/mp4"],
+  [".woff2", "font/woff2"]
 ]);
 
 const server = createServer(async (request, response) => {
