@@ -7,11 +7,12 @@ import { BackLink, Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { CHAPTER_EASE, TOUCH_SPRING, actTransition, popIn, popStagger, rise, stagger } from "../lib/motion";
 import { ContactBlock } from "../components/ContactBlock";
 import { fetchInterviewSlots } from "../lib/api";
-import type { Committee } from "../data/committees";
+import type { Committee, CommitteeRole } from "../data/committees";
 import type { InterviewSlot } from "../types";
 
 type ActSlotProps = {
   committee: Committee;
+  role: CommitteeRole | null;
   selected: InterviewSlot | null;
   onSelect: (slot: InterviewSlot | null) => void;
   onConfirm: () => Promise<void>;
@@ -24,7 +25,8 @@ function formatDay(date: string) {
   return parsed.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
-export function ActSlot({ committee, selected, onSelect, onConfirm, onBack }: ActSlotProps) {
+export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack }: ActSlotProps) {
+  const task = committee.interviewTask(role);
   const [slots, setSlots] = useState<InterviewSlot[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -121,18 +123,29 @@ export function ActSlot({ committee, selected, onSelect, onConfirm, onBack }: Ac
               convenient one.
             </motion.p>
 
-            {committee.interviewTask.required ? (
+            {task.required ? (
               <motion.div
                 variants={rise}
                 className="mb-10 rounded-2xl border border-brand-orange/35 bg-brand-orange/[0.08] p-5"
               >
                 <p className="mb-2 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
                   <ClipboardList className="h-4 w-4" strokeWidth={1.8} />
-                  Bring this with you · {committee.interviewTask.summary}
+                  Bring this with you · {task.title ?? task.summary}
                 </p>
-                <p className="text-sm leading-relaxed text-white/80">
-                  {committee.interviewTask.detail}
-                </p>
+                <p className="text-sm leading-relaxed text-white/80">{task.detail}</p>
+                {task.scenario ? (
+                  <p className="mt-3 text-sm leading-relaxed text-white/60">{task.scenario}</p>
+                ) : null}
+                {task.points?.length ? (
+                  <ul className="mt-3 flex flex-col gap-1.5">
+                    {task.points.map((point) => (
+                      <li key={point} className="flex gap-2 text-sm leading-relaxed text-white/80">
+                        <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-brand-orange" />
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </motion.div>
             ) : (
               <div className="mb-10" />

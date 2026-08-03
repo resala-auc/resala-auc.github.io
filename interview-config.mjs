@@ -160,8 +160,54 @@ export const interviewConfig = {
     task: {
       required: true,
       summary: "Prepare a 1–2 page role task",
+      /*
+       * Part B of the Visits brief sets one shared scenario, then a different
+       * deliverable per head. Applicants must see their own, not a generic one.
+       */
+      scenario:
+        "Resala Visits is organizing a Fixing Visit for a low-income family. The initial assessment found the house needs wall repairs, repainting, a replacement wooden door and several electrical repairs. The visit is two weeks away with 25 volunteers, the materials are not secured yet, and all planning must be done before the visit date.",
       detail:
-        "Complete the practical task for the role you picked, based on the Fixing Visit scenario (low-income family, wall repairs, repainting, a damaged door and electrical work; two weeks out, 25 volunteers, materials not yet secured). One to two pages — bullet points, tables, or sketches are fine."
+        "Complete the practical task for the head you picked, based on the Fixing Visit scenario. One to two pages — bullet points, tables, diagrams or sketches are fine.",
+      byRole: {
+        discovery: {
+          title: "Discovery Report · 1–2 pages",
+          points: [
+            "The additional information you would collect before approving the visit.",
+            "Questions you would ask the beneficiaries.",
+            "Any measurements, observations, or documentation you believe are necessary.",
+            "Potential risks or challenges you identified.",
+            "Your final recommendation for the rest of the leadership team."
+          ]
+        },
+        execution: {
+          title: "Execution Plan · 1–2 pages",
+          points: [
+            "A timeline from planning until the end of the visit.",
+            "The main tasks that need to be completed before the visit.",
+            "How volunteers will be organized and assigned responsibilities.",
+            "Possible risks during execution and how you would handle them.",
+            "A brief contingency plan for unexpected situations."
+          ]
+        },
+        impact: {
+          title: "Impact Evaluation Plan · 1–2 pages",
+          points: [
+            "The success indicators you would use to evaluate the visit.",
+            "The feedback you would collect and from whom.",
+            "A simple outline of the post-visit report.",
+            "Recommendations you might provide for improving future visits."
+          ]
+        },
+        storytelling: {
+          title: "Content & Media Plan · 1–2 pages",
+          points: [
+            "The content you would create before, during, and after the visit.",
+            "The types of photos and videos you would capture.",
+            "A sample social media post or campaign idea.",
+            "How you would ensure that beneficiaries are represented respectfully and ethically."
+          ]
+        }
+      }
     },
     days: [
       { date: "2026-08-04", times: ["14:00", "15:00", "16:00", "17:00"] },

@@ -27,6 +27,7 @@ export function ActQuestions({
 }: ActQuestionsProps) {
   const questions: ApplicationQuestion[] = committee.questions(role);
   const alsoAsked = committee.alsoAsked(role);
+  const task = committee.interviewTask(role);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const blocks = useRef(new Map<string, HTMLDivElement>());
 
@@ -126,13 +127,13 @@ export function ActQuestions({
               transition={{ delay: 0.5, duration: 0.5, ease: CHAPTER_EASE }}
               className="mt-12 max-w-xl border-l-2 border-white/10 pl-5 text-sm leading-relaxed text-white/40"
             >
-              {committee.interviewTask.required ? (
+              {task.required ? (
                 <p className="mb-4 rounded-xl border border-brand-orange/35 bg-brand-orange/[0.08] px-4 py-3 text-white/85">
                   <span className="font-medium text-brand-orange">
                     {committee.displayName} asks for a task before the interview —{" "}
-                    {committee.interviewTask.summary}.
+                    {task.summary}.
                   </span>{" "}
-                  {committee.interviewTask.detail}
+                  {task.detail}
                 </p>
               ) : null}
               <p>

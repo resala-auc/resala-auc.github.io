@@ -283,6 +283,7 @@ export default function App() {
           <ActSlot
             key="slot"
             committee={committee}
+            role={role}
             selected={slot}
             onSelect={setSlot}
             onConfirm={submit}

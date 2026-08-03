@@ -23,6 +23,11 @@ export type InterviewTask = {
   required: boolean;
   summary?: string;
   detail?: string;
+  /** The shared situation the task is set in, where a brief defines one. */
+  scenario?: string;
+  /** What this specific head must hand in. */
+  title?: string;
+  points?: string[];
 };
 
 /** Who an applicant emails with questions about this committee. */
@@ -75,8 +80,8 @@ export type Committee = RoleGuide & {
   alsoAsked: (role: CommitteeRole | null) => string[];
   /** How long this committee's interview runs. Differs per brief. */
   interviewDurationMinutes: number;
-  /** Whether applicants must prepare something before the interview. */
-  interviewTask: InterviewTask;
+  /** What this head must prepare beforehand. Differs per head where the brief says so. */
+  interviewTask: (role: CommitteeRole | null) => InterviewTask;
   /** This committee's own availability — every committee interviews on its own days. */
   interviewSlots: () => InterviewSlot[];
   /** Director and Vice-Director of this committee, for applicant questions. */
@@ -117,12 +122,39 @@ type AlsoAskedBuilder = Committee["alsoAsked"];
  * keeps back for the live interview.
  */
 const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
-  "branding-media": () => [
-    "Ownership, leadership and how you handle failure are deliberately not on this form — they come up live, where we can follow up."
+  "branding-media": (role) => [
+    "Ownership, leadership and how you handle failure are deliberately not on this form — they come up live, where we can follow up.",
+    ...(({
+      design: [
+        "Live: how do you balance making something visually appealing while keeping the message clear?",
+        "Live: an event is tomorrow and the post still is not finished. What do you do?"
+      ],
+      editing: [
+        "Live: if two editors have completely different styles, how would you keep the account consistent?",
+        "Live: how would you keep members on deadline if they are not answering?"
+      ],
+      production: [
+        "Live: what will you do if you cannot find anyone who can act? Will you teach them?",
+        "Live: if there are no good shots, what will you do?"
+      ],
+      projects: [
+        "Live: how do you prioritise deadlines when several events land in the same week?"
+      ]
+    })[role?.id ?? ""] ?? [])
   ],
   "tech-director": () => [
     "These same questions come back in the interview, asked in a different order."
-  ]
+  ],
+  visits: () => [
+    "Communication and teamwork, commitment, problem solving, and character carry the interview score."
+  ],
+  hr: (role) =>
+    ({
+      engagement: ["Live: with a limited budget, what engagement activity would you run to bring members closer together?"],
+      inclusion: ["Live: a visually impaired volunteer wants to join an event that was not designed with accessibility in mind. How would you approach it?"],
+      tracking: ["Live: walk us through how you would organize a messy spreadsheet with hundreds of inconsistent entries."],
+      recognition: ["Live: walk us through how you would decide between a warning and a demotion for an inactive member."]
+    })[role?.id ?? ""] ?? []
 };
 
 export const committees: Committee[] = roleGuides
@@ -138,7 +170,14 @@ export const committees: Committee[] = roleGuides
     questions: (r: CommitteeRole | null) => buildApplicationQuestions(role.id, r) as ApplicationQuestion[],
     alsoAsked: alsoAskedBuilders[role.id] ?? (() => []),
     interviewDurationMinutes: getInterviewConfig(role.id)?.durationMinutes ?? 60,
-    interviewTask: getInterviewConfig(role.id)?.task ?? { required: false },
+    interviewTask: (r: CommitteeRole | null): InterviewTask => {
+      const task = getInterviewConfig(role.id)?.task as
+        | (InterviewTask & { byRole?: Record<string, { title: string; points: string[] }> })
+        | undefined;
+      if (!task?.required) return { required: false };
+      const forRole = r ? task.byRole?.[r.id] : undefined;
+      return { ...task, title: forRole?.title, points: forRole?.points };
+    },
     interviewSlots: () => buildCommitteeSlots(role.id) as InterviewSlot[],
     contacts: getCommitteeContacts(role.id) as CommitteeContact[]
   }));
