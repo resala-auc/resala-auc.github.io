@@ -145,6 +145,13 @@ const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
   "tech-director": () => [
     "These same questions come back in the interview, asked in a different order."
   ],
+  operations: (role) =>
+    ({
+      planning: ["Live: tell us about a time you organized a project with multiple tasks and tight deadlines. How did you ensure everything was completed?"],
+      procurement: ["Live: tell us about a time you had to organize a large number of items or resources. How did you ensure nothing was lost or forgotten?"],
+      logistics: ["Live: describe a situation where something unexpected happened during an event or project. What did you do to solve it?"],
+      inventory: ["Live: tell us about a time you were responsible for keeping things organized or tracking important items. How did you make sure nothing was misplaced?"]
+    })[role?.id ?? ""] ?? [],
   visits: () => [
     "Communication and teamwork, commitment, problem solving, and character carry the interview score."
   ],

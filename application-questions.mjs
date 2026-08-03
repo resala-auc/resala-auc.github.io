@@ -51,6 +51,12 @@ export const applicationQuestions = {
     }
   ],
 
+  /*
+   * Only the numbered list under the brief's "Application Questions" heading is
+   * asked here. Operations also lists a question per persona, but under a
+   * separate "Additional question to ask for" heading — that is interview
+   * material and is surfaced as interview prep instead.
+   */
   operations: (role) => [
     {
       id: "which-role",
@@ -92,23 +98,6 @@ export const applicationQuestions = {
       placeholder: HOURS_PLACEHOLDER,
       required: true
     },
-    ...(role
-      ? [
-          {
-            id: "role-specific",
-            field: null,
-            eyebrow: `For ${role.name}`,
-            prompt: {
-              planning: "Tell us about a time you had to organize a project with multiple tasks and tight deadlines. How did you ensure everything was completed successfully?",
-              procurement: "Tell us about a time you had to organize a large number of items or resources. How did you ensure nothing was lost or forgotten?",
-              logistics: "Describe a situation where something unexpected happened during an event or project. What did you do to solve the problem?",
-              inventory: "Tell us about a time you were responsible for keeping things organized or tracking important items. How did you make sure nothing was misplaced or forgotten?"
-            }[role.id],
-            placeholder: "One example, told straight.",
-            required: true
-          }
-        ]
-      : []),
     {
       id: "anything-else",
       field: null,
