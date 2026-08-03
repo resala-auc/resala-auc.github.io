@@ -1,17 +1,17 @@
 export const roleGuide = {
-  title: "How to Choose Your Director Role",
-  subtitle: "Resala AUC Board Recruitment",
+  title: "How to Choose Your Head Role",
+  subtitle: "Resala AUC Heads Recruitment",
   contactPhone: "01015263756",
   contactEmail: "resala@aucegypt.edu",
   opening: [
-    "Board is not a title. It is a responsibility behind every step Resala builds.",
+    "Head is not a title. It is a responsibility behind every step Resala builds.",
     "This guide helps you choose the role that fits your personality, skills, passion, and the type of responsibility you are ready to carry.",
     "Do not choose a role only because it sounds impressive. Choose the role where you can clearly answer: why does this role fit me, and how can I serve Resala through it?"
   ],
   directorExpectations: [
     {
       title: "Leadership",
-      body: "A director is not the person who does everything alone. Leadership in Resala means building a system where people can work, grow, and contribute.",
+      body: "A head is not the person who does everything alone. Leadership in Resala means building a system where people can work, grow, and contribute.",
       points: [
         "Build and lead a team.",
         "Divide responsibilities clearly.",
@@ -36,7 +36,7 @@ export const roleGuide = {
     },
     {
       title: "Commitment",
-      body: "Every director role requires time, presence, and responsibility. Before applying, ask yourself if you are ready for the real work behind the role, not only the title.",
+      body: "Every head role requires time, presence, and responsibility. Before applying, ask yourself if you are ready for the real work behind the role, not only the title.",
       points: [
         "Some roles need weekly attendance.",
         "Some roles need physical movement.",
@@ -48,7 +48,7 @@ export const roleGuide = {
   ],
   choosingSteps: [
     {
-      title: "Check the general director expectations",
+      title: "Check the general head expectations",
       points: [
         "Can I lead people?",
         "Can I take initiative?",
@@ -142,7 +142,45 @@ export const roleGuides = [
     stepTitle: "The Step of System",
     shortDescription: "Builds systems, automations, dashboards, forms, and workflows that make Resala easier to manage.",
     preparation: "Draft an idea for a system that can facilitate a process in the club and how it can be implemented.",
-    whyChoose: "Tech Director is for someone who wants to build real systems that solve real problems. You will not only build projects for practice; you will build tools and workflows that people in Resala actually use.",
+    heads: [
+      {
+        id: "navigator",
+        name: "The Navigator",
+        subtitle: "Project Lead",
+        description: "Full ownership of tech projects: keeps the system on track and the deadlines real."
+      },
+      {
+        id: "scout",
+        name: "The Scout",
+        subtitle: "Solutions Researcher",
+        description: "Evaluates requests and weighs every possible solution before the team commits to one."
+      },
+      {
+        id: "builder",
+        name: "The Builder",
+        subtitle: "Developer",
+        description: "Turns the plan into working software, documented well enough someone else could pick it up."
+      },
+      {
+        id: "verifier",
+        name: "The Verifier",
+        subtitle: "Quality Tester",
+        description: "Tests against what the client actually needed, not just whether it runs."
+      },
+      {
+        id: "closer",
+        name: "The Closer",
+        subtitle: "Deployment Specialist",
+        description: "Delivers the handover, trains the client, and checks back until they don't need you."
+      },
+      {
+        id: "firefighter",
+        name: "The Firefighter",
+        subtitle: "On-Call Responder",
+        description: "First one in when something already live breaks. Works fast, stays calm."
+      }
+    ],
+    whyChoose: "Tech Team is for someone who wants to build real systems that solve real problems. You will not only build projects for practice; you will build tools and workflows that people in Resala actually use.",
     actualWork: [
       "Build or improve systems that make Resala's work easier.",
       "Create automations, forms, dashboards, trackers, or platforms.",
@@ -178,6 +216,32 @@ export const roleGuides = [
     stepTitle: "The Step of Execution",
     shortDescription: "Turns plans into reality through logistics, vendors, supplies, setup, tracking, and on-ground problem-solving.",
     preparation: "Draft a plan for how you would manage logistics, tracking, and event setup.",
+    heads: [
+      {
+        id: "planning",
+        name: "The Planner",
+        subtitle: "Request & Planning",
+        description: "Receives every request, clarifies what's actually needed, builds the timeline before anyone else touches it."
+      },
+      {
+        id: "inventory",
+        name: "The Organizer",
+        subtitle: "Inventory & Storage",
+        description: "Owns the inventory: what exists, where it is, and whether it's ready when someone needs it."
+      },
+      {
+        id: "procurement",
+        name: "The Negotiator",
+        subtitle: "Procurement & Vendors",
+        description: "Finds vendors, compares prices, and keeps every purchase inside budget."
+      },
+      {
+        id: "logistics",
+        name: "The Coordinator",
+        subtitle: "Logistics & Event Support",
+        description: "Runs transport, setup, and teardown — the reason an event actually happens on time."
+      }
+    ],
     whyChoose: "Operations is one of the main pillars of any event. It turns plans into reality and gives real-life experience in execution, movement, problem-solving, and practical decision-making.",
     actualWork: [
       "Plan event logistics and setup.",
@@ -215,6 +279,28 @@ export const roleGuides = [
     stepTitle: "The Step of Voice",
     shortDescription: "Builds Resala's public image through storytelling, campaigns, design, media, reels, and consistent visual identity.",
     preparation: "Draft a plan for reaching 5k followers.",
+    heads: [
+      {
+        id: "projects",
+        name: "Head of Projects",
+        description: "Runs the workflow end to end: takes every request, assigns it, keeps every stage moving so nothing sits waiting on someone who forgot."
+      },
+      {
+        id: "production",
+        name: "Head of Acting & Production",
+        description: "Owns filming day: casts, scripts, directs, and makes sure every shot on the list gets captured."
+      },
+      {
+        id: "design",
+        name: "Head of Graphic Design",
+        description: "Owns how Resala looks: posters, feed, carousels, and the visual identity that makes every post recognizably ours."
+      },
+      {
+        id: "editing",
+        name: "Head of Video Editing",
+        description: "Turns raw footage into reels and documentaries — one consistent style, on deadline."
+      }
+    ],
     whyChoose: "Branding is how people see, understand, and remember Resala. If Resala does strong work but no one sees it clearly, the impact becomes less visible.",
     actualWork: [
       "Build content campaigns and posting strategies.",
@@ -254,6 +340,32 @@ export const roleGuides = [
     stepTitle: "The Step of People",
     shortDescription: "Keeps the community alive through engagement, onboarding, feedback, belonging, recognition, and accountability.",
     preparation: "Draft a plan for keeping people engaged through engagement events and retreats.",
+    heads: [
+      {
+        id: "engagement",
+        name: "Engagement Head",
+        subtitle: "The Connector",
+        description: "Plans the activities that make volunteers want to stay: team-building, feedback, the sense that Resala is a place, not a task list."
+      },
+      {
+        id: "inclusion",
+        name: "Inclusion Head",
+        subtitle: "The Advocate",
+        description: "Makes sure every volunteer can actually participate — accessibility, international students, whoever the default setup leaves out."
+      },
+      {
+        id: "tracking",
+        name: "Tracking System Head",
+        subtitle: "The Organizer",
+        description: "Keeps the volunteer database and attendance honest, and turns raw data into reports the club's decisions can stand on."
+      },
+      {
+        id: "recognition",
+        name: "Recognition & Accountability Head",
+        subtitle: "The Fair Judge",
+        description: "Makes sure effort gets seen and gaps get addressed — fairly, every time."
+      }
+    ],
     whyChoose: "Resala's main asset is its people. HR keeps the community alive through engagement, belonging, inclusion, culture, recognition, feedback, and accountability.",
     actualWork: [
       "Build systems to keep members engaged.",
@@ -291,6 +403,23 @@ export const roleGuides = [
     stepTitle: "The Step of Opportunity",
     shortDescription: "Opens doors through external relationships, collaborations, aligned sponsors, partnerships, and fundraising strategy.",
     preparation: "Draft a strategy for aligned collaborations or sponsors that can support a Resala campaign.",
+    heads: [
+      {
+        id: "sponsorship",
+        name: "Sponsorship Head",
+        description: "Finds and approaches sponsors, builds the pitch, keeps the relationship alive after the check clears."
+      },
+      {
+        id: "events",
+        name: "Events Head",
+        description: "Plans and runs every fundraising event and donation campaign end to end."
+      },
+      {
+        id: "partnerships",
+        name: "Partnerships Head",
+        description: "Builds club collaborations and awareness campaigns that bring in reach Resala couldn't get alone."
+      }
+    ],
     whyChoose: "PR / Fundraising opens doors for Resala. It builds the external connections, collaborations, sponsorships, and opportunities that help the club grow its impact.",
     actualWork: [
       "Identify people, organizations, alumni, communities, influencers, companies, or partners Resala can reach.",
@@ -331,6 +460,28 @@ export const roleGuides = [
     stepTitle: "The Step of Presence",
     shortDescription: "Plans direct visits that fill real gaps through presence, goals, volunteer preparation, and respectful community contact.",
     preparation: "Draft a proposal for a one-day program that can be implemented in different orphanages or Dar Mosneen.",
+    heads: [
+      {
+        id: "discovery",
+        name: "Discovery Head",
+        description: "Assesses need before a visit happens: gathers information, writes the reports that shape the plan."
+      },
+      {
+        id: "execution",
+        name: "Execution Head",
+        description: "Plans and runs the visit itself: volunteers, activities, the day going smoothly."
+      },
+      {
+        id: "impact",
+        name: "Impact Head",
+        description: "Evaluates what a visit actually changed: feedback, outcomes, what to fix next time."
+      },
+      {
+        id: "storytelling",
+        name: "Storytelling Head",
+        description: "Captures and shares the visit — photo, video, story — without turning a family into content."
+      }
+    ],
     whyChoose: "Visits brings Resala's impact directly to society. It completes the impact of other initiatives and helps fill real gaps through direct presence on the ground.",
     actualWork: [
       "Build a monthly visits plan.",

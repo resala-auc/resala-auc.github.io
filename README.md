@@ -136,6 +136,42 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 - The admin dashboard can update each reservation's interview status and includes an `Extend booked to 1 hour` action for patching already-created Calendar events after deploying the one-hour duration change.
 - The Edge Function is deployed with JWT verification disabled so GitHub Pages can post to it directly.
 
+## `/join/` — the animated recruitment experience
+
+`/join/` is a second, cinematic front door to the same application pipeline.
+`/apply/` is untouched and still works; both post the identical
+`ApplicationPayload` to the Supabase `submit` function.
+
+The flow runs as six acts: identity → the pen handover → chapter choice →
+the chapter's questions, one screen at a time → interview slot → sealed.
+A draft is kept in `localStorage` under `resala-join-draft`, so a refresh
+mid-flow never costs the applicant their typing; it is cleared on success.
+
+Source lives in `experience/` (React 19 + Vite + Tailwind v4 + `motion/react`):
+
+| Path | Purpose |
+| --- | --- |
+| `experience/src/App.tsx` | Act state machine and payload assembly |
+| `experience/src/acts/` | One file per act |
+| `experience/src/data/committees.ts` | Reads `src/role-guide-data.mjs`, drops Treasurer, adds the one-line vow shown on each chapter card |
+| `experience/src/lib/api.ts` | Slot fetch + submit against the same endpoint |
+| `experience/public/media/` | Optional recorded handover audio and hero film — see the README there |
+
+Commands:
+
+```bash
+npm run dev:join     # Vite dev server for the experience alone
+npm run build        # static site + experience together, into dist/
+```
+
+`npm run build` also runs the Vite build, which writes to `dist/join/`. Assets
+are emitted with a relative base, so the route works under any deploy path.
+The chapter list is derived from `src/role-guide-data.mjs`, so editing a role
+guide updates `/guides/`, `/apply/`, and `/join/` at once.
+
+Note: the landing page CTA still reads "Applications closed" and points at
+`/apply/`. Point it at `./join/` when the new cycle opens.
+
 ## Local testing
 
 Build and serve locally:

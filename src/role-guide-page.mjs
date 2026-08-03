@@ -1,5 +1,18 @@
 import { roleGuide, roleGuides } from "./role-guide-data.mjs";
 
+/**
+ * Display-only renames. `role.name` itself must stay untouched — the Supabase
+ * submit function looks it up verbatim for task docs and role-guide links, so
+ * a cosmetic rename lives here instead, never on the field the backend keys off of.
+ */
+const displayNames = {
+  "tech-director": "Tech Team"
+};
+
+function displayName(role) {
+  return displayNames[role.id] ?? role.name;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -29,7 +42,7 @@ function GuideShell({ title, description, stylesheetHref, logoHref, faviconHref,
     <link rel="apple-touch-icon" href="${faviconHref}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Noto+Sans:wght@400;500;600;700;800&family=Roboto+Slab:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="${stylesheetHref}">
   </head>
   <body class="guide-page-body">
@@ -56,9 +69,10 @@ function RoleCard(role, basePath) {
     <article class="guide-role-card">
       <div class="guide-role-card-head">
         <span>${escapeHtml(role.stepTitle)}</span>
-        <h3>${escapeHtml(role.name)}</h3>
+        <h3>${escapeHtml(displayName(role))}</h3>
       </div>
       <p>${escapeHtml(role.shortDescription)}</p>
+      ${role.heads?.length ? `<p class="guide-role-heads-hint">${role.heads.length} heads to choose from</p>` : ""}
       <div class="guide-role-signal">
         <strong>Fits you if</strong>
         <span>${escapeHtml(role.fit)}</span>
@@ -69,6 +83,16 @@ function RoleCard(role, basePath) {
         <a class="role-apply-link role-apply-link--closed" href="${basePath}apply/">Closed</a>
       </div>
     </article>
+  `;
+}
+
+function HeadCard(head) {
+  return `
+    <section class="guide-panel">
+      <h3>${escapeHtml(head.name)}</h3>
+      ${head.subtitle ? `<p class="guide-head-subtitle">${escapeHtml(head.subtitle)}</p>` : ""}
+      <p>${escapeHtml(head.description)}</p>
+    </section>
   `;
 }
 
@@ -110,7 +134,7 @@ export function renderRoleGuideIndexPage() {
           <span>Start here</span>
           <strong>Pick the role where your energy can become ownership.</strong>
           <ol class="guide-checklist">
-            <li>Read the director standard.</li>
+            <li>Read the head standard.</li>
             <li>Compare role cards.</li>
             <li>Open the details for your top two.</li>
           </ol>
@@ -127,7 +151,7 @@ export function renderRoleGuideIndexPage() {
           <article>
             <span>01</span>
             <h3>Can I lead?</h3>
-            <p>Directors build teams and divide responsibility. The work should not depend on one person.</p>
+            <p>Heads build teams and divide responsibility. The work should not depend on one person.</p>
           </article>
           <article>
             <span>02</span>
@@ -145,8 +169,8 @@ export function renderRoleGuideIndexPage() {
     <section class="guide-section guide-section-soft">
       <div class="container">
         <div class="section-heading">
-          <p class="eyebrow">Director standard</p>
-          <h2>What every director must carry</h2>
+          <p class="eyebrow">Head standard</p>
+          <h2>What every head must carry</h2>
         </div>
         <div class="guide-panel-grid">
           ${roleGuide.directorExpectations.map(ExpectationCard).join("")}
@@ -191,7 +215,7 @@ export function renderRoleGuideIndexPage() {
 
   return GuideShell({
     title: roleGuide.title,
-    description: "A Resala AUC recruitment guide for choosing the director role that fits your skills, passion, and ownership.",
+    description: "A Resala AUC recruitment guide for choosing the head role that fits your skills, passion, and ownership.",
     stylesheetHref: "../styles.css",
     logoHref: "../The brand System/logos/Resala Logo - source.svg",
     faviconHref: "../favicon.png",
@@ -206,7 +230,7 @@ export function renderRoleGuidePage(role) {
       <div class="container guide-hero-grid">
         <div>
           <p class="eyebrow">${escapeHtml(role.stepTitle)}</p>
-          <h1>${escapeHtml(role.name)}</h1>
+          <h1>${escapeHtml(displayName(role))}</h1>
           <p>${escapeHtml(role.shortDescription)}</p>
           <div class="guide-hero-actions">
             <a class="button button-primary" href="../../apply/">Closed</a>
@@ -237,6 +261,24 @@ export function renderRoleGuidePage(role) {
         </div>
       </div>
     </section>
+    ${
+      role.heads?.length
+        ? `
+    <section class="guide-section">
+      <div class="container">
+        <div class="section-heading">
+          <p class="eyebrow">Pick your head</p>
+          <h2>This committee has ${role.heads.length} heads — you apply to one</h2>
+          <p>Each head owns a different piece of the work. Read all of them before you decide which one is yours.</p>
+        </div>
+        <div class="guide-detail-layout">
+          ${role.heads.map(HeadCard).join("")}
+        </div>
+      </div>
+    </section>
+    `
+        : ""
+    }
     <section class="guide-section guide-section-soft">
       <div class="container">
         <div class="section-heading">
@@ -281,8 +323,8 @@ export function renderRoleGuidePage(role) {
   `;
 
   return GuideShell({
-    title: role.name,
-    description: `${role.name} details for Resala AUC board recruitment.`,
+    title: displayName(role),
+    description: `${displayName(role)} details for Resala AUC heads recruitment.`,
     stylesheetHref: "../../styles.css",
     logoHref: "../../The brand System/logos/Resala Logo - source.svg",
     faviconHref: "../../favicon.png",

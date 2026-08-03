@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --font-serif: "Bebas Neue", "Montserrat", system-ui, sans-serif;
+  --font-display: "Bebas Neue", "Montserrat", system-ui, sans-serif;
+  --font-arabic: "Noto Sans Arabic", "Noto Sans", system-ui, sans-serif;
+
+  /*
+   * Resala brand system — Charity Royal Blue / Sky Blue / Sunshine Yellow /
+   * Warm Ivory / Charcoal. Token names (brand-orange, brand-night, brand-ink)
+   * stay as-is on purpose: dozens of Tailwind classes reference them
+   * (bg-brand-orange, text-brand-ink, …) and renaming the tokens would mean
+   * hunting down every usage. Only the values changed.
+   */
+  /*
+   * brand-ink and brand-night are *dark surface* roles, not hues: modal sheets,
+   * select dropdowns, the page backdrop, and text sitting on a yellow button.
+   * They must stay near-black or white text on them drops below AA contrast —
+   * Charity Royal Blue is a mid-tone and is far too light for either job.
+   */
+  --color-brand-ink: #1b1f23; /* Charcoal — sheets, dropdowns, text on yellow */
+  --color-brand-night: #101317; /* deepest charcoal — page backdrop, sits under ink */
+  --color-brand-blue: #0c2c80; /* Charity Royal Blue — accent only, never a text bg */
+  --color-brand-glow: #a7d4f2; /* Sky Blue */
+  --color-brand-pale: #e0f0fa; /* pale Sky Blue tint */
+  --color-brand-orange: #eac262; /* Sunshine Yellow — primary accent/CTA */
+  --color-brand-mauve: #a7d4f2; /* Sky Blue */
+  --color-brand-cream: #fdf9f3; /* Warm Ivory */
+
+  --ease-chapter: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html {
+  background-color: var(--color-brand-night);
+}
+
+/* The colour lives on <html> only. An opaque background on <body> would paint
+   over the fixed -z-10 backdrop and hide the aurora entirely. */
+body {
+  margin: 0;
+  color: #ffffff;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/*
+ * Inputs never inherit the dark page chrome inconsistently across browsers.
+ * This MUST live in @layer base: unlayered rules outrank everything inside
+ * @layer utilities, so an unlayered `color: inherit` here would silently beat
+ * `text-brand-ink` on every button and repaint its label white.
+ * `button` is deliberately excluded from `color` — buttons set their own.
+ */
+@layer base {
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+  }
+
+  input,
+  textarea,
+  select {
+    color: inherit;
+  }
+}
+
+input:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff;
+  transition: background-color 100000s ease-in-out 0s;
+}
+
+::selection {
+  background: var(--color-brand-orange);
+  color: var(--color-brand-ink);
+}
+
+/* Thin scrollbar inside scrollable act panels. */
+.scroll-quiet::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+/* The pen writes its stroke; used by the chapter-handover act. */
+@keyframes ink-write {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Slow atmospheric drift for the aurora backdrop layers. */
+@keyframes drift-a {
+  0%,
+  100% {
+    transform: translate3d(-6%, -4%, 0) scale(1.05);
+  }
+  50% {
+    transform: translate3d(6%, 4%, 0) scale(1.18);
+  }
+}
+
+@keyframes drift-b {
+  0%,
+  100% {
+    transform: translate3d(5%, 6%, 0) scale(1.15);
+  }
+  50% {
+    transform: translate3d(-5%, -6%, 0) scale(1);
+  }
+}
+
+/* Ink dust rising through the frame. */
+@keyframes float-dust {
+  0% {
+    transform: translate3d(0, 12vh, 0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.5;
+  }
+  85% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate3d(6vw, -22vh, 0);
+    opacity: 0;
+  }
+}
+
+/* Slow sweep of light across a card or button on hover. */
+@keyframes sheen {
+  from {
+    transform: translateX(-120%) skewX(-18deg);
+  }
+  to {
+    transform: translateX(220%) skewX(-18deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

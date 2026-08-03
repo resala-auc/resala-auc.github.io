@@ -87,6 +87,174 @@ const TASK_NOTE_HEADERS = [
   "Task 2 Evaluation Notes"
 ];
 
+/*
+ * ---------------------------------------------------------------------------
+ * Heads cycle (August 2026) interview scheduling.
+ *
+ * The director cycle used one global slot pool with a single 60-minute length.
+ * The heads cycle does not work that way: every committee interviews on its own
+ * days, and lengths differ (Operations and Branding run 30 minutes, the rest an
+ * hour). So heads slots live in their OWN sheet tab, carrying a Committee
+ * column, and the original "Interview Slots" tab is left untouched so the
+ * finished director cycle stays intact and auditable.
+ *
+ * COMMITTEE_INTERVIEWS mirrors src/interview-config.mjs, which is what the
+ * /join booking UI renders from. Edge Functions cannot import from the site
+ * source, so the two must be changed together — keep them in sync.
+ * ---------------------------------------------------------------------------
+ */
+const HEADS_SLOT_SHEET_NAME = Deno.env.get("HEADS_SLOT_SHEET_NAME") ?? "Interview Slots Heads";
+const HEADS_SLOT_HEADERS = [
+  "Slot ID",
+  "Committee",
+  "Date",
+  "Start Time",
+  "End Time",
+  "Slot Label",
+  "Duration Minutes",
+  "Capacity",
+  "Active",
+  "Calendar Event ID",
+  "Meet Link"
+];
+
+type CommitteeInterviewDay = { date: string; times: string[]; double?: string[] };
+type CommitteeInterview = {
+  committee: string;
+  durationMinutes: number;
+  days: CommitteeInterviewDay[];
+};
+
+const WEEKDAY_TIMES_OPERATIONS = ["11:00", "12:00", "16:00", "20:00", "21:00", "22:00"];
+const BRANDING_TIMES = ["13:00", "13:35", "14:10", "14:45", "15:20", "15:55"];
+const CORE_DAYS = [
+  "2026-08-05",
+  "2026-08-06",
+  "2026-08-07",
+  "2026-08-08",
+  "2026-08-11",
+  "2026-08-12",
+  "2026-08-13",
+  "2026-08-14"
+];
+
+const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
+  "tech director": {
+    committee: "Tech Director",
+    durationMinutes: 60,
+    days: [
+      { date: "2026-08-05", times: ["10:00", "13:00", "16:00", "19:00"] },
+      { date: "2026-08-06", times: ["10:00", "13:00", "16:00", "19:00"] },
+      { date: "2026-08-07", times: ["11:00", "14:00", "17:00", "20:00"] },
+      { date: "2026-08-08", times: ["11:00", "14:00", "17:00", "20:00"] },
+      { date: "2026-08-11", times: ["16:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-12", times: ["16:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-13", times: ["16:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-14", times: ["16:00", "17:00", "18:00", "19:00"] }
+    ]
+  },
+  operations: {
+    committee: "Operations",
+    durationMinutes: 30,
+    days: CORE_DAYS.map((date) => ({ date, times: WEEKDAY_TIMES_OPERATIONS }))
+  },
+  "branding media": {
+    committee: "Branding / Media",
+    durationMinutes: 30,
+    days: CORE_DAYS.map((date) => ({ date, times: BRANDING_TIMES }))
+  },
+  hr: {
+    committee: "HR",
+    durationMinutes: 60,
+    days: [
+      { date: "2026-08-05", times: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-06", times: ["11:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-07", times: ["17:00", "18:00", "19:00", "20:00"] },
+      { date: "2026-08-08", times: ["11:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-11", times: ["11:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-12", times: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-13", times: ["11:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-14", times: ["17:00", "18:00", "19:00", "20:00"] }
+    ]
+  },
+  "pr fundraising": {
+    committee: "PR / Fundraising",
+    durationMinutes: 60,
+    days: [
+      { date: "2026-08-05", times: ["09:00", "10:00", "11:00", "12:00"] },
+      { date: "2026-08-06", times: ["09:00", "10:00", "11:00", "12:00"] },
+      { date: "2026-08-07", times: ["09:00", "10:00", "11:00", "12:00"] },
+      { date: "2026-08-08", times: ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"] },
+      { date: "2026-08-11", times: ["19:00", "20:00", "21:00", "22:00"] },
+      { date: "2026-08-12", times: ["11:00", "12:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-13", times: ["11:00", "12:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-14", times: ["11:00", "12:00", "15:00", "16:00"] }
+    ]
+  },
+  visits: {
+    committee: "Visits",
+    durationMinutes: 60,
+    // Ezz and Amina are merged into one pool; `double` marks the hours both are
+    // free, which therefore accept two bookings.
+    days: [
+      { date: "2026-08-04", times: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-05", times: ["10:00", "11:00", "12:00", "13:00", "18:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-06", times: ["10:00", "11:00", "12:00", "13:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-07", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
+      { date: "2026-08-08", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
+      { date: "2026-08-11", times: ["14:00", "18:00", "19:00"], double: ["15:00", "16:00", "17:00"] },
+      { date: "2026-08-12", times: ["14:00", "18:00", "19:00"], double: ["15:00", "16:00", "17:00"] },
+      { date: "2026-08-13", times: ["10:00", "11:00", "12:00", "13:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-14", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
+      { date: "2026-08-15", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] }
+    ]
+  }
+};
+
+function getCommitteeInterview(roleName: string): CommitteeInterview | null {
+  return COMMITTEE_INTERVIEWS[normalizeRole(roleName)] ?? null;
+}
+
+function toDisplayTime(time24: string): string {
+  const [h, m] = time24.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
+/** Every heads-cycle slot, in sheet-row form. Mirrors buildCommitteeSlots(). */
+function buildHeadsSlotRows(): Array<Array<string | number | boolean>> {
+  const rows: Array<Array<string | number | boolean>> = [];
+
+  for (const [key, config] of Object.entries(COMMITTEE_INTERVIEWS)) {
+    for (const day of config.days) {
+      const entries = [
+        ...(day.times ?? []).map((t) => [t, 1] as const),
+        ...(day.double ?? []).map((t) => [t, 2] as const)
+      ].sort((a, b) => a[0].localeCompare(b[0]));
+
+      for (const [time, capacity] of entries) {
+        const endTime = addMinutesToTime(toDisplayTime(time), config.durationMinutes);
+        const slug = key.replace(/\s+/g, "-");
+        rows.push([
+          `${slug}-${day.date}-${time.replace(":", "")}`,
+          config.committee,
+          day.date,
+          toDisplayTime(time),
+          endTime,
+          `${day.date} at ${toDisplayTime(time)}`,
+          config.durationMinutes,
+          capacity,
+          "TRUE",
+          "",
+          ""
+        ]);
+      }
+    }
+  }
+
+  return rows;
+}
+
 const SLOT_HEADERS = [
   "Slot ID",
   "Date",
@@ -353,6 +521,12 @@ type AdminCreateHeadsMeetingPayload = {
   mode: "admin-create-heads-meeting";
 };
 
+type AdminShareCalendarPayload = {
+  mode: "admin-share-calendar";
+  emails: string[];
+  role?: "reader" | "writer" | "freeBusyReader";
+};
+
 type BoardOnboardingSlotsPayload = {
   mode: "board-onboarding-slots";
 };
@@ -396,6 +570,7 @@ type SubmissionPayload =
   | AdminSaveHierarchyPayload
   | DirectorLoadApplicantsPayload
   | AdminCreateHeadsMeetingPayload
+  | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
   | BoardOnboardingStatusPayload
   | BoardOnboardingSubmitPayload;
@@ -498,7 +673,25 @@ Deno.serve(async (request) => {
       }
 
       const token = await getGoogleAccessToken();
-      const slots = await getInterviewSlots(token);
+      const url = new URL(request.url);
+
+      /*
+       * Public contact lookup: the Director and Vice-Director(s) an applicant
+       * should reach about a committee. Deliberately narrow — name, position and
+       * AUC email only, never phone numbers, and only for director-level rows.
+       */
+      const contactsFor = url.searchParams.get("contacts");
+      if (contactsFor) {
+        const panel = await getCommitteePanel(token, contactsFor);
+        return jsonResponse({ ok: true, contacts: panel });
+      }
+
+      const committee = url.searchParams.get("committee");
+      // A committee query means the heads cycle; without one, fall back to the
+      // original pool so nothing that already depends on this endpoint breaks.
+      const slots = committee
+        ? await getHeadsInterviewSlots(token, committee)
+        : await getInterviewSlots(token);
       return jsonResponse({ ok: true, slots });
     } catch (error) {
       return jsonResponse(
@@ -728,6 +921,14 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isAdminShareCalendarPayload(payload)) {
+      authorizeAdminReset(request);
+
+      const result = await shareCalendarWithEmails(payload.emails, payload.role ?? "reader");
+
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isBoardOnboardingSlotsPayload(payload)) {
       if (!SHEET_ID) {
         throw new Error("SHEET_ID is not configured.");
@@ -796,7 +997,9 @@ Deno.serve(async (request) => {
     }
 
     await appendApplication(token, payload, sheetName);
-    const emailSent = await trySendConfirmationEmail(payload, reservation);
+    // Same panel the invite went to, so the email names the right people.
+    const panel = await getCommitteePanel(token, payload.roleAppliedFor);
+    const emailSent = await trySendConfirmationEmail(payload, reservation, panel);
 
     return jsonResponse({ ok: true, emailSent });
   } catch (error) {
@@ -893,6 +1096,10 @@ function isAdminCreateHeadsMeetingPayload(payload: SubmissionPayload): payload i
   return (payload as AdminCreateHeadsMeetingPayload).mode === "admin-create-heads-meeting";
 }
 
+function isAdminShareCalendarPayload(payload: SubmissionPayload): payload is AdminShareCalendarPayload {
+  return (payload as AdminShareCalendarPayload).mode === "admin-share-calendar";
+}
+
 function isBoardOnboardingSlotsPayload(payload: SubmissionPayload): payload is BoardOnboardingSlotsPayload {
   return (payload as BoardOnboardingSlotsPayload).mode === "board-onboarding-slots";
 }
@@ -907,8 +1114,13 @@ function isBoardOnboardingSubmitPayload(payload: SubmissionPayload): payload is 
 
 function authorizeAdminReset(request: Request): void {
   const secret = request.headers.get("x-admin-reset-secret");
-  const allowed = [ADMIN_RESET_SECRET, "rawanvp"].filter(Boolean);
-  if (!allowed.length || !allowed.includes(secret)) {
+  /*
+   * The secret comes only from the environment. A hardcoded fallback used to sit
+   * here beside it, which meant anyone who could read the repository could reach
+   * every admin endpoint; if ADMIN_RESET_SECRET is unset the correct behaviour is
+   * to refuse, not to accept a value that is public.
+   */
+  if (!ADMIN_RESET_SECRET || secret !== ADMIN_RESET_SECRET) {
     throw new Error("Unauthorized admin reset request.");
   }
 }
@@ -1086,19 +1298,24 @@ async function updateTaskSubmission(token: string, payload: TaskSubmissionPayloa
   });
 }
 
-async function sendConfirmationEmail(payload: ApplicationPayload, reservation: ReservationDetails | null): Promise<void> {
+async function sendConfirmationEmail(
+  payload: ApplicationPayload,
+  reservation: ReservationDetails | null,
+  panel: Array<{ email: string; name: string; positionType: string }> = []
+): Promise<void> {
   if (!gmailConfigured()) {
     return;
   }
 
   const tasks = getApplicantTaskDocuments(payload.roleAppliedFor, payload.secondPreference);
   const roleGuideLinks = getApplicantRoleGuideLinks(payload.roleAppliedFor, payload.secondPreference);
-  const template = buildConfirmationEmailTemplate(payload, reservation, tasks, roleGuideLinks);
+  const template = buildConfirmationEmailTemplate(payload, reservation, tasks, roleGuideLinks, panel);
   const attachments = await getTaskPdfAttachments(tasks);
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
     to: payload.aucEmail,
+    cc: panel.map((member) => member.email).join(", "),
     subject: template.subject,
     text: template.body,
     html: template.html,
@@ -1122,9 +1339,13 @@ async function sendConfirmationEmail(payload: ApplicationPayload, reservation: R
   }
 }
 
-async function trySendConfirmationEmail(payload: ApplicationPayload, reservation: ReservationDetails): Promise<boolean> {
+async function trySendConfirmationEmail(
+  payload: ApplicationPayload,
+  reservation: ReservationDetails,
+  panel: Array<{ email: string; name: string; positionType: string }> = []
+): Promise<boolean> {
   try {
-    await sendConfirmationEmail(payload, reservation);
+    await sendConfirmationEmail(payload, reservation, panel);
     return gmailConfigured();
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Confirmation email failed.");
@@ -1140,7 +1361,8 @@ function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
   reservation: ReservationDetails | null,
   tasks: ApplicantTaskDocument[],
-  roleGuideLinks: RoleGuideLink[]
+  roleGuideLinks: RoleGuideLink[],
+  panel: Array<{ email: string; name: string; positionType: string }> = []
 ): ConfirmationEmailTemplate {
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
   const hasSlot = Boolean(reservation && slot);
@@ -1187,6 +1409,14 @@ function buildConfirmationEmailTemplate(
     bodyLines.push(`Task deadline: ${taskDeadline || "30 minutes before your interview"}.`);
   } else {
     bodyLines.push("Please complete your tasks as soon as possible so you are ready when your interview is scheduled.");
+  }
+
+  if (panel.length) {
+    bodyLines.push(
+      `Questions about ${payload.roleAppliedFor}? Contact the people interviewing you:`,
+      ...panel.map((m) => `- ${m.name}${m.positionType ? ` (${m.positionType})` : ""}: ${m.email}`),
+      ""
+    );
   }
 
   bodyLines.push(
@@ -1680,6 +1910,7 @@ async function getSpreadsheetSheetTitles(token: string): Promise<Set<string>> {
 async function ensureSlotSheets(token: string): Promise<void> {
   await ensureSheetTab(token, SLOT_SHEET_NAME);
   await ensureSheetTab(token, RESERVATION_SHEET_NAME);
+  await ensureHeadsSlotSheet(token);
   await ensureSheetSeed(
     token,
     SLOT_SHEET_NAME,
@@ -1688,6 +1919,87 @@ async function ensureSlotSheets(token: string): Promise<void> {
   );
   await ensureRemainingRecruitmentSlotRows(token);
   await ensureSheetHeaders(token, RESERVATION_SHEET_NAME, RESERVATION_HEADERS);
+}
+
+async function ensureHeadsSlotSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HEADS_SLOT_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_SLOT_SHEET_NAME, HEADS_SLOT_HEADERS);
+
+  // Seed once. Existing rows are never rewritten, so a slot deactivated by hand
+  // in the sheet stays deactivated.
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
+  const existing = (await response.json()).values ?? [];
+  if (existing.length > 0) return;
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HEADS_SLOT_SHEET_NAME, "A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: buildHeadsSlotRows() }
+  );
+}
+
+/**
+ * Heads-cycle availability for one committee. Unlike the director-cycle reader
+ * this trusts the End Time stored on the row rather than forcing a global
+ * duration, because committees interview for different lengths.
+ */
+async function getHeadsInterviewSlots(token: string, committee?: string): Promise<InterviewSlotOption[]> {
+  await ensureHeadsSlotSheet(token);
+
+  const slotResponse = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
+  const slotRows = ((await slotResponse.json()).values ?? []) as string[][];
+
+  const reservationResponse = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:L")}`);
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+  const reservedCounts = new Map<string, number>();
+  for (const row of reservationRows) {
+    const slotId = normalize(row[1]);
+    if (!slotId) continue;
+    reservedCounts.set(slotId, (reservedCounts.get(slotId) ?? 0) + 1);
+  }
+
+  const wanted = committee ? normalizeRole(committee) : "";
+
+  return slotRows
+    .map((row: string[], index: number) => {
+      const id = String(row[0] ?? "").trim();
+      const rowCommittee = String(row[1] ?? "").trim();
+      const date = String(row[2] ?? "").trim();
+      const startTime = String(row[3] ?? "").trim();
+      const endTime = String(row[4] ?? "").trim();
+      const label = String(row[5] ?? "").trim() || buildSlotLabel(date, startTime);
+      const capacity = Number(row[7] ?? 1) || 1;
+      const active = String(row[8] ?? "TRUE").toLowerCase() !== "false";
+      const calendarEventId = String(row[9] ?? "").trim();
+      const meetLink = String(row[10] ?? "").trim();
+      const reservedCount = reservedCounts.get(normalize(id)) ?? 0;
+      const remaining = Math.max(capacity - reservedCount, 0);
+      const startDateTime = buildLocalDateTime(date, startTime);
+      const endDateTime = buildLocalDateTime(date, endTime);
+      const past = isPastLocalDateTime(startDateTime, CALENDAR_TIME_ZONE);
+
+      return {
+        id,
+        label,
+        date,
+        startTime,
+        endTime,
+        startDateTime,
+        endDateTime,
+        capacity,
+        active,
+        reservedCount,
+        remaining,
+        full: !active || !date || !startTime || !startDateTime || !endDateTime || past || remaining <= 0,
+        calendarEventId,
+        meetLink,
+        rowIndex: index + 2,
+        committee: rowCommittee
+      } as InterviewSlotOption & { committee: string };
+    })
+    .filter((slot) => slot.active && (!wanted || normalizeRole(slot.committee) === wanted))
+    .sort((a, b) => (a.startDateTime || a.label).localeCompare(b.startDateTime || b.label));
 }
 
 async function normalizeSlotDurations(token: string): Promise<number> {
@@ -3548,8 +3860,20 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
 }
 
 async function reserveInterviewSlot(token: string, payload: ApplicationPayload): Promise<ReservationDetails> {
-  const slots = await getInterviewSlots(token);
-  const selected = slots.find((slot) => slot.id === payload.interviewSlotId);
+  /*
+   * Heads-cycle slots are keyed by committee and live in their own sheet. Look
+   * there first using the applicant's committee, and only fall back to the
+   * original pool if the id is not one of theirs.
+   */
+  const headsSlots = await getHeadsInterviewSlots(token, payload.roleAppliedFor);
+  let selected = headsSlots.find((slot) => slot.id === payload.interviewSlotId);
+  let isHeadsSlot = Boolean(selected);
+
+  if (!selected) {
+    const slots = await getInterviewSlots(token);
+    selected = slots.find((slot) => slot.id === payload.interviewSlotId);
+    isHeadsSlot = false;
+  }
 
   if (!selected) {
     throw new Error("Selected interview slot is not available.");
@@ -3560,8 +3884,13 @@ async function reserveInterviewSlot(token: string, payload: ApplicationPayload):
   }
 
   const calendarToken = await getGmailAccessToken();
-  const calendarEvent = await createCalendarEvent(calendarToken, payload, selected);
-  await updateSlotCalendarFields(token, selected, calendarEvent);
+  const panel = await getCommitteePanel(token, payload.roleAppliedFor);
+  const calendarEvent = await createCalendarEvent(calendarToken, payload, selected, panel);
+  if (isHeadsSlot) {
+    await updateHeadsSlotCalendarFields(token, selected, calendarEvent);
+  } else {
+    await updateSlotCalendarFields(token, selected, calendarEvent);
+  }
 
   await sheetsFetch(token, "POST", `${sheetRange(RESERVATION_SHEET_NAME, "A:N")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     values: [
@@ -3628,10 +3957,58 @@ async function addCalendarEventAttendee(
   }
 }
 
+/**
+ * The Director and Vice-Director(s) of the committee the applicant applied to.
+ * These are the people an applicant deals with, so they are put on the calendar
+ * invite and named in the confirmation email instead of a shared inbox.
+ * Read live from the Board Hierarchy sheet so it tracks roster changes.
+ */
+async function getCommitteePanel(
+  token: string,
+  roleAppliedFor: string
+): Promise<Array<{ email: string; name: string; positionType: string }>> {
+  try {
+    const { entries } = await loadHierarchy(token);
+    const wanted = normalizeRole(roleAppliedFor);
+
+    return entries
+      .filter((entry) => {
+        if (normalizeRole(entry.department) !== wanted) return false;
+        const position = normalize(entry.positionType);
+        return position.includes("director");
+      })
+      .filter((entry) => isValidAucEmail(entry.aucEmail))
+      .map((entry) => ({
+        email: String(entry.aucEmail).trim(),
+        name: String(entry.name).trim(),
+        positionType: String(entry.positionType).trim()
+      }));
+  } catch (error) {
+    // A hierarchy problem must never block an application from being booked.
+    console.error(`Could not load committee panel: ${error instanceof Error ? error.message : error}`);
+    return [];
+  }
+}
+
+async function updateHeadsSlotCalendarFields(
+  token: string,
+  slot: InterviewSlotOption,
+  calendarEvent: { calendarEventId: string; meetLink: string }
+): Promise<void> {
+  if (!slot.rowIndex) return;
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_SLOT_SHEET_NAME, `J${slot.rowIndex}:K${slot.rowIndex}`)}?valueInputOption=RAW`,
+    { values: [[calendarEvent.calendarEventId, calendarEvent.meetLink]] }
+  );
+}
+
 async function createCalendarEvent(
   token: string,
   payload: ApplicationPayload,
-  slot: InterviewSlotOption
+  slot: InterviewSlotOption,
+  panel: Array<{ email: string; name: string; positionType: string }> = []
 ): Promise<{ calendarEventId: string; meetLink: string }> {
   if (!CALENDAR_ID) {
     throw new Error("CALENDAR_ID is not configured.");
@@ -3667,7 +4044,12 @@ async function createCalendarEvent(
           {
             email: payload.aucEmail,
             displayName: payload.fullName
-          }
+          },
+          // The committee's Director and Vice-Director(s) run this interview.
+          ...panel.map((member) => ({
+            email: member.email,
+            displayName: member.positionType ? `${member.name} (${member.positionType})` : member.name
+          }))
         ],
         reminders: {
           useDefault: false,
@@ -3798,6 +4180,49 @@ async function createHeadsOnboardingMeeting(): Promise<{
   });
 
   return { calendarEventId, meetLink, addToCalendarUrl, startDateTime, endDateTime };
+}
+
+async function shareCalendarWithEmails(
+  emails: string[],
+  role: "reader" | "writer" | "freeBusyReader"
+): Promise<{ shared: string[]; failed: { email: string; error: string }[] }> {
+  if (!CALENDAR_ID) {
+    throw new Error("CALENDAR_ID is not configured.");
+  }
+  if (!emails || emails.length === 0) {
+    throw new Error("No emails provided.");
+  }
+
+  const calendarToken = await getGmailAccessToken();
+
+  const shared: string[] = [];
+  const failed: { email: string; error: string }[] = [];
+
+  for (const email of emails) {
+    const response = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/acl`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${calendarToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          role,
+          scope: { type: "user", value: email }
+        })
+      }
+    );
+
+    if (response.ok) {
+      shared.push(email);
+    } else {
+      const errorText = await response.text();
+      failed.push({ email, error: errorText });
+    }
+  }
+
+  return { shared, failed };
 }
 
 async function updateSlotCalendarFields(
