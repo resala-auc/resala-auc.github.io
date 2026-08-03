@@ -1114,8 +1114,13 @@ function isBoardOnboardingSubmitPayload(payload: SubmissionPayload): payload is 
 
 function authorizeAdminReset(request: Request): void {
   const secret = request.headers.get("x-admin-reset-secret");
-  const allowed = [ADMIN_RESET_SECRET, "rawanvp"].filter(Boolean);
-  if (!allowed.length || !allowed.includes(secret)) {
+  /*
+   * The secret comes only from the environment. A hardcoded fallback used to sit
+   * here beside it, which meant anyone who could read the repository could reach
+   * every admin endpoint; if ADMIN_RESET_SECRET is unset the correct behaviour is
+   * to refuse, not to accept a value that is public.
+   */
+  if (!ADMIN_RESET_SECRET || secret !== ADMIN_RESET_SECRET) {
     throw new Error("Unauthorized admin reset request.");
   }
 }
