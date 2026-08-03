@@ -147,37 +147,43 @@ export const roleGuides = [
         id: "navigator",
         name: "The Navigator",
         subtitle: "Project Lead",
-        description: "Full ownership of tech projects: keeps the system on track and the deadlines real."
+        description:
+          "Takes full ownership of tech projects, ensures everything is according to the system set in place and makes sure deadlines are met."
       },
       {
         id: "scout",
         name: "The Scout",
         subtitle: "Solutions Researcher",
-        description: "Evaluates requests and weighs every possible solution before the team commits to one."
+        description:
+          "Evaluates incoming requests and starts researching all possible pros and cons of each possible solution, weighs all solutions and shows it to the committee."
       },
       {
         id: "builder",
         name: "The Builder",
         subtitle: "Developer",
-        description: "Turns the plan into working software, documented well enough someone else could pick it up."
+        description:
+          "Turns the project plan into working software or systems. Focuses on writing clear, documented code that others can easily understand, and proactively communicates both progress and technical setbacks."
       },
       {
         id: "verifier",
         name: "The Verifier",
         subtitle: "Quality Tester",
-        description: "Tests against what the client actually needed, not just whether it runs."
+        description:
+          "Tests the built solution strictly against the client's actual success criteria, rather than just checking if it runs. Acts as the final quality checkpoint to ensure the product genuinely solves the problem before delivery."
       },
       {
         id: "closer",
         name: "The Closer",
         subtitle: "Deployment Specialist",
-        description: "Delivers the handover, trains the client, and checks back until they don't need you."
+        description:
+          "Manages the project handover by delivering the solution, training non-technical clients, and writing clear documentation. Conducts scheduled check-ins to ensure the client is entirely self-sufficient."
       },
       {
         id: "firefighter",
         name: "The Firefighter",
         subtitle: "On-Call Responder",
-        description: "First one in when something already live breaks. Works fast, stays calm."
+        description:
+          "Acts as a rapid first responder to fix unexpected breakages in previously deployed systems. Works well under pressure to resolve urgent requests so the rest of the team isn't pulled away from ongoing projects."
       }
     ],
     whyChoose: "Tech Team is for someone who wants to build real systems that solve real problems. You will not only build projects for practice; you will build tools and workflows that people in Resala actually use.",
@@ -221,25 +227,29 @@ export const roleGuides = [
         id: "planning",
         name: "The Planner",
         subtitle: "Request & Planning",
-        description: "Receives every request, clarifies what's actually needed, builds the timeline before anyone else touches it."
+        description:
+          "Receives and reviews requests from committees, clarifies requirements, develops timelines, and coordinates with stakeholders to ensure every request is fully prepared before execution."
       },
       {
         id: "inventory",
         name: "The Organizer",
         subtitle: "Inventory & Storage",
-        description: "Owns the inventory: what exists, where it is, and whether it's ready when someone needs it."
+        description:
+          "Manages the inventory system by tracking equipment, organizing storage, maintaining accurate records, and ensuring all items are available and ready for events."
       },
       {
         id: "procurement",
         name: "The Negotiator",
         subtitle: "Procurement & Vendors",
-        description: "Finds vendors, compares prices, and keeps every purchase inside budget."
+        description:
+          "Sources vendors, compares quotations, negotiates prices, coordinates purchases, and maintains strong supplier relationships while keeping procurement within budget."
       },
       {
         id: "logistics",
         name: "The Coordinator",
         subtitle: "Logistics & Event Support",
-        description: "Runs transport, setup, and teardown — the reason an event actually happens on time."
+        description:
+          "Coordinates transportation, event setup, on-site operational support, equipment handling, and teardown to ensure smooth event execution."
       }
     ],
     whyChoose: "Operations is one of the main pillars of any event. It turns plans into reality and gives real-life experience in execution, movement, problem-solving, and practical decision-making.",
@@ -283,22 +293,26 @@ export const roleGuides = [
       {
         id: "projects",
         name: "Head of Projects",
-        description: "Runs the workflow end to end: takes every request, assigns it, keeps every stage moving so nothing sits waiting on someone who forgot."
+        description:
+          "Leads the other heads and owns the workflow from end to end. You take each request from the moment it arrives, decide which teams to activate, assign it, set deadlines, and keep every stage moving \u2014 filming, editing, design, publishing \u2014 so nothing sits waiting on someone who forgot. At any moment, you are the person who knows the status of every project. Suits someone organized and comfortable holding people to deadlines, including those who are not obliged to listen. This is the only role where the main skill is running other people rather than making the content yourself."
       },
       {
         id: "production",
         name: "Head of Acting & Production",
-        description: "Owns filming day: casts, scripts, directs, and makes sure every shot on the list gets captured."
+        description:
+          "Runs everything that happens on the day of filming. You choose who appears on camera, write scripts, direct interviews and documentary shoots, organize locations and schedules, and make sure every shot on the list is captured before the team leaves. Suits someone confident with people, who can keep a shoot moving and get a natural answer out of a nervous volunteer."
       },
       {
         id: "design",
         name: "Head of Graphic Design",
-        description: "Owns how Resala looks: posters, feed, carousels, and the visual identity that makes every post recognizably ours."
+        description:
+          "Owns how Resala looks. You design posters, feed posts, carousels, story graphics, thumbnails and event branding, and protect the visual identity \u2014 fonts, color palette, templates \u2014 so every post is recognizably ours. Suits a designer who works fast to a brief, builds reusable templates, and takes honest feedback without taking it personally."
       },
       {
         id: "editing",
         name: "Head of Video Editing",
-        description: "Turns raw footage into reels and documentaries — one consistent style, on deadline."
+        description:
+          "Turns raw footage into the reels, documentaries, and interviews that go on the page. You cut the video, add subtitles, transitions, and motion graphics, keep one editing style across platforms, and archive footage so it can be reused. Suits someone who can hold a story together and deliver on a deadline, not just make something look good."
       }
     ],
     whyChoose: "Branding is how people see, understand, and remember Resala. If Resala does strong work but no one sees it clearly, the impact becomes less visible.",
@@ -345,25 +359,29 @@ export const roleGuides = [
         id: "engagement",
         name: "Engagement Head",
         subtitle: "The Connector",
-        description: "Plans the activities that make volunteers want to stay: team-building, feedback, the sense that Resala is a place, not a task list."
+        description:
+          "Plans and leads activities that help volunteers build friendships, stay engaged, and enjoy being a part of Resala. Organizes team-building initiatives, gathers member feedback, and works with other committees to strengthen participation and build a strong sense of community."
       },
       {
         id: "inclusion",
         name: "Inclusion Head",
         subtitle: "The Advocate",
-        description: "Makes sure every volunteer can actually participate — accessibility, international students, whoever the default setup leaves out."
+        description:
+          "Ensures that every volunteer feels welcomed, supported, and able to participate fully in Resala. Coordinates accessibility and inclusion initiatives, supports visually impaired and international students, and works with committees to remove barriers to participation."
       },
       {
         id: "tracking",
         name: "Tracking System Head",
         subtitle: "The Organizer",
-        description: "Keeps the volunteer database and attendance honest, and turns raw data into reports the club's decisions can stand on."
+        description:
+          "Keeps Resala's HR data accurate and usable. Owns the volunteer database and attendance tracking system, works hand-in-hand with the Tech Team to keep it running, and turns raw data into reports that make the club's decisions, like VOM and COM, actually fair."
       },
       {
         id: "recognition",
         name: "Recognition & Accountability Head",
         subtitle: "The Fair Judge",
-        description: "Makes sure effort gets seen and gaps get addressed — fairly, every time."
+        description:
+          "Makes sure effort gets seen and gaps get addressed \u2014 fairly, every time. Reviews attendance and performance data, follows up with members who've gone quiet, oversees warnings and demotions when they're truly needed, and coordinates recognition (VOM/COM) with the Branding Team."
       }
     ],
     whyChoose: "Resala's main asset is its people. HR keeps the community alive through engagement, belonging, inclusion, culture, recognition, feedback, and accountability.",
@@ -407,17 +425,20 @@ export const roleGuides = [
       {
         id: "sponsorship",
         name: "Sponsorship Head",
-        description: "Finds and approaches sponsors, builds the pitch, keeps the relationship alive after the check clears."
+        description:
+          "The sponsorship head leads the committee responsible for gathering finances and in-kind donations for all of Resala's initiatives. This role focuses on working with sponsors, which includes finding and approaching sponsors, creating sponsorship strategies and maintaining relations with sponsors. This role requires someone that enjoys networking and has great negotiation skills."
       },
       {
         id: "events",
         name: "Events Head",
-        description: "Plans and runs every fundraising event and donation campaign end to end."
+        description:
+          "The events head is responsible for all fundraising events and donation campaigns created to fundraise for Resala's initiatives. This role focuses on event planning, coordination and execution. This role requires someone that enjoys planning and is calm under pressure and adaptable."
       },
       {
         id: "partnerships",
         name: "Partnerships Head",
-        description: "Builds club collaborations and awareness campaigns that bring in reach Resala couldn't get alone."
+        description:
+          "The partnerships head is in charge of all PR campaigns created to gather resources and awareness, in addition to club collaborations for large events. This role focuses on building relationships with clubs and the student body, while creating awareness campaigns on Resala's initiatives. This role requires someone that enjoys collaborations and is creative."
       }
     ],
     whyChoose: "PR / Fundraising opens doors for Resala. It builds the external connections, collaborations, sponsorships, and opportunities that help the club grow its impact.",
@@ -464,22 +485,26 @@ export const roleGuides = [
       {
         id: "discovery",
         name: "Discovery Head",
-        description: "Assesses need before a visit happens: gathers information, writes the reports that shape the plan."
+        description:
+          "Leads the discovery process before each visit by assessing beneficiary needs, gathering information, and preparing reports that help the team design the most suitable visit plan."
       },
       {
         id: "execution",
         name: "Execution Head",
-        description: "Plans and runs the visit itself: volunteers, activities, the day going smoothly."
+        description:
+          "Plans and manages the execution of visits by organizing volunteers, coordinating activities, and ensuring that every visit is carried out smoothly and efficiently."
       },
       {
         id: "impact",
         name: "Impact Head",
-        description: "Evaluates what a visit actually changed: feedback, outcomes, what to fix next time."
+        description:
+          "Evaluates completed visits by collecting feedback, documenting outcomes, and identifying improvements that maximize the long-term impact of future visits."
       },
       {
         id: "storytelling",
         name: "Storytelling Head",
-        description: "Captures and shares the visit — photo, video, story — without turning a family into content."
+        description:
+          "Captures and shares the story of every visit through photography, videography, and social media, highlighting the impact of Resala Visits and inspiring community engagement."
       }
     ],
     whyChoose: "Visits brings Resala's impact directly to society. It completes the impact of other initiatives and helps fill real gaps through direct presence on the ground.",
