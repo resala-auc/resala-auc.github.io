@@ -211,6 +211,104 @@ const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
   }
 };
 
+type HeadsTask = {
+  summary: string;
+  detail: string;
+  scenario?: string;
+  byRole?: Record<string, { title: string; points: string[] }>;
+};
+
+/*
+ * Only two committees ask for anything before the interview this cycle. The
+ * director cycle sent every applicant a pair of task documents; that is wrong
+ * here, so the email states this committee's actual requirement, or says
+ * plainly that there is none.
+ *
+ * Mirrors the `task` blocks in src/interview-config.mjs — change both together.
+ */
+const HEADS_TASKS: Record<string, HeadsTask> = {
+  "branding media": {
+    summary: "Bring a portfolio link",
+    detail:
+      "Link a portfolio, Drive folder, Instagram, or TikTok — any video, design, photography, captions, even coursework. If you have nothing to show yet, say so and tell us why you would still be good at this."
+  },
+  visits: {
+    summary: "Prepare a 1-2 page task for the head you applied to",
+    detail:
+      "One to two pages. Bullet points, tables, diagrams or sketches are fine.",
+    scenario:
+      "Resala Visits is organizing a Fixing Visit for a low-income family. The house needs wall repairs, repainting, a replacement wooden door and several electrical repairs. The visit is two weeks away with 25 volunteers, the materials are not secured yet, and all planning must be done before the visit date.",
+    byRole: {
+      discovery: {
+        title: "Discovery Report",
+        points: [
+          "The additional information you would collect before approving the visit.",
+          "Questions you would ask the beneficiaries.",
+          "Any measurements, observations, or documentation you believe are necessary.",
+          "Potential risks or challenges you identified.",
+          "Your final recommendation for the rest of the leadership team."
+        ]
+      },
+      execution: {
+        title: "Execution Plan",
+        points: [
+          "A timeline from planning until the end of the visit.",
+          "The main tasks that need to be completed before the visit.",
+          "How volunteers will be organized and assigned responsibilities.",
+          "Possible risks during execution and how you would handle them.",
+          "A brief contingency plan for unexpected situations."
+        ]
+      },
+      impact: {
+        title: "Impact Evaluation Plan",
+        points: [
+          "The success indicators you would use to evaluate the visit.",
+          "The feedback you would collect and from whom.",
+          "A simple outline of the post-visit report.",
+          "Recommendations you might provide for improving future visits."
+        ]
+      },
+      storytelling: {
+        title: "Content & Media Plan",
+        points: [
+          "The content you would create before, during, and after the visit.",
+          "The types of photos and videos you would capture.",
+          "A sample social media post or campaign idea.",
+          "How you would ensure that beneficiaries are represented respectfully and ethically."
+        ]
+      }
+    }
+  }
+};
+
+/** The task lines for this applicant, or an empty list when none is required. */
+function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
+  const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+  if (!task) {
+    return [
+      `${payload.roleAppliedFor} does not ask for a task before the interview. Come ready to talk through your answers.`,
+      ""
+    ];
+  }
+
+  // roleStepTitle carries the chosen head after a middle dot.
+  const headName = String(payload.roleStepTitle ?? "").split("·").pop()?.trim() ?? "";
+  // Match on the head key ("storytelling"), not the deliverable title — the
+  // Storytelling Head's task is called "Content & Media Plan", so matching on
+  // the title silently found nothing.
+  const forHead = task.byRole
+    ? Object.entries(task.byRole).find(([key]) => normalize(headName).includes(key))?.[1]
+    : undefined;
+
+  const lines = [`Before your interview: ${task.summary}`, ""];
+  if (task.scenario) lines.push(task.scenario, "");
+  lines.push(task.detail, "");
+  if (forHead) {
+    lines.push(`${forHead.title} — cover:`, ...forHead.points.map((p) => `- ${p}`), "");
+  }
+  return lines;
+}
+
 function getCommitteeInterview(roleName: string): CommitteeInterview | null {
   return COMMITTEE_INTERVIEWS[normalizeRole(roleName)] ?? null;
 }
@@ -1395,20 +1493,19 @@ function buildConfirmationEmailTemplate(
   }
 
   bodyLines.push(
-    "Please complete two pre-interview tasks, one for each preference:",
-    "",
-    ...formatTaskDocumentTextLines(tasks),
-    "",
+    ...buildHeadsTaskLines(payload),
     "Role guide:",
     `${ROLE_GUIDE_BASE_URL}/`,
     ...formatRoleGuideTextLines(roleGuideLinks),
     "",
   );
 
-  if (hasSlot) {
-    bodyLines.push(`Task deadline: ${taskDeadline || "30 minutes before your interview"}.`);
-  } else {
-    bodyLines.push("Please complete your tasks as soon as possible so you are ready when your interview is scheduled.");
+  if (HEADS_TASKS[normalizeRole(payload.roleAppliedFor)]) {
+    bodyLines.push(
+      hasSlot
+        ? `Have it ready by ${taskDeadline || "30 minutes before your interview"}.`
+        : "Have it ready before your interview is scheduled."
+    );
   }
 
   if (panel.length) {
@@ -1433,6 +1530,7 @@ function buildConfirmationEmailTemplate(
     subject,
     body: bodyLines.join("\n"),
     html: buildConfirmationEmailHtml({
+      payload,
       fullName: payload.fullName,
       roleAppliedFor: payload.roleAppliedFor,
       secondPreference: payload.secondPreference,
@@ -1447,6 +1545,7 @@ function buildConfirmationEmailTemplate(
 }
 
 function buildConfirmationEmailHtml({
+  payload,
   fullName,
   roleAppliedFor,
   secondPreference,
@@ -1457,6 +1556,7 @@ function buildConfirmationEmailHtml({
   roleGuideLinks,
   hasSlot = true
 }: {
+  payload: ApplicationPayload;
   fullName: string;
   roleAppliedFor: string;
   secondPreference: string;
@@ -1516,18 +1616,19 @@ function buildConfirmationEmailHtml({
                   </tr>
                 </table>
                 `}
-                ${buildTaskDocumentsHtml(tasks)}
+                ${buildHeadsTaskHtml(payload)}
                 ${buildRoleGuideHtml(roleGuideLinks)}
+                ${!HEADS_TASKS[normalizeRole(roleAppliedFor)] ? "" : `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
-                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">${hasSlot ? "Task deadline" : "Pre-interview tasks"}</div>
+                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">${hasSlot ? "Task deadline" : "Before your interview"}</div>
                       <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${hasSlot ? `Submit both tasks by ${escapeHtml(taskDeadline || "30 minutes before your interview")}.` : "Please complete your pre-interview tasks as soon as possible so you are ready when your interview is scheduled."}</div>
                       ${buildSubmissionActionHtml()}
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 8px;font-size:15px;line-height:1.6;color:#4b5563;">The task PDFs are attached when Drive export is available. The Google Doc buttons above are included as a backup.</p>
+                `}
                 <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything feels unclear, just reply to this email and we will help.</p>
                 <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
@@ -1634,6 +1735,34 @@ function formatTaskDocumentTextLines(tasks: ApplicantTaskDocument[]): string[] {
     `- ${task.preferenceLabel}: ${task.roleName}`,
     `  Google Doc: ${task.documentUrl || "Task document link is not configured."}`
   ]);
+}
+
+function buildHeadsTaskHtml(payload: ApplicationPayload): string {
+  const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+  if (!task) {
+    return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+      <tr><td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+        <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">No task required</div>
+        <div style="font-size:15px;line-height:1.6;color:#4b5563;">${escapeHtml(payload.roleAppliedFor)} does not ask for anything before the interview. Come ready to talk through your answers.</div>
+      </td></tr></table>`;
+  }
+
+  const headName = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
+  // Match on the head key ("storytelling"), not the deliverable title — the
+  // Storytelling Head's task is called "Content & Media Plan", so matching on
+  // the title silently found nothing.
+  const forHead = task.byRole
+    ? Object.entries(task.byRole).find(([key]) => normalize(headName).includes(key))?.[1]
+    : undefined;
+
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+    <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Before your interview</div>
+      <div style="font-size:17px;line-height:1.4;font-weight:bold;color:#0d2b45;margin-bottom:8px;">${escapeHtml(forHead ? forHead.title : task.summary)}</div>
+      ${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
+      <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
+      ${forHead ? `<ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">${forHead.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
+    </td></tr></table>`;
 }
 
 function buildTaskDocumentsHtml(tasks: ApplicantTaskDocument[]): string {
