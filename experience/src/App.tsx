@@ -12,8 +12,9 @@ import { ActQuestions } from "./acts/ActQuestions";
 import { ActSlot } from "./acts/ActSlot";
 import { ActSealed } from "./acts/ActSealed";
 import { findCommittee, findCommitteeRole } from "./data/committees";
+import type { Committee, CommitteeRole } from "./data/committees";
 import { submitApplication } from "./lib/api";
-import type { Act, Answers, ApplicationPayload, CommitteeGroup, Identity, InterviewSlot } from "./types";
+import type { Act, ApplicationPayload, CommitteeGroup, Identity, InterviewSlot } from "./types";
 
 const STORAGE_KEY = "resala-join-draft";
 
@@ -26,16 +27,12 @@ const emptyIdentity: Identity = {
   phone: ""
 };
 
-const emptyAnswers: Answers = {
-  whyThisRole: "",
-  whyChooseYourself: "",
-  hopeToLearn: "",
-  previousResalaExperience: ""
-};
+// Keyed by question id, because each committee asks a different set.
+const emptyAnswers: Record<string, string> = {};
 
 type Draft = {
   identity: Identity;
-  answers: Answers;
+  answers: Record<string, string>;
   pathGroup: CommitteeGroup | null;
   committeeId: string | null;
   roleId: string | null;
@@ -70,11 +67,54 @@ function loadDraft(): Draft {
   }
 }
 
+
+/**
+ * Committees ask between three and seven questions, but the Applications sheet
+ * has four free-text columns. Questions carrying a `field` land in their column;
+ * everything else is gathered, with its question text, into the last column so
+ * no answer is lost and no existing sheet column has to move.
+ */
+function mapAnswersToColumns(
+  committee: Committee,
+  role: CommitteeRole | null,
+  answers: Record<string, string>
+): Pick<
+  ApplicationPayload,
+  "whyThisRole" | "whyChooseYourself" | "hopeToLearn" | "previousResalaExperience"
+> {
+  const questions = committee.questions(role);
+  const columns = {
+    whyThisRole: "",
+    whyChooseYourself: "",
+    hopeToLearn: "",
+    previousResalaExperience: ""
+  };
+  const extra: string[] = [];
+
+  for (const question of questions) {
+    const answer = (answers[question.id] ?? "").trim();
+    if (question.field) {
+      columns[question.field] = answer;
+    } else if (answer) {
+      extra.push(`${question.prompt}\n${answer}`);
+    }
+  }
+
+  if (extra.length) {
+    const tail = extra.join("\n\n");
+    columns.previousResalaExperience = columns.previousResalaExperience
+      ? `${columns.previousResalaExperience}\n\n${tail}`
+      : tail;
+  }
+
+  return columns;
+}
+
 export default function App() {
   const [draft] = useState(loadDraft);
   const [act, setAct] = useState<Act>("hero");
   const [identity, setIdentity] = useState<Identity>(draft.identity);
-  const [answers, setAnswers] = useState<Answers>(draft.answers);
+  const [answers, setAnswers] = useState<Record<string, string>>(draft.answers);
   const [pathGroup, setPathGroup] = useState<CommitteeGroup | null>(draft.pathGroup);
   const [committeeId, setCommitteeId] = useState<string | null>(draft.committeeId);
   const [roleId, setRoleId] = useState<string | null>(draft.roleId);
@@ -132,10 +172,7 @@ export default function App() {
       roleStepTitle: role ? `${committee.stepTitle} · ${role.name}` : committee.stepTitle,
       roleDescription: role ? role.description : committee.shortDescription,
       secondPreference,
-      whyThisRole: answers.whyThisRole.trim(),
-      whyChooseYourself: answers.whyChooseYourself.trim(),
-      hopeToLearn: answers.hopeToLearn.trim(),
-      previousResalaExperience: answers.previousResalaExperience.trim(),
+      ...mapAnswersToColumns(committee, role, answers),
       interviewSlot: slot?.startDateTime ?? "",
       interviewSlotId: slot?.id ?? "",
       interviewSlotLabel: slot?.label ?? ""

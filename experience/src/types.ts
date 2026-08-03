@@ -20,12 +20,6 @@ export type Identity = {
   phone: string;
 };
 
-export type Answers = {
-  whyThisRole: string;
-  whyChooseYourself: string;
-  hopeToLearn: string;
-  previousResalaExperience: string;
-};
 
 export type InterviewSlot = {
   id: string;

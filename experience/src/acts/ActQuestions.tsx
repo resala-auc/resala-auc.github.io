@@ -5,53 +5,14 @@ import { ActLayout, TopNav } from "../components/Chrome";
 import { TextAreaField } from "../components/Field";
 import { BackLink, PrimaryButton } from "../components/ui";
 import { CHAPTER_EASE, rise, stagger } from "../lib/motion";
-import type { Committee, CommitteeRole } from "../data/committees";
-import type { Answers } from "../types";
+import type { ApplicationQuestion, Committee, CommitteeRole } from "../data/committees";
 
-type Question = {
-  key: keyof Answers;
-  eyebrow: string;
-  prompt: string;
-  helper?: string;
-  placeholder: string;
-  required: boolean;
-};
-
-function buildQuestions(committee: Committee, role: CommitteeRole | null): Question[] {
-  const real = committee.buildQuestions(role);
-  return [
-    {
-      key: "whyThisRole",
-      ...real.whyThisRole
-    },
-    {
-      key: "whyChooseYourself",
-      ...real.whyChooseYourself
-    },
-    {
-      key: "hopeToLearn",
-      eyebrow: "What you want back",
-      prompt: "What do you hope to walk out of this year knowing how to do?",
-      helper: "Optional, but it tells us how to build the year around you.",
-      placeholder: "The skill, the confidence, the thing you cannot do yet…",
-      required: false
-    },
-    {
-      key: "previousResalaExperience",
-      eyebrow: "Your history with us",
-      prompt: "Have you worked with Resala before? Tell us what you did.",
-      helper: "Optional. Never having worked with Resala costs you nothing here.",
-      placeholder: "Visits, Children's Day, campaigns, or nothing yet — all fine.",
-      required: false
-    }
-  ];
-}
 
 type ActQuestionsProps = {
   committee: Committee;
   role: CommitteeRole | null;
-  answers: Answers;
-  onChange: (patch: Partial<Answers>) => void;
+  answers: Record<string, string>;
+  onChange: (patch: Record<string, string>) => void;
   onContinue: () => void;
   onBack: () => void;
 };
@@ -64,23 +25,23 @@ export function ActQuestions({
   onContinue,
   onBack
 }: ActQuestionsProps) {
-  const questions = buildQuestions(committee, role);
+  const questions: ApplicationQuestion[] = committee.questions(role);
   const alsoAsked = committee.alsoAsked(role);
-  const [errors, setErrors] = useState<Partial<Record<keyof Answers, string>>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const blocks = useRef(new Map<string, HTMLDivElement>());
 
   const submit = () => {
-    const found: Partial<Record<keyof Answers, string>> = {};
+    const found: Record<string, string> = {};
     for (const question of questions) {
-      if (question.required && answers[question.key].trim().length < 20) {
-        found[question.key] = "This one needs a real answer, at least a couple of sentences.";
+      if (question.required && (answers[question.id] ?? "").trim().length < 20) {
+        found[question.id] = "This one needs a real answer, at least a couple of sentences.";
       }
     }
     setErrors(found);
 
-    const first = questions.find((question) => found[question.key]);
+    const first = questions.find((question) => found[question.id]);
     if (first) {
-      blocks.current.get(first.key)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      blocks.current.get(first.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
     onContinue();
@@ -107,10 +68,10 @@ export function ActQuestions({
             <div className="flex flex-col gap-14">
               {questions.map((question) => (
                 <div
-                  key={question.key}
+                  key={question.id}
                   ref={(node) => {
-                    if (node) blocks.current.set(question.key, node);
-                    else blocks.current.delete(question.key);
+                    if (node) blocks.current.set(question.id, node);
+                    else blocks.current.delete(question.id);
                   }}
                   className="flex flex-col"
                 >
@@ -129,19 +90,19 @@ export function ActQuestions({
                   </motion.div>
 
                   <TextAreaField
-                    id={question.key}
+                    id={question.id}
                     label={question.required ? "Your answer" : "Your answer (optional)"}
                     helper={question.helper}
                     placeholder={question.placeholder}
                     rows={6}
-                    value={answers[question.key]}
-                    error={errors[question.key]}
+                    value={answers[question.id] ?? ""}
+                    error={errors[question.id]}
                     onChange={(next) => {
-                      onChange({ [question.key]: next } as Partial<Answers>);
-                      if (errors[question.key]) {
+                      onChange({ [question.id]: next });
+                      if (errors[question.id]) {
                         setErrors((current) => {
                           const rest = { ...current };
-                          delete rest[question.key];
+                          delete rest[question.id];
                           return rest;
                         });
                       }
