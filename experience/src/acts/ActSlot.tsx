@@ -117,10 +117,8 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
             <InkDivider icon={<CalendarClock className="h-5 w-5" strokeWidth={1.5} />} />
 
             <motion.p variants={rise} className="mb-6 max-w-lg leading-relaxed text-white/70">
-              {committee.displayName} interviews on its own days, and each interview runs{" "}
-              {committee.interviewDurationMinutes} minutes. This is the first promise you make to
-              Resala — choose a time you would still make it to if the day went badly, not the most
-              convenient one.
+              {committee.displayName} interviews on its own days. Each one runs{" "}
+              {committee.interviewDurationMinutes} minutes.
             </motion.p>
 
             {task.required ? (

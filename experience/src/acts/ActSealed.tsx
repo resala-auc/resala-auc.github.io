@@ -16,6 +16,8 @@ type ActSealedProps = {
 };
 
 export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) {
+  const task = committee?.interviewTask(role);
+  const alsoAsked = committee?.alsoAsked(role) ?? [];
   return (
     <motion.div variants={actTransition} initial="hidden" animate="show" exit="exit">
       <ActLayout>
@@ -100,19 +102,33 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
               </div>
             </motion.dl>
 
-            {committee ? (
+            {task?.required ? (
               <motion.div
                 variants={rise}
                 className="mb-10 rounded-3xl border border-brand-orange/30 bg-brand-orange/[0.07] p-6"
               >
                 <p className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
-                  Bring this to the interview
+                  {task.title ?? task.summary}
                 </p>
-                <p className="leading-relaxed text-white/80">{committee.taskPrompt}</p>
+                <p className="leading-relaxed text-white/80">{task.detail}</p>
               </motion.div>
             ) : null}
 
             {committee ? <ContactBlock committee={committee} className="mb-10" /> : null}
+
+            {alsoAsked.length ? (
+              <motion.div variants={rise} className="mb-10 border-l-2 border-white/10 pl-5">
+                <p className="mb-2 text-sm text-white/50">At the interview, also expect:</p>
+                <ul className="flex flex-col gap-1.5">
+                  {alsoAsked.map((item) => (
+                    <li key={item} className="flex gap-2 text-sm leading-relaxed text-white/60">
+                      <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-white/30" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            ) : null}
 
             <motion.div variants={rise} className="flex flex-col gap-4 sm:flex-row">
               <GhostButton href="../tasks/">Submit your task links</GhostButton>

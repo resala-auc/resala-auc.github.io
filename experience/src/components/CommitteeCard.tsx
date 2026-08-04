@@ -15,7 +15,8 @@ export function CommitteeCard({
   activeRoleId,
   onSelect,
   onSelectRole,
-  onOpenDetail
+  onOpenDetail,
+  compact = false
 }: {
   committee: Committee;
   active: boolean;
@@ -23,6 +24,9 @@ export function CommitteeCard({
   onSelect: (id: string) => void;
   onSelectRole: (roleId: string) => void;
   onOpenDetail: (committee: Committee) => void;
+  /** Drops the promise line. Used where the whole list is shown at once and the
+   *  choice is a fallback rather than the one being weighed. */
+  compact?: boolean;
 }) {
   const hasRoles = committee.roles.length > 0;
   const pickedRole = committee.roles.find((role) => role.id === activeRoleId) ?? null;
@@ -52,7 +56,9 @@ export function CommitteeCard({
         {committee.stepTitle}
       </span>
       <span className="pointer-events-none font-serif text-xl text-white">{committee.displayName}</span>
-      <span className="pointer-events-none text-sm leading-relaxed text-white/60">{committee.vow}</span>
+      {compact ? null : (
+        <span className="pointer-events-none text-sm leading-relaxed text-white/60">{committee.vow}</span>
+      )}
 
       {hasRoles ? (
         <div className="relative z-10 flex w-full flex-col gap-2">

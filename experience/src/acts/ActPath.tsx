@@ -32,7 +32,7 @@ const lanes: {
     icon: Wrench,
     title: "Behind the scenes",
     subtitle: committeeNames("backstage"),
-    body: "You build the systems, the look, the logistics, the people, the money that let everything else happen. Nobody claps for this. It is still why the rest works."
+    body: "The systems, the look, the logistics, the people, the money. Nobody claps for this. It is still why the rest works."
   },
   {
     group: "frontstage",
@@ -41,7 +41,7 @@ const lanes: {
     // Named by the work rather than the committees: an applicant recognises a
     // Ramadan pack or a blood drive long before they recognise a committee.
     subtitle: "Visits · Children's Day · Ramadan packs · Blood drives · Be My Eyes",
-    body: "You are the one in the room. A family's front door, a child's Saturday, a packing line, a campaign that did not exist last month. You watch the impact happen in front of you."
+    body: "A family's front door, a child's Saturday, a packing line. You watch the impact happen in front of you."
   }
 ];
 

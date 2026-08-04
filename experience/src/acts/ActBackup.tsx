@@ -74,8 +74,7 @@ export function ActBackup({
           />
 
           <motion.p variants={rise} className="mb-8 max-w-xl text-sm leading-relaxed text-white/45">
-            This one gets no written questions — it is only ever decided live, at an interview, if
-            your first chapter is full. Just so we know where to place you.
+            No written questions here — this only matters if your first chapter fills.
           </motion.p>
 
           <InkDivider icon={<Shuffle className="h-5 w-5" strokeWidth={1.5} />} />
@@ -95,6 +94,7 @@ export function ActBackup({
                 onSelect={onSelect}
                 onSelectRole={onSelectRole}
                 onOpenDetail={openDetail}
+                compact
               />
             ))}
           </motion.div>

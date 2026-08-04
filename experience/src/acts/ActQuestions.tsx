@@ -4,7 +4,7 @@ import { Quote } from "lucide-react";
 import { ActLayout, TopNav } from "../components/Chrome";
 import { TextAreaField } from "../components/Field";
 import { BackLink, PrimaryButton } from "../components/ui";
-import { CHAPTER_EASE, rise, stagger } from "../lib/motion";
+import { rise, stagger } from "../lib/motion";
 import type { ApplicationQuestion, Committee, CommitteeRole } from "../data/committees";
 
 
@@ -26,8 +26,6 @@ export function ActQuestions({
   onBack
 }: ActQuestionsProps) {
   const questions: ApplicationQuestion[] = committee.questions(role);
-  const alsoAsked = committee.alsoAsked(role);
-  const task = committee.interviewTask(role);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const blocks = useRef(new Map<string, HTMLDivElement>());
 
@@ -121,38 +119,6 @@ export function ActQuestions({
               <BackLink onClick={onBack} label="Back to the chapters" />
             </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.5, duration: 0.5, ease: CHAPTER_EASE }}
-              className="mt-12 max-w-xl border-l-2 border-white/10 pl-5 text-sm leading-relaxed text-white/40"
-            >
-              {task.required ? (
-                <p className="mb-4 rounded-xl border border-brand-orange/35 bg-brand-orange/[0.08] px-4 py-3 text-white/85">
-                  <span className="font-medium text-brand-orange">
-                    {committee.displayName} asks for a task before the interview —{" "}
-                    {task.summary}.
-                  </span>{" "}
-                  {task.detail}
-                </p>
-              ) : null}
-              <p>
-                <span className="text-white/60">Prepare for the interview:</span> {committee.taskPrompt}
-              </p>
-              {alsoAsked.length ? (
-                <div className="mt-4">
-                  <p className="text-white/60">Also come ready to answer, live, not on this form:</p>
-                  <ul className="mt-2 flex flex-col gap-1.5">
-                    {alsoAsked.map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-white/30" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </motion.div>
           </div>
         </main>
       </ActLayout>

@@ -39,12 +39,9 @@ export function ContactBlock({ committee, className = "" }: { committee: Committ
       variants={rise}
       className={`rounded-2xl border border-white/12 bg-white/[0.03] p-5 ${className}`}
     >
-      <p className="mb-1 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+      <p className="mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
         <Mail className="h-4 w-4" strokeWidth={1.8} />
         Questions about {committee.displayName}?
-      </p>
-      <p className="mb-3 text-sm leading-relaxed text-white/65">
-        Reach the people who will actually interview you — not a general inbox.
       </p>
       <ul className="flex flex-col gap-2">
         {contacts.map((contact) => (

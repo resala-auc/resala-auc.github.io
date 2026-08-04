@@ -31,9 +31,8 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
               variants={rise}
               className="mb-10 max-w-lg text-lg leading-relaxed font-light text-white/80 md:text-xl"
             >
-              Resala AUC is opening its chapters for the new season. Ten honest minutes: tell us
-              who you are, choose the work you actually want to carry, and pick the hour you will
-              sit with us.
+              Ten honest minutes: who you are, the work you want to carry, and when you can sit
+              with us.
             </motion.p>
 
             <motion.div variants={rise} className="flex flex-col gap-4 sm:flex-row">
@@ -42,8 +41,7 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
             </motion.div>
 
             <motion.p variants={rise} className="mt-10 text-sm text-white/40">
-              You will need your AUC email, your student ID, and a time you are certain you can
-              keep.
+              Have your AUC email and student ID ready.
             </motion.p>
           </div>
         </motion.main>
