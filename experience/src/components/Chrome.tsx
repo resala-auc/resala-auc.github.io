@@ -46,15 +46,16 @@ export function TopNav({ act }: { act: Act }) {
         Resala AUC
       </a>
 
-      {/* The mark art sits inside a large transparent canvas, so it is scaled up
-          and clipped by the ring rather than shipped as a second cropped asset. */}
+      {/* Cropped to the badge and circle-masked ahead of time. The brand SVG is a
+          620KB raster wrapped in vector, which is not worth shipping for a 56px
+          mark, so this is a 224px transparent PNG of the same artwork. */}
       <motion.div
         animate={{ y: [0, -5, 0] }}
         transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
         whileHover={{ scale: 1.08 }}
-        className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-white/60 transition-colors duration-300 hover:bg-white/10"
+        className="flex h-14 w-14 items-center justify-center"
       >
-        <img src={asset("favicon.png")} alt="" className="h-full w-full scale-[6.5] object-contain" />
+        <img src={asset("resala-logo.png")} alt="Resala AUC" className="h-full w-full object-contain" />
       </motion.div>
 
       <div className="hidden h-5 overflow-hidden text-sm font-medium tracking-wide text-white/60 sm:block">
