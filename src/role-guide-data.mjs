@@ -588,6 +588,32 @@ export const roleGuides = [
     stepTitle: "The Step of Innovation",
     shortDescription: "Leads changing campaigns with different problems, goals, teams, logistics, resources, and impact measures.",
     preparation: "Draft an initiative that supports visually impaired people across campus and makes daily life easier.",
+    heads: [
+      {
+        id: "research",
+        name: "Research Head",
+        description:
+          "Researches community needs and evaluates past initiatives to design evidence-based improvements that maximize long-term impact."
+      },
+      {
+        id: "execution-management",
+        name: "Execution Management Head",
+        description:
+          "Builds structured plans, timelines, and resource allocations to coordinate support across committees and deliver initiatives on schedule."
+      },
+      {
+        id: "field-execution",
+        name: "Field Execution Head",
+        description:
+          "Leads on-ground operations during campaigns, making quick decisions to manage teams and keep live events running smoothly."
+      },
+      {
+        id: "teaching-engagement",
+        name: "Teaching & Engagement Head",
+        description:
+          "Creates interactive workshop materials and guides learning sessions to make complex concepts accessible and engaging for participants."
+      }
+    ],
     whyChoose: "Initiatives is one of the heaviest and most dynamic sectors in Resala. It changes from one campaign to another, each with its own problem, goal, audience, logistics, and impact.",
     actualWork: [
       "Define the goal of each initiative.",

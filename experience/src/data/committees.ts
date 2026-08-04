@@ -46,7 +46,12 @@ export type RoleGuide = (typeof roleGuides)[number];
  * Everything else reuses the single source of truth in src/role-guide-data.mjs so
  * the guides at /guides and this flow never drift.
  */
-export const EXCLUDED_ROLE_IDS = ["treasurer", "children-day-director", "initiatives-director"];
+/*
+ * Treasurer is filled outside this cycle. Children Day Director has no
+ * heads-cycle recruitment brief yet, so it cannot be recruited for accurately —
+ * add it here once that document exists.
+ */
+export const EXCLUDED_ROLE_IDS = ["treasurer", "children-day-director"];
 
 /** One head position (or persona) inside a committee that has more than one. */
 export type CommitteeRole = {
@@ -151,6 +156,25 @@ const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
       procurement: ["Live: tell us about a time you had to organize a large number of items or resources. How did you ensure nothing was lost or forgotten?"],
       logistics: ["Live: describe a situation where something unexpected happened during an event or project. What did you do to solve it?"],
       inventory: ["Live: tell us about a time you were responsible for keeping things organized or tracking important items. How did you make sure nothing was misplaced?"]
+    })[role?.id ?? ""] ?? [],
+  "initiatives-director": (role) =>
+    ({
+      research: [
+        "Live: how do you gather and analyse feedback, and turn raw data into actionable campaign improvements?",
+        "Live: post-campaign feedback shows 40% of participants felt a project missed expectations, but committee heads disagree. How do you present that to the board?"
+      ],
+      "execution-management": [
+        "Live: planning a multi-week campaign that depends on Operations, Tech, HR and Branding — how do you enforce timelines and keep everyone accountable?",
+        "Live: two weeks before launch, a supporting committee falls behind and the delivery date is at risk. What are your first three steps?"
+      ],
+      "field-execution": [
+        "Live: an operational breakdown or logistical delay happens on the ground during a live event. How do you handle it on the spot?",
+        "Live: venue security asks you to move your setup in 15 minutes and half your volunteers have not shown up. What do you do?"
+      ],
+      "teaching-engagement": [
+        "Live: how do you design slides and activities so participants stay engaged and absorb complex ideas?",
+        "Live: 15 minutes into a workshop half the audience is disengaged and struggling. How do you pivot?"
+      ]
     })[role?.id ?? ""] ?? [],
   visits: () => [
     "Communication and teamwork, commitment, problem solving, and character carry the interview score."

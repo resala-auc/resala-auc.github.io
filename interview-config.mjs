@@ -34,6 +34,7 @@ export const committeeContacts = {
   "branding-media": [],
   hr: [],
   "pr-fundraising": [],
+  "initiatives-director": [],
   visits: []
 };
 
@@ -145,6 +146,21 @@ export const interviewConfig = {
       { date: "2026-08-13", times: ["11:00", "12:00", "15:00", "16:00", "17:00"] },
       { date: "2026-08-14", times: ["11:00", "12:00", "15:00", "16:00"] }
     ]
+  },
+
+  "initiatives-director": {
+    durationMinutes: 30,
+    interviewers: ["Initiatives leads"],
+    task: NO_TASK,
+    days: [
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-08",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14"
+    ].map((date) => ({ date, times: ["13:00", "13:45", "14:30", "15:15"] }))
   },
 
   visits: {

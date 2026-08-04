@@ -191,6 +191,19 @@ const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
       { date: "2026-08-14", times: ["11:00", "12:00", "15:00", "16:00"] }
     ]
   },
+  "initiatives director": {
+    committee: "Initiatives Director",
+    durationMinutes: 30,
+    days: [
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-08",
+      "2026-08-11",
+      "2026-08-12",
+      "2026-08-13",
+      "2026-08-14"
+    ].map((date) => ({ date, times: ["13:00", "13:45", "14:30", "15:15"] }))
+  },
   visits: {
     committee: "Visits",
     durationMinutes: 60,
@@ -2054,17 +2067,24 @@ async function ensureHeadsSlotSheet(token: string): Promise<void> {
   await ensureSheetTab(token, HEADS_SLOT_SHEET_NAME);
   await ensureSheetHeaders(token, HEADS_SLOT_SHEET_NAME, HEADS_SLOT_HEADERS);
 
-  // Seed once. Existing rows are never rewritten, so a slot deactivated by hand
-  // in the sheet stays deactivated.
+  /*
+   * Append only the slots that are not in the sheet yet, matched on Slot ID.
+   * Existing rows are never rewritten, so a slot deactivated by hand stays
+   * deactivated — and a committee added to the cycle later still gets its rows
+   * without the sheet having to be cleared.
+   */
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
-  const existing = (await response.json()).values ?? [];
-  if (existing.length > 0) return;
+  const existing = ((await response.json()).values ?? []) as string[][];
+  const present = new Set(existing.map((row) => normalize(row[0])));
+
+  const missing = buildHeadsSlotRows().filter((row) => !present.has(normalize(String(row[0]))));
+  if (!missing.length) return;
 
   await sheetsFetch(
     token,
     "POST",
     `${sheetRange(HEADS_SLOT_SHEET_NAME, "A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { values: buildHeadsSlotRows() }
+    { values: missing }
   );
 }
 

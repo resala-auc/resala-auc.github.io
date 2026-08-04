@@ -245,6 +245,33 @@ export const applicationQuestions = {
       : [])
   ],
 
+  "initiatives-director": (role) => [
+    {
+      id: "background-fit",
+      field: "whyThisRole",
+      eyebrow: "Why this role fits you",
+      prompt: `You picked ${role?.name ?? "a role"}. Why does your background and mindset align with this role?`,
+      placeholder: "Both halves — what you bring, and how you think.",
+      required: true
+    },
+    {
+      id: "hours",
+      field: "hopeToLearn",
+      eyebrow: "Your week",
+      prompt: "Roughly how many hours a week can you genuinely commit to Resala, including off-campus field execution if necessary?",
+      placeholder: HOURS_PLACEHOLDER,
+      required: true
+    },
+    {
+      id: "full-ownership",
+      field: "whyChooseYourself",
+      eyebrow: "Full ownership, once",
+      prompt: "Tell us about a situation where you took full ownership of a project, overcame unexpected challenges, and saw it through to completion.",
+      placeholder: "What you owned, what went wrong, how it ended.",
+      required: true
+    }
+  ],
+
   visits: (role) => [
     {
       id: "which-role",
