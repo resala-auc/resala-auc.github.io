@@ -7,3 +7,18 @@ dist/
 !package-lock.json
 !tsconfig.json
 .gstack/
+
+# Build output. `npm run build` regenerates all of this into dist/, which is what
+# CI publishes — committed copies at the repo root only ever went stale.
+/index.html
+/styles.css
+/app.js
+/apply.js
+/tasks.js
+/role-guide-data.mjs
+/apply-config.js
+/spreadsheet-config.js
+/apply/
+/guides/
+/tasks/
+/world-cup/
