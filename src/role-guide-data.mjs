@@ -375,13 +375,6 @@ export const roleGuides = [
         subtitle: "The Organizer",
         description:
           "Keeps Resala's HR data accurate and usable. Owns the volunteer database and attendance tracking system, works hand-in-hand with the Tech Team to keep it running, and turns raw data into reports that make the club's decisions, like VOM and COM, actually fair."
-      },
-      {
-        id: "recognition",
-        name: "Recognition & Accountability Head",
-        subtitle: "The Fair Judge",
-        description:
-          "Makes sure effort gets seen and gaps get addressed \u2014 fairly, every time. Reviews attendance and performance data, follows up with members who've gone quiet, oversees warnings and demotions when they're truly needed, and coordinates recognition (VOM/COM) with the Branding Team."
       }
     ],
     whyChoose: "Resala's main asset is its people. HR keeps the community alive through engagement, belonging, inclusion, culture, recognition, feedback, and accountability.",

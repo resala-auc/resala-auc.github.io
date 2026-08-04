@@ -4,7 +4,7 @@
  * These are not interchangeable. Committees differ in their criteria, their
  * weights, and even the shape of their scale — PR grades in three bands where
  * everyone else grades against a full-mark/low-mark pair, and HR sets a
- * different weighting for each of its four heads. So the dashboard builds its
+ * different weighting for each of its heads. So the dashboard builds its
  * scoring form from this file rather than from one fixed set of columns.
  *
  * The anchor text is the point. Branding's brief is explicit about why: without
@@ -146,7 +146,7 @@ export const rubrics = {
   /*
    * HR is the exception that forced the per-head override: the same four
    * criteria carry different weights for each head, because the roles are not
-   * comparable. Tracking is 40% Skills; Recognition is 30% Self-awareness.
+   * comparable: Tracking weights Skills at 40%, Engagement weights Leadership at 35%.
    */
   hr: {
     source: "HR Recruitment Task §2.4",
@@ -176,15 +176,6 @@ export const rubrics = {
           { name: "Leadership", ...pair(20, "Explains technical issues clearly to non-technical people, coordinates well with the Tech Team, raises concerns respectfully when accuracy is at risk.", "Struggles to communicate technical needs, avoids raising issues, works in isolation.") },
           { name: "Self-awareness & Commitment", ...pair(15, "Honest about their own tool gaps, willing to learn what they don't know, realistic about the routine nature of the work.", "Overstates technical comfort, avoids naming gaps, underestimates how repetitive the role can be.") },
           { name: "Skills", ...pair(40, "Comfortable with spreadsheets/databases, thinks in structured systems, catches inconsistencies, turns raw data into something usable.", "Disorganized, struggles with structured tools, presents data in ways nobody can act on.") }
-        ]
-      },
-      recognition: {
-        label: "Recognition & Accountability Head",
-        criteria: [
-          { name: "Ownership", ...pair(20, "Follows up on inactive members without being pushed, owns hard calls like warnings instead of avoiding them, follows through even when it's uncomfortable.", "Avoids difficult follow-ups, lets issues slide.") },
-          { name: "Leadership", ...pair(30, "Confident having hard conversations, earns trust across committees, communicates decisions clearly without damaging the relationship.", "Avoids confrontation, unclear when communicating decisions, lets relationships sway judgement.") },
-          { name: "Self-awareness & Commitment", ...pair(30, "Reflective about their own biases, keeps personal relationships separate from professional calls, stays emotionally steady in hard conversations.", "Struggles to separate feelings from decisions, becomes defensive, underestimates the emotional weight of the role.") },
-          { name: "Skills", ...pair(20, "Makes fair, criteria-based calls, keeps things confidential, balances empathy with accountability, reads when a situation needs support vs. consequence.", "Applies standards inconsistently, breaches confidentiality, too harsh or too lenient without a clear line.") }
         ]
       }
     }
