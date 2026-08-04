@@ -92,12 +92,6 @@ export const interviewConfig = {
      */
     durationMinutes: 30,
     interviewers: ["Marketing & Branding leads"],
-    task: {
-      required: true,
-      summary: "Bring a portfolio link",
-      detail:
-        "Link a portfolio, Drive folder, Instagram, or TikTok — any video, design, photography, captions, even coursework. If you have nothing to show yet, say so and tell us why you would still be good at this."
-    },
     // 9-10 Aug are dropped: every other committee treats them as a rest gap,
     // and Visits marks them "Not Available" outright.
     days: [

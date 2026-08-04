@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { faqs, impactStats, navItems, processSteps, roles, values, yearlyGoals } from "./site-data.mjs";
+import { cycleHeadCount } from "./committee-display.mjs";
 
 const logoPath = "The brand System/logos/Resala Logo - source.svg";
 const instagramHtmlPath = "The brand System/Instagram.html";
@@ -68,9 +69,8 @@ const navLinks = navItems
   .map((item) => `<a class="nav-link" href="${item.href}">${item.label}</a>`)
   .join("");
 
-function roleApplyHref(role) {
-  return `./apply/`;
-}
+/** The heads application. Committees are chosen inside it, not per link. */
+const APPLY_HREF = "./join/";
 
 function PhotoFrame({ photo, className, fallbackLabel }) {
   if (!photo) {
@@ -120,10 +120,17 @@ function Header() {
       <nav class="site-nav" id="site-navigation" aria-label="Primary navigation" data-site-nav>
         ${navLinks}
       </nav>
-      <a class="button button-primary header-cta" href="./apply/">Applications closed</a>
+      <a class="button button-primary header-cta" href="${APPLY_HREF}">Apply Now</a>
     </header>
   `;
 }
+
+// Seven risers, the first five labelled with this cycle's steps.
+const stairLabels = [
+  ...roles.slice(0, 5).map((role) => role.step.replace(/^The Step of\s+/i, "")),
+  "",
+  ""
+];
 
 function HeroBackgroundAnimation() {
   return `
@@ -134,13 +141,12 @@ function HeroBackgroundAnimation() {
         <span class="stair-guide-shimmer"></span>
         <span class="stair-guide-traveler"></span>
       </div>
-      <span class="stair-step stair-step-1" data-label="Trust"></span>
-      <span class="stair-step stair-step-2" data-label="System"></span>
-      <span class="stair-step stair-step-3" data-label="Voice"></span>
-      <span class="stair-step stair-step-4" data-label="People"></span>
-      <span class="stair-step stair-step-5" data-label="Movement"></span>
-      <span class="stair-step stair-step-6"></span>
-      <span class="stair-step stair-step-7"></span>
+      ${stairLabels
+        .map(
+          (label, index) =>
+            `<span class="stair-step stair-step-${index + 1}"${label ? ` data-label="${escapeAttr(label)}"` : ""}></span>`
+        )
+        .join("")}
       <span class="stair-landing"></span>
       <span class="stair-puzzle stair-puzzle-1"><img src="${brandAssets.puzzleIcon}" alt=""></span>
       <span class="stair-puzzle stair-puzzle-2"><img src="${brandAssets.puzzleIconAlt}" alt=""></span>
@@ -156,7 +162,7 @@ function Hero() {
   return `
     <section class="hero issue-hero ${hasPhotos ? "issue-hero-photo" : "issue-hero-fallback"}" id="top" aria-labelledby="hero-title"${heroStyle}>
       <div class="container issue-topline" aria-label="Campaign metadata">
-        <span>Vol. 01 · Recruitment</span>
+        <span>Vol. 02 · Heads Recruitment</span>
         <span>Build the First Step</span>
         <span>Resala AUC · 2026</span>
       </div>
@@ -166,10 +172,10 @@ function Hero() {
           <p class="eyebrow hero-kicker">Resala AUC Recruitment</p>
           <h1 class="hero-title" id="hero-title">Build the first step toward a better life.</h1>
           <p class="arabic-line hero-arabic" lang="ar" dir="rtl">ابني اول خطوة في حياتهم</p>
-          <p class="hero-subtitle hero-copy-line">AUC students serving children, families, and community access through visits, logistics, fundraising, media, HR, tech, events, and operations.</p>
+          <p class="hero-subtitle hero-copy-line">Head applications are open. ${cycleHeadCount} positions across ${roles.length} committees, running the visits, events, fundraising, media, people, and systems that keep Resala moving.</p>
           <div class="hero-actions hero-actions-line" aria-label="Campaign actions">
-            <a class="button button-primary" href="./apply/">Applications closed</a>
-          <a class="button button-secondary" href="./tasks/">Submit tasks</a>
+            <a class="button button-primary" href="${APPLY_HREF}">Apply Now</a>
+          <a class="button button-secondary" href="./guides/">Read the committees</a>
           </div>
         </div>
       </div>
@@ -318,13 +324,17 @@ function RolePreviewCards() {
           <h3>${role.name}</h3>
           <dl class="role-details">
             <div>
-              <dt>Role focus</dt>
+              <dt>Committee focus</dt>
               <dd>${role.description}</dd>
+            </div>
+            <div>
+              <dt>Open this cycle</dt>
+              <dd>${role.headCount} head ${role.headCount === 1 ? "role" : "roles"}</dd>
             </div>
           </dl>
         </div>
           <p class="role-step">${role.step}</p>
-          <a class="role-apply-link role-apply-link--closed" href="${roleApplyHref(role)}" aria-label="Applications closed for ${role.name}">Closed</a>
+          <a class="role-apply-link" href="${APPLY_HREF}" aria-label="Apply to ${role.name}">Apply</a>
           <a class="role-guide-link" href="./guides/${role.id}/" aria-label="View details for ${role.name}">Details</a>
         </article>
       `
@@ -335,13 +345,13 @@ function RolePreviewCards() {
     <section class="section-band roles" id="roles" aria-labelledby="roles-title">
       <div class="container">
         <div class="section-heading reveal">
-          <p class="eyebrow">Roles preview</p>
+          <p class="eyebrow">Committees</p>
           <h2 id="roles-title">Find the step you can build.</h2>
-          <p>Each role strengthens the same mission from a different angle. Use the preparation prompt to choose where you can think clearly and contribute.</p>
+          <p>Every committee is hiring heads. Open the details to see the individual head roles inside it, then apply to the one that fits how you actually work.</p>
         </div>
         <div class="contents-strip reveal">
           <span>Contents</span>
-          <p>Ten roles · this recruitment issue</p>
+          <p>${roles.length} committees · ${cycleHeadCount} head roles</p>
         </div>
         <div class="role-index-list">
           ${rows}
@@ -370,8 +380,8 @@ function RecruitmentProcess() {
       <div class="container process-grid">
         <div class="section-heading reveal">
           <p class="eyebrow">Recruitment process</p>
-          <h2 id="process-title">How recruitment will work</h2>
-          <p>A simple path from understanding the campaign to meeting the team.</p>
+          <h2 id="process-title">How recruitment works</h2>
+          <p>One sitting, start to finish. You leave with an interview already booked.</p>
         </div>
         <ol class="process-list">
           ${steps}
@@ -386,11 +396,11 @@ function ComingSoonCTA() {
     <section class="section-band applications" id="applications" aria-labelledby="applications-title">
       <div class="container">
         <div class="applications-panel reveal">
-          <p class="eyebrow">Applications are closed</p>
-          <h2 id="applications-title">Thank you for your interest.</h2>
-          <p>Applications for this recruitment cycle are now closed. If you submitted an application, check your email for next steps and submit your pre-interview tasks.</p>
+          <p class="eyebrow">Applications are open</p>
+          <h2 id="applications-title">Head applications are open.</h2>
+          <p>Pick a first and a second head role, answer your committee's own questions, and book your interview slot in the same sitting. You will get a confirmation email with your slot, your Google Meet link, and your task brief if your committee sets one.</p>
           <div class="application-actions" aria-label="Application actions">
-            <a class="button button-primary" href="./tasks/">Submit tasks</a>
+            <a class="button button-primary" href="${APPLY_HREF}">Apply Now</a>
             <a class="button button-secondary" href="./guides/">How to choose your role</a>
           </div>
         </div>
@@ -449,7 +459,7 @@ export function renderPage() {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Build the First Step | Resala AUC Recruitment</title>
-    <meta name="description" content="Resala AUC recruitment landing page for the Build the First Step campaign. Explore roles and apply online.">
+    <meta name="description" content="Resala AUC heads recruitment. Head applications are open across every committee — read the roles, apply, and book your interview.">
     <link rel="icon" type="image/png" href="./favicon.png">
     <link rel="apple-touch-icon" href="./favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">

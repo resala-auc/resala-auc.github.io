@@ -1,4 +1,4 @@
-import { roleGuides } from "../../../src/role-guide-data.mjs";
+import { cycleRoleGuides, displayName, excludedRoleIds } from "../../../src/committee-display.mjs";
 import {
   buildCommitteeSlots,
   getCommitteeContacts,
@@ -38,7 +38,7 @@ export type CommitteeContact = {
 };
 
 /** Shape is inferred from the shared data file so the two can never drift. */
-export type RoleGuide = (typeof roleGuides)[number];
+export type RoleGuide = (typeof cycleRoleGuides)[number];
 
 /**
  * The /join experience recruits for a subset of chapters this cycle. Treasurer,
@@ -47,7 +47,7 @@ export type RoleGuide = (typeof roleGuides)[number];
  * the guides at /guides and this flow never drift.
  */
 /** Treasurer is filled outside this cycle; every other committee recruits here. */
-export const EXCLUDED_ROLE_IDS = ["treasurer"];
+export const EXCLUDED_ROLE_IDS = excludedRoleIds;
 
 /** One head position (or persona) inside a committee that has more than one. */
 export type CommitteeRole = {
@@ -87,12 +87,6 @@ export type Committee = RoleGuide & {
   interviewSlots: () => InterviewSlot[];
   /** Director and Vice-Director of this committee, for applicant questions. */
   contacts: CommitteeContact[];
-};
-
-const displayNames: Record<string, string> = {
-  "tech-director": "Tech Team",
-  "initiatives-director": "Initiatives",
-  "children-day-director": "Children\u2019s Day"
 };
 
 const vows: Record<string, string> = {
@@ -203,11 +197,10 @@ const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
     })[role?.id ?? ""] ?? []
 };
 
-export const committees: Committee[] = roleGuides
-  .filter((role) => !EXCLUDED_ROLE_IDS.includes(role.id))
+export const committees: Committee[] = cycleRoleGuides
   .map((role) => ({
     ...role,
-    displayName: displayNames[role.id] ?? role.name,
+    displayName: displayName(role),
     vow: vows[role.id] ?? role.shortDescription,
     group: groups[role.id] ?? "backstage",
     // Heads live on the shared role-guide data (role-guide-data.mjs) so /join and

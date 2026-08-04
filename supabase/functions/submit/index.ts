@@ -12,8 +12,12 @@ const GMAIL_SENDER_EMAIL = Deno.env.get("GMAIL_SENDER_EMAIL") ?? "";
 const GMAIL_SENDER_NAME = Deno.env.get("GMAIL_SENDER_NAME") ?? "Resala AUC";
 const EMAIL_LOGO_URL =
   Deno.env.get("EMAIL_LOGO_URL") ?? "https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png";
-const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
 const ROLE_GUIDE_BASE_URL = (Deno.env.get("ROLE_GUIDE_BASE_URL") ?? "https://resala-auc.github.io/guides").replace(/\/+$/, "");
+/** Generated task sheets, published with the site by scripts/build-task-files.mjs. */
+const TASK_FILE_BASE_URL = (Deno.env.get("TASK_FILE_BASE_URL") ?? "https://resala-auc.github.io/task-files").replace(
+  /\/+$/,
+  ""
+);
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
@@ -243,7 +247,7 @@ type HeadsTask = {
   scenario?: string;
   /** True when the task is handed out at the interview, not prepared beforehand. */
   atInterview?: boolean;
-  byRole?: Record<string, { title: string; points: string[] }>;
+  byRole?: Record<string, { title: string; points: string[]; file?: string }>;
 };
 
 /*
@@ -281,11 +285,6 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
       }
     }
   },
-  "branding media": {
-    summary: "Bring a portfolio link",
-    detail:
-      "Link a portfolio, Drive folder, Instagram, or TikTok — any video, design, photography, captions, even coursework. If you have nothing to show yet, say so and tell us why you would still be good at this."
-  },
   visits: {
     summary: "Prepare a 1-2 page task for the head you applied to",
     detail:
@@ -295,6 +294,7 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
     byRole: {
       discovery: {
         title: "Discovery Report",
+        file: "visits-discovery.pdf",
         points: [
           "The additional information you would collect before approving the visit.",
           "Questions you would ask the beneficiaries.",
@@ -305,6 +305,7 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
       },
       execution: {
         title: "Execution Plan",
+        file: "visits-execution.pdf",
         points: [
           "A timeline from planning until the end of the visit.",
           "The main tasks that need to be completed before the visit.",
@@ -315,6 +316,7 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
       },
       impact: {
         title: "Impact Evaluation Plan",
+        file: "visits-impact.pdf",
         points: [
           "The success indicators you would use to evaluate the visit.",
           "The feedback you would collect and from whom.",
@@ -324,6 +326,7 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
       },
       storytelling: {
         title: "Content & Media Plan",
+        file: "visits-storytelling.pdf",
         points: [
           "The content you would create before, during, and after the visit.",
           "The types of photos and videos you would capture.",
@@ -335,15 +338,16 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
   }
 };
 
-/** The task lines for this applicant, or an empty list when none is required. */
-function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
+/**
+ * The committee task and, when the committee sets a different one per head, the
+ * deliverable for the head this applicant picked.
+ */
+function getHeadsTask(payload: ApplicationPayload): {
+  task: HeadsTask | undefined;
+  forHead: { title: string; points: string[]; file?: string } | undefined;
+} {
   const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
-  if (!task) {
-    return [
-      `${payload.roleAppliedFor} does not ask for a task before the interview. Come ready to talk through your answers.`,
-      ""
-    ];
-  }
+  if (!task) return { task: undefined, forHead: undefined };
 
   // roleStepTitle carries the chosen head after a middle dot.
   const headName = String(payload.roleStepTitle ?? "").split("·").pop()?.trim() ?? "";
@@ -353,6 +357,19 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
   const forHead = task.byRole
     ? Object.entries(task.byRole).find(([key]) => normalize(headName).includes(key))?.[1]
     : undefined;
+
+  return { task, forHead };
+}
+
+/** The task lines for this applicant, or an empty list when none is required. */
+function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
+  const { task, forHead } = getHeadsTask(payload);
+  if (!task) {
+    return [
+      `${payload.roleAppliedFor} does not ask for a task before the interview. Come ready to talk through your answers.`,
+      ""
+    ];
+  }
 
   const lines = [`${task.atInterview ? "At your interview" : "Before your interview"}: ${task.summary}`, ""];
   if (task.scenario) lines.push(task.scenario, "");
@@ -733,19 +750,6 @@ type ConfirmationEmailTemplate = {
   html: string;
 };
 
-type TaskDocument = {
-  documentId: string;
-  roleName: string;
-  title: string;
-  documentUrl: string;
-  pdfUrl: string;
-  fileName: string;
-};
-
-type ApplicantTaskDocument = TaskDocument & {
-  preferenceLabel: string;
-};
-
 type RoleGuideLink = {
   preferenceLabel: string;
   roleName: string;
@@ -784,20 +788,6 @@ type ReservationDetails = {
 
 let resolvedSheetName: string | null = null;
 let resolvedSheetTitles: Set<string> | null = null;
-
-const TASK_DOCUMENTS: Record<string, TaskDocument> = {
-  treasurer: taskDocument("Treasurer", "12cWr1oQfAuNmnLRUtR9ekHyE7uu716-VhAdcdYpffl4", "Final Task - Treasurer - Resala Board Recruitment"),
-  "tech director": taskDocument("Tech Director", "1jWXLeGeN4yIrq6q_Dutdm4Dqz3jtWgjIzpGHfuaXji0", "Final Task - Tech Director - Resala Board Recruitment"),
-  "branding media": taskDocument("Branding / Media", "1kflQQAValfaoEpOO1r-mEaPRVl3loUeYd3XofPQivwY", "Final Task - Branding Media - Resala Board Recruitment"),
-  "pr fundraising": taskDocument("PR / Fundraising", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  pr: taskDocument("PR", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  fundraising: taskDocument("Fundraising", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  hr: taskDocument("HR", "1rYAnr0lhVyHW0GIwjHMOaMWxiGxZI3AOp6t5qY8imus", "Final Task - HR - Resala Board Recruitment"),
-  operations: taskDocument("Operations", "1tvyaQDhCHnb9E4HiiVmB6ZNXpTVpunsti9ECwxw8f30", "Final Task - Operations - Resala Board Recruitment"),
-  visits: taskDocument("Visits", "1ELC6nP7FQN33enuHbUamCvNYTlP8i3DNnA2NCuhPDF0", "Final Task - Visits - Resala Board Recruitment"),
-  "children day director": taskDocument("Children Day Director", "1-6nfB5GaSSgE7gL046oIOA9R7caiCmuf04hdHtnHYjM", "Resala Task Children Day"),
-  "initiatives director": taskDocument("Initiatives Director", "1tW2YFctINtnKQalTywtI8ZHWyI5AyuvTRf5OIHgcOgA", "Final Task - Initiatives Director - Resala Board Recruitment")
-};
 
 const ROLE_GUIDE_SLUGS: Record<string, string> = {
   treasurer: "treasurer",
@@ -1460,10 +1450,9 @@ async function sendConfirmationEmail(
     return;
   }
 
-  const tasks = getApplicantTaskDocuments(payload.roleAppliedFor, payload.secondPreference);
   const roleGuideLinks = getApplicantRoleGuideLinks(payload.roleAppliedFor, payload.secondPreference);
-  const template = buildConfirmationEmailTemplate(payload, reservation, tasks, roleGuideLinks, panel);
-  const attachments = await getTaskPdfAttachments(tasks);
+  const template = buildConfirmationEmailTemplate(payload, reservation, roleGuideLinks, panel);
+  const attachments = await getHeadsTaskAttachments(payload);
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -1635,18 +1624,11 @@ function gmailConfigured(): boolean {
 function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
   reservation: ReservationDetails | null,
-  tasks: ApplicantTaskDocument[],
   roleGuideLinks: RoleGuideLink[],
   panel: Array<{ email: string; name: string; positionType: string }> = []
 ): ConfirmationEmailTemplate {
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
   const hasSlot = Boolean(reservation && slot);
-  const taskDeadline = hasSlot
-    ? formatLocalDateTimeLabel(
-        subtractMinutesFromLocalDateTime(reservation!.slot.startDateTime, INTERVIEW_REMINDER_MINUTES)
-      )
-    : "";
-  const submissionLine = getTaskSubmissionLine();
   const subject = "Resala AUC Application Confirmation";
   const bodyLines = [
     `Hi ${payload.fullName},`,
@@ -1659,7 +1641,7 @@ function buildConfirmationEmailTemplate(
     bodyLines.push(
       `Your interview slot is: ${slot}.`,
       `Google Meet link: ${reservation!.meetLink}`,
-      "You will receive a Google Calendar invitation and a reminder email 30 minutes before the interview.",
+      `You will receive a Google Calendar invitation and a reminder email ${INTERVIEW_REMINDER_MINUTES} minutes before the interview.`,
       "",
     );
   } else {
@@ -1677,12 +1659,13 @@ function buildConfirmationEmailTemplate(
     "",
   );
 
-  const emailTask = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+  const { task: emailTask, forHead: emailHead } = getHeadsTask(payload);
   if (emailTask && !emailTask.atInterview) {
     bodyLines.push(
-      hasSlot
-        ? `Have it ready by ${taskDeadline || "30 minutes before your interview"}.`
-        : "Have it ready before your interview is scheduled."
+      emailHead?.file
+        ? "Your task sheet is attached to this email. Bring your work with you to the interview."
+        : "Bring your work with you to the interview.",
+      ""
     );
   }
 
@@ -1697,9 +1680,6 @@ function buildConfirmationEmailTemplate(
   }
 
   bodyLines.push(
-    submissionLine,
-    "",
-    "The task PDFs are attached when Drive export is available. The Google Doc links above are included as a backup.",
     "If anything feels unclear, just reply to this email and we will help.",
     "",
     "Best,",
@@ -1715,9 +1695,7 @@ function buildConfirmationEmailTemplate(
       roleAppliedFor: payload.roleAppliedFor,
       secondPreference: payload.secondPreference,
       slot: hasSlot ? slot : "",
-      taskDeadline,
       meetLink: hasSlot ? reservation!.meetLink : "",
-      tasks,
       roleGuideLinks,
       hasSlot
     })
@@ -1730,9 +1708,7 @@ function buildConfirmationEmailHtml({
   roleAppliedFor,
   secondPreference,
   slot,
-  taskDeadline,
   meetLink,
-  tasks,
   roleGuideLinks,
   hasSlot = true
 }: {
@@ -1741,9 +1717,7 @@ function buildConfirmationEmailHtml({
   roleAppliedFor: string;
   secondPreference: string;
   slot: string;
-  taskDeadline: string;
   meetLink: string;
-  tasks: ApplicantTaskDocument[];
   roleGuideLinks: RoleGuideLink[];
   hasSlot?: boolean;
 }): string {
@@ -1782,7 +1756,7 @@ function buildConfirmationEmailHtml({
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
                       <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">You will receive a Google Calendar invitation and a reminder email 30 minutes before the interview.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">You will receive a Google Calendar invitation and a reminder email ${INTERVIEW_REMINDER_MINUTES} minutes before the interview.</div>
                     </td>
                   </tr>
                 </table>
@@ -1802,9 +1776,8 @@ function buildConfirmationEmailHtml({
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
-                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">${hasSlot ? "Task deadline" : "Before your interview"}</div>
-                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${hasSlot ? `Submit both tasks by ${escapeHtml(taskDeadline || "30 minutes before your interview")}.` : "Please complete your pre-interview tasks as soon as possible so you are ready when your interview is scheduled."}</div>
-                      ${buildSubmissionActionHtml()}
+                      <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">Before your interview</div>
+                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${getHeadsTask(payload).forHead?.file ? "Your task sheet is attached to this email. Bring your work with you to the interview." : "Bring your work with you to the interview."}</div>
                     </td>
                   </tr>
                 </table>
@@ -1875,50 +1848,8 @@ function buildRoleGuideHtml(roleGuideLinks: RoleGuideLink[]): string {
   </table>`;
 }
 
-function taskDocument(roleName: string, documentId: string, title: string): TaskDocument {
-  return {
-    documentId,
-    roleName,
-    title,
-    documentUrl: `https://docs.google.com/document/d/${documentId}/edit?usp=sharing`,
-    pdfUrl: `https://docs.google.com/document/d/${documentId}/export?format=pdf`,
-    fileName: `${title.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "")}.pdf`
-  };
-}
-
-function getApplicantTaskDocuments(firstPreference: string, secondPreference: string): ApplicantTaskDocument[] {
-  const preferences = [
-    { preferenceLabel: "First preference", roleName: firstPreference },
-    { preferenceLabel: "Second preference", roleName: secondPreference }
-  ];
-
-  return preferences.map(({ preferenceLabel, roleName }) => {
-    const task = TASK_DOCUMENTS[normalizeRole(roleName)] ?? {
-      documentId: "",
-      roleName,
-      title: `${roleName} pre-interview task`,
-      documentUrl: "",
-      pdfUrl: "",
-      fileName: `${String(roleName || "role").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "")}-task.pdf`
-    };
-
-    return {
-      ...task,
-      roleName: task.roleName || roleName,
-      preferenceLabel
-    };
-  });
-}
-
-function formatTaskDocumentTextLines(tasks: ApplicantTaskDocument[]): string[] {
-  return tasks.flatMap((task) => [
-    `- ${task.preferenceLabel}: ${task.roleName}`,
-    `  Google Doc: ${task.documentUrl || "Task document link is not configured."}`
-  ]);
-}
-
 function buildHeadsTaskHtml(payload: ApplicationPayload): string {
-  const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+  const { task, forHead } = getHeadsTask(payload);
   if (!task) {
     return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
       <tr><td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
@@ -1926,14 +1857,6 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
         <div style="font-size:15px;line-height:1.6;color:#4b5563;">${escapeHtml(payload.roleAppliedFor)} does not ask for anything before the interview. Come ready to talk through your answers.</div>
       </td></tr></table>`;
   }
-
-  const headName = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
-  // Match on the head key ("storytelling"), not the deliverable title — the
-  // Storytelling Head's task is called "Content & Media Plan", so matching on
-  // the title silently found nothing.
-  const forHead = task.byRole
-    ? Object.entries(task.byRole).find(([key]) => normalize(headName).includes(key))?.[1]
-    : undefined;
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
     <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
@@ -1945,115 +1868,34 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
     </td></tr></table>`;
 }
 
-function buildTaskDocumentsHtml(tasks: ApplicantTaskDocument[]): string {
-  const rows = tasks
-    .map((task) => {
-      const docLink = task.documentUrl
-        ? `<a href="${escapeHtml(task.documentUrl)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:10px 14px;">Open Google Doc</a>`
-        : `<span style="color:#64748b;font-size:15px;">Google Doc link is not configured.</span>`;
+/**
+ * The applicant's own task sheet, when their committee sets one per head. A
+ * failure here must not lose the confirmation email, so it is logged and the
+ * mail goes out with the task spelled out in the body instead.
+ */
+async function getHeadsTaskAttachments(payload: ApplicationPayload): Promise<EmailAttachment[]> {
+  const { task, forHead } = getHeadsTask(payload);
+  if (!task || task.atInterview || !forHead?.file) return [];
 
-      return `<tr>
-        <td style="padding:14px 0;border-top:1px solid #e6edf2;">
-          <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;font-weight:bold;margin-bottom:5px;">${escapeHtml(task.preferenceLabel)}</div>
-          <div style="font-size:17px;line-height:1.35;color:#172033;font-weight:bold;margin-bottom:8px;">${escapeHtml(task.roleName)}</div>
-          <div>${docLink}</div>
-        </td>
-      </tr>`;
-    })
-    .join("");
-
-  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:0 16px;margin:0 0 20px;">
-    <tr>
-      <td style="padding:16px 0 2px;">
-        <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Pre-interview tasks</div>
-        <div style="font-size:15px;line-height:1.55;color:#4b5563;">Complete both tasks: one for your first preference and one for your second preference.</div>
-      </td>
-    </tr>
-    ${rows}
-  </table>`;
-}
-
-function getTaskSubmissionLine(): string {
-  const submissionUrl = TASK_SUBMISSION_URL.trim();
-  if (submissionUrl) {
-    return `Submit both completed tasks here: ${submissionUrl}`;
-  }
-
-  return "Submit both completed tasks by replying to this email with your files or links.";
-}
-
-function buildSubmissionActionHtml(): string {
-  const submissionUrl = TASK_SUBMISSION_URL.trim();
-  if (!submissionUrl) {
-    return `<div style="font-size:14px;line-height:1.55;color:#dbe7ef;margin-top:8px;">Submit both completed tasks by replying to this email with your files or links.</div>`;
-  }
-
-  return `<div style="margin-top:14px;">
-    <a href="${escapeHtml(submissionUrl)}" style="display:inline-block;background:#f5c46b;color:#0d2b45;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">Submit tasks</a>
-  </div>`;
-}
-
-async function getTaskPdfAttachments(tasks: ApplicantTaskDocument[]): Promise<EmailAttachment[]> {
-  const attachments: EmailAttachment[] = [];
-  let driveToken = "";
-
-  for (const task of tasks) {
-    if (!task.pdfUrl) continue;
-
-    try {
-      attachments.push({
-        filename: task.fileName,
-        contentType: "application/pdf",
-        contentBytes: await fetchTaskPdfBytes(task, driveToken)
-      });
-    } catch (error) {
-      if (!driveToken) {
-        try {
-          driveToken = await getGoogleAccessToken();
-          attachments.push({
-            filename: task.fileName,
-            contentType: "application/pdf",
-            contentBytes: await fetchTaskPdfBytes(task, driveToken)
-          });
-          continue;
-        } catch (fallbackError) {
-          console.error(
-            `Task PDF attachment failed for ${task.roleName}: ${
-              fallbackError instanceof Error ? fallbackError.message : error instanceof Error ? error.message : "unknown error"
-            }`
-          );
-          continue;
-        }
-      }
-
-      console.error(`Task PDF attachment failed for ${task.roleName}: ${error instanceof Error ? error.message : "unknown error"}`);
+  const url = `${TASK_FILE_BASE_URL}/${forHead.file}`;
+  try {
+    const response = await fetch(url);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !contentType.toLowerCase().includes("pdf")) {
+      throw new Error(`status ${response.status}, content-type ${contentType || "none"}`);
     }
+
+    return [
+      {
+        filename: forHead.file,
+        contentType: "application/pdf",
+        contentBytes: new Uint8Array(await response.arrayBuffer())
+      }
+    ];
+  } catch (error) {
+    console.error(`Task sheet attachment failed for ${url}: ${error instanceof Error ? error.message : "unknown error"}`);
+    return [];
   }
-
-  return attachments;
-}
-
-async function fetchTaskPdfBytes(task: ApplicantTaskDocument, driveToken: string): Promise<Uint8Array> {
-  const response =
-    driveToken && task.documentId
-      ? await fetch(
-          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(task.documentId)}/export?mimeType=${encodeURIComponent(
-            "application/pdf"
-          )}`,
-          {
-            headers: {
-              Authorization: `Bearer ${driveToken}`
-            }
-          }
-        )
-      : await fetch(task.pdfUrl);
-  const contentType = response.headers.get("content-type") ?? "";
-
-  if (!response.ok || !contentType.toLowerCase().includes("pdf")) {
-    throw new Error(`PDF export failed with status ${response.status}.`);
-  }
-
-  return new Uint8Array(await response.arrayBuffer());
 }
 
 async function getGmailAccessToken(): Promise<string> {
@@ -3878,7 +3720,7 @@ function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: stri
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
                       <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">A new Google Calendar invitation has been sent. You will also receive a reminder 30 minutes before.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">A new Google Calendar invitation has been sent. You will also receive a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.</div>
                     </td>
                   </tr>
                 </table>

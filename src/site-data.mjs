@@ -1,4 +1,4 @@
-import { roleGuides } from "./role-guide-data.mjs";
+import { cycleRoleGuides, displayName } from "./committee-display.mjs";
 
 export const navItems = [
   { label: "00 Campaign", href: "#campaign" },
@@ -6,7 +6,7 @@ export const navItems = [
   { label: "02 Roles", href: "#roles" },
   { label: "03 Process", href: "#process" },
   { label: "04 FAQ", href: "#faq" },
-  { label: "05 Submit Tasks", href: "./tasks/" }
+  { label: "05 Apply", href: "./join/" }
 ];
 
 export const impactStats = [
@@ -124,9 +124,10 @@ export const yearlyGoals = [
   }
 ];
 
-export const roles = roleGuides.map((role) => ({
+export const roles = cycleRoleGuides.map((role) => ({
   id: role.id,
-  name: role.name,
+  name: displayName(role),
+  headCount: role.heads?.length ?? 0,
   step: role.stepTitle,
   description: role.shortDescription,
   preparation: role.preparation,
@@ -134,13 +135,17 @@ export const roles = roleGuides.map((role) => ({
 }));
 
 export const processSteps = [
-  "Explore the mission, impact, and role expectations",
-  "Choose where your strengths can build the first step",
-  "Submit the role-based application form",
-  "Attend your interview and meet the team"
+  "Read the committees and find the work you actually want to do",
+  "Pick a first and a second head role, each on its own page",
+  "Answer your committee's own questions and book an interview slot",
+  "Get your confirmation email, then meet the people you would work with"
 ];
 
 export const faqs = [
+  {
+    question: "What is open right now?",
+    answer: "Head positions across every committee. The director and vice-director cycle is finished — these are the people who run the work day to day."
+  },
   {
     question: "Who can apply?",
     answer: "AUC students who want to serve through Resala and can commit to the recruitment process."
@@ -150,15 +155,15 @@ export const faqs = [
     answer: "No. Some roles benefit from experience, but commitment, clarity, and willingness to learn matter most."
   },
   {
-    question: "Can I apply for more than one role?",
-    answer: "Use the form to apply for the role you want the team to review first."
+    question: "Do I pick one role or two?",
+    answer: "Two. You choose a first and a second preference, but the questions you answer and the interview you sit follow your first preference only."
   },
   {
-    question: "Where do I apply?",
-    answer: "Use the Apply Now button or choose Apply from any role row to open the application form."
+    question: "Do I have to prepare a task?",
+    answer: "Only some committees ask for one, and the application tells you before you commit. If yours does, the brief is attached to your confirmation email."
   },
   {
-    question: "How will interviews work?",
-    answer: "Shortlisted applicants will be contacted with their interview details after the application period starts."
+    question: "How do interviews work?",
+    answer: "You book your own slot at the end of the application. Slot lengths differ by committee. You get a Google Meet link, a calendar invitation, and a reminder an hour before."
   }
 ];

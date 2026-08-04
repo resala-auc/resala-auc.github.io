@@ -9,9 +9,8 @@ const failures = [];
 const requiredText = [
   "Build the first step toward a better life.",
   "ابني اول خطوة في حياتهم",
-  "The application form is ready.",
-  "Open application form",
-  "Apply Now"
+  "Apply Now",
+  "Head applications are open."
 ];
 
 for (const text of requiredText) {
@@ -24,8 +23,17 @@ if (html.match(/<form[\s>]/i) || html.match(/<input[\s>]/i) || html.match(/<text
   failures.push("Landing page must not include application form fields.");
 }
 
-if (!html.includes('href="./apply/"')) {
-  failures.push("Landing page must link to the application route.");
+if (!html.includes('href="./join/"')) {
+  failures.push("Landing page must link to the heads application route.");
+}
+
+// The director cycle left "closed" copy behind on every CTA; catch a relapse.
+if (/Applications (are )?closed/i.test(html)) {
+  failures.push("Landing page still says applications are closed.");
+}
+
+if (/\bDirector\b/.test(html)) {
+  failures.push("Landing page names a Director role; this cycle recruits heads only.");
 }
 
 if (!css.includes("@media (prefers-reduced-motion: reduce)")) {

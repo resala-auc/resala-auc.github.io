@@ -1,19 +1,5 @@
-import { roleGuide, roleGuides } from "./role-guide-data.mjs";
-
-/**
- * Display-only renames. `role.name` itself must stay untouched — the Supabase
- * submit function looks it up verbatim for task docs and role-guide links, so
- * a cosmetic rename lives here instead, never on the field the backend keys off of.
- */
-const displayNames = {
-  "tech-director": "Tech Team",
-  "initiatives-director": "Initiatives",
-  "children-day-director": "Children\u2019s Day"
-};
-
-function displayName(role) {
-  return displayNames[role.id] ?? role.name;
-}
+import { roleGuide } from "./role-guide-data.mjs";
+import { cycleRoleGuides, displayName } from "./committee-display.mjs";
 
 function escapeHtml(value) {
   return String(value)
@@ -187,7 +173,7 @@ export function renderRoleGuideIndexPage() {
           <p>Each card gives you the role's main responsibility, who it fits, and two examples of the work. Open only the roles that feel close to you.</p>
         </div>
         <div class="guide-role-grid">
-          ${roleGuides.map((role) => RoleCard(role, "../")).join("")}
+          ${cycleRoleGuides.map((role) => RoleCard(role, "../")).join("")}
         </div>
       </div>
     </section>

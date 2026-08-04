@@ -30,6 +30,8 @@ await cp("src/app.js", "dist/app.js");
 await cp("src/spreadsheet-config.js", "dist/spreadsheet-config.js");
 await cp("The brand System", "dist/The brand System", { recursive: true });
 await cp("admin", "dist/admin", { recursive: true });
+// Interview task sheets, fetched by the submit function to attach to emails.
+await cp("task-files", "dist/task-files", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
 await cp("director", "dist/director", { recursive: true });
 
