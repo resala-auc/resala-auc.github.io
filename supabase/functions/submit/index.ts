@@ -804,6 +804,22 @@ type HeadsSaveScorePayload = {
   taskLink?: string;
 };
 
+type HeadsMigrateLegacyPayload = {
+  mode: "heads-migrate-legacy";
+  email: string;
+  /** Report what would move without writing anything. Defaults to true. */
+  dryRun?: boolean;
+  /*
+   * The legacy tab kept answers but not the prompts that produced them, so a
+   * migrated row would otherwise be labelled with the old generic column names.
+   * The caller supplies the committee's real questions, in field order, and
+   * they are written in place of those placeholders.
+   */
+  prompts?: Record<string, string[]>;
+  /** Relabel rows already migrated, rather than skipping them. */
+  relabel?: boolean;
+};
+
 type HeadsAdminLoadPayload = {
   mode: "heads-admin-load";
   email: string;
@@ -874,6 +890,7 @@ type SubmissionPayload =
   | HeadsCommitteeLoadPayload
   | HeadsSaveScorePayload
   | HeadsAdminLoadPayload
+  | HeadsMigrateLegacyPayload
   | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1204,6 +1221,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await saveHeadsScore(token, payload)) });
     }
 
+    if (isHeadsMigrateLegacyPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await migrateLegacyApplications(token, payload)) });
+    }
+
     if (isHeadsAdminLoadPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1348,6 +1371,10 @@ function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is Hea
 
 function isHeadsSaveScorePayload(payload: SubmissionPayload): payload is HeadsSaveScorePayload {
   return (payload as HeadsSaveScorePayload).mode === "heads-save-score";
+}
+
+function isHeadsMigrateLegacyPayload(payload: SubmissionPayload): payload is HeadsMigrateLegacyPayload {
+  return (payload as HeadsMigrateLegacyPayload).mode === "heads-migrate-legacy";
 }
 
 function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
@@ -3790,6 +3817,205 @@ async function saveHeadsScore(
     { values: [row] }
   );
   return { scoreId, updated: false };
+}
+
+/**
+ * Move heads-cycle rows out of the director cycle's tab and into the heads tab.
+ *
+ * Both cycles share the legacy tab, so a row belongs to this cycle only if its
+ * booked slot is one of the heads slots — a timestamp cut-off would be guesswork
+ * and could drag a director-cycle applicant across.
+ *
+ * The legacy tab is never modified. Rows are copied, and an applicant already
+ * present in the heads tab is skipped, so running this twice is harmless.
+ */
+async function migrateLegacyApplications(
+  token: string,
+  payload: HeadsMigrateLegacyPayload
+): Promise<{
+  dryRun: boolean;
+  legacyRows: number;
+  headsCycleRows: number;
+  alreadyMigrated: number;
+  migrated: number;
+  samples: Array<Record<string, string>>;
+  unmatched: Array<Record<string, string>>;
+  suspicious: Array<Record<string, string>>;
+  timestampRange: { earliest: string; latest: string };
+}> {
+  await requireRecruitmentAdmin(token, payload.email);
+  const dryRun = payload.dryRun !== false;
+
+  const sheetName = await getSheetName(token);
+  await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+  await ensureHeadsSlotSheet(token);
+
+  const [legacyResponse, headsSlotResponse, headsResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(sheetName, `A2:${columnLetter(HEADERS.length)}`)}`),
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`),
+    sheetsFetch(
+      token,
+      "GET",
+      `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)}`
+    )
+  ]);
+
+  const legacyRows = ((await legacyResponse.json()).values ?? []) as string[][];
+  const headsSlotRows = ((await headsSlotResponse.json()).values ?? []) as string[][];
+  const headsRows = ((await headsResponse.json()).values ?? []) as string[][];
+
+  const headsSlotIds = new Set(headsSlotRows.map((row) => normalize(row[0])).filter(Boolean));
+  const headsSlotLabels = new Set(headsSlotRows.map((row) => normalize(row[5])).filter(Boolean));
+  const alreadyPresent = new Set(headsRows.map((row) => normalize(row[2])).filter(Boolean));
+
+  const samples: Array<Record<string, string>> = [];
+  const unmatched: Array<Record<string, string>> = [];
+  const suspicious: Array<Record<string, string>> = [];
+  const timestamps: string[] = [];
+  const toAppend: string[][] = [];
+  let headsCycleRows = 0;
+  let alreadyMigrated = 0;
+
+  for (const row of legacyRows) {
+    const email = String(row[2] ?? "").trim();
+    if (!email) continue;
+
+    const timestamp = String(row[0] ?? "").trim();
+    if (timestamp) timestamps.push(timestamp);
+
+    const slotLabel = String(row[14] ?? "").trim();
+
+    // Anything without a slot, or dated on or after the heads cycle opened,
+    // needs a human look even if the slot match says director cycle.
+    if (!slotLabel || timestamp >= "2026-08-01") {
+      suspicious.push({ email, role: String(row[7] ?? ""), slot: slotLabel || "(none)", timestamp });
+    }
+    const isHeadsCycle =
+      headsSlotLabels.has(normalize(slotLabel)) || headsSlotIds.has(normalize(slotLabel));
+
+    if (!isHeadsCycle) {
+      if (unmatched.length < 8) {
+        unmatched.push({ email, role: String(row[7] ?? ""), slot: slotLabel, timestamp: String(row[0] ?? "") });
+      }
+      continue;
+    }
+
+    headsCycleRows += 1;
+    const existingRowNumber = headsRows.findIndex((entry) => normalize(entry[2] ?? "") === normalize(email));
+    if (existingRowNumber >= 0 && !payload.relabel) {
+      alreadyMigrated += 1;
+      continue;
+    }
+
+    /*
+     * The legacy tab lost which prompt produced which answer, so the four fixed
+     * columns are restored under their own headings and the packed column is
+     * split back on the blank line the client used to join it.
+     */
+    const answers: Array<{ prompt: string; answer: string }> = [];
+    const realPrompts = payload.prompts?.[normalizeRole(String(row[7] ?? ""))] ?? [];
+    const promptFor = (index: number, fallback: string) => realPrompts[index]?.trim() || fallback;
+
+    const fixed: Array<[string, string]> = [
+      [promptFor(0, "Why this role"), String(row[10] ?? "")],
+      [promptFor(1, "Why choose yourself"), String(row[11] ?? "")],
+      [promptFor(2, "What do you hope to learn"), String(row[12] ?? "")]
+    ];
+    for (const [prompt, answer] of fixed) {
+      if (answer.trim()) answers.push({ prompt, answer: answer.trim() });
+    }
+
+    const packed = String(row[13] ?? "").trim();
+    if (packed) {
+      for (const block of packed.split(/\n\s*\n/)) {
+        const lines = block.split("\n");
+        if (lines.length > 1) {
+          answers.push({ prompt: lines[0].trim(), answer: lines.slice(1).join("\n").trim() });
+        } else {
+          answers.push({ prompt: promptFor(3, "Previous Resala experience"), answer: block.trim() });
+        }
+      }
+    }
+
+    const questionCells: string[] = [];
+    for (let i = 0; i < HEADS_APPLICATION_QUESTION_SLOTS; i += 1) {
+      const entry = answers[i];
+      questionCells.push(entry ? entry.prompt : "", entry ? entry.answer : "");
+    }
+
+    const headName = String(row[8] ?? "").split("\u00b7").pop()?.trim() ?? "";
+
+    toAppend.push([
+      String(row[0] ?? ""),
+      String(row[1] ?? ""),
+      email,
+      String(row[3] ?? ""),
+      String(row[4] ?? ""),
+      String(row[5] ?? ""),
+      String(row[6] ?? ""),
+      String(row[7] ?? ""),
+      "",
+      headName,
+      "",
+      String(row[17] ?? ""),
+      "",
+      "",
+      "",
+      slotLabel,
+      "",
+      "Scheduled",
+      "Submitted (migrated)",
+      String(row[15] ?? ""),
+      ...questionCells
+    ]);
+
+    if (samples.length < 8) {
+      samples.push({ email, name: String(row[1] ?? ""), role: String(row[7] ?? ""), head: headName, slot: slotLabel, answers: String(answers.length) });
+    }
+  }
+
+  if (!dryRun && toAppend.length) {
+    if (payload.relabel) {
+      // Rewrite in place so the relabel cannot create a duplicate applicant.
+      for (const row of toAppend) {
+        const index = headsRows.findIndex((entry) => normalize(entry[2] ?? "") === normalize(String(row[2])));
+        const rowNumber = index >= 0 ? index + 2 : -1;
+        if (rowNumber < 2) continue;
+        await sheetsFetch(
+          token,
+          "PUT",
+          `${sheetRange(
+            HEADS_APPLICATION_SHEET_NAME,
+            `A${rowNumber}:${columnLetter(HEADS_APPLICATION_HEADERS.length)}${rowNumber}`
+          )}?valueInputOption=RAW`,
+          { values: [row] }
+        );
+      }
+    } else {
+      await sheetsFetch(
+        token,
+        "POST",
+        `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        { values: toAppend }
+      );
+    }
+  }
+
+  return {
+    dryRun,
+    legacyRows: legacyRows.filter((row) => String(row[2] ?? "").trim()).length,
+    headsCycleRows,
+    alreadyMigrated,
+    migrated: dryRun ? 0 : toAppend.length,
+    samples,
+    unmatched,
+    suspicious,
+    timestampRange: {
+      earliest: timestamps.length ? timestamps.slice().sort()[0] : "",
+      latest: timestamps.length ? timestamps.slice().sort().at(-1)! : ""
+    }
+  };
 }
 
 /** Everything, for whoever is running this cycle. */
