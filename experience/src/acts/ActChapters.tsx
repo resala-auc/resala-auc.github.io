@@ -20,16 +20,28 @@ type ActChaptersProps = {
   onBack: () => void;
 };
 
-const LANE_COPY: Record<CommitteeGroup, { eyebrow: string; heading: string }> = {
-  backstage: {
-    eyebrow: "Chapter two · behind the scenes",
-    heading: "Five chapters build the systems no one sees. Choose the one you would still show up for on a bad week."
-  },
-  frontstage: {
-    eyebrow: "Chapter two · direct contact",
-    heading: "One chapter puts you face to face with the people Resala serves. Choose it if that is the work you want."
-  }
-};
+const COUNT_WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
+
+/*
+ * The heading counts the chapters actually in the lane. It used to be written
+ * out by hand and went stale twice as committees were added.
+ */
+function laneCopy(group: CommitteeGroup, count: number) {
+  const word = COUNT_WORDS[count] ?? String(count);
+  const plural = count === 1 ? "chapter" : "chapters";
+  const verb = count === 1 ? "builds" : "build";
+  const puts = count === 1 ? "puts" : "put";
+
+  return group === "backstage"
+    ? {
+        eyebrow: "Chapter two · behind the scenes",
+        heading: `${word} ${plural} ${verb} the systems no one sees. Choose the one you would still show up for on a bad week.`
+      }
+    : {
+        eyebrow: "Chapter two · direct contact",
+        heading: `${word} ${plural} ${puts} you face to face with the people Resala serves. Choose the one you would still show up for on a bad week.`
+      };
+}
 
 export function ActChapters({
   group,
@@ -68,7 +80,7 @@ export function ActChapters({
     setOpen(committee);
   };
 
-  const { eyebrow, heading } = LANE_COPY[group];
+  const { eyebrow, heading } = laneCopy(group, visible.length);
 
   return (
     <motion.div variants={actTransition} initial="hidden" animate="show" exit="exit">

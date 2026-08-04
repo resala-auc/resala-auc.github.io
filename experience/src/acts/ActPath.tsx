@@ -4,12 +4,21 @@ import { ActLayout, TopNav } from "../components/Chrome";
 import { AnimatedHeading } from "../components/AnimatedHeading";
 import { BackLink, Eyebrow, InkDivider } from "../components/ui";
 import { TOUCH_SPRING, actTransition, popIn, popStagger, stagger } from "../lib/motion";
+import { committees } from "../data/committees";
 import type { CommitteeGroup } from "../types";
 
 type ActPathProps = {
   onSelect: (group: CommitteeGroup) => void;
   onBack: () => void;
 };
+
+/** Committees in a lane, listed by their display name so the label cannot drift. */
+function committeeNames(group: CommitteeGroup): string {
+  return committees
+    .filter((committee) => committee.group === group)
+    .map((committee) => committee.displayName)
+    .join(" · ");
+}
 
 const lanes: {
   group: CommitteeGroup;
@@ -22,15 +31,17 @@ const lanes: {
     group: "backstage",
     icon: Wrench,
     title: "Behind the scenes",
-    subtitle: "Tech · Branding · Operations · HR · PR & Fundraising",
+    subtitle: committeeNames("backstage"),
     body: "You build the systems, the look, the logistics, the people, the money that let everything else happen. Nobody claps for this. It is still why the rest works."
   },
   {
     group: "frontstage",
     icon: Users,
     title: "Direct contact",
-    subtitle: "Resala Visits",
-    body: "You are the one in the room. A family's front door, a face, a conversation that is not happening through a screen. You watch the impact happen in front of you."
+    // Named by the work rather than the committees: an applicant recognises a
+    // Ramadan pack or a blood drive long before they recognise a committee.
+    subtitle: "Visits · Children's Day · Ramadan packs · Blood drives · Be My Eyes",
+    body: "You are the one in the room. A family's front door, a child's Saturday, a packing line, a campaign that did not exist last month. You watch the impact happen in front of you."
   }
 ];
 
