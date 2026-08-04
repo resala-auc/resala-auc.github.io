@@ -820,6 +820,15 @@ type HeadsMigrateLegacyPayload = {
   relabel?: boolean;
 };
 
+type HeadsReschedulePayload = {
+  mode: "heads-reschedule";
+  email: string;
+  reservationRowIndex: number;
+  date: string;
+  startTime: string;
+  endTime?: string;
+};
+
 type HeadsAdminLoadPayload = {
   mode: "heads-admin-load";
   email: string;
@@ -891,6 +900,7 @@ type SubmissionPayload =
   | HeadsSaveScorePayload
   | HeadsAdminLoadPayload
   | HeadsMigrateLegacyPayload
+  | HeadsReschedulePayload
   | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1227,6 +1237,22 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await migrateLegacyApplications(token, payload)) });
     }
 
+    if (isHeadsReschedulePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      // Same move as the general admin dashboard, but gated on the recruitment
+      // allowlist rather than the shared admin secret.
+      await requireRecruitmentAdmin(token, payload.email);
+      const result = await rescheduleInterview(token, {
+        mode: "admin-reschedule",
+        reservationRowIndex: payload.reservationRowIndex,
+        date: payload.date,
+        startTime: payload.startTime,
+        endTime: payload.endTime
+      });
+      return jsonResponse({ ok: true, ...result });
+    }
+
     if (isHeadsAdminLoadPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1375,6 +1401,10 @@ function isHeadsSaveScorePayload(payload: SubmissionPayload): payload is HeadsSa
 
 function isHeadsMigrateLegacyPayload(payload: SubmissionPayload): payload is HeadsMigrateLegacyPayload {
   return (payload as HeadsMigrateLegacyPayload).mode === "heads-migrate-legacy";
+}
+
+function isHeadsReschedulePayload(payload: SubmissionPayload): payload is HeadsReschedulePayload {
+  return (payload as HeadsReschedulePayload).mode === "heads-reschedule";
 }
 
 function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
@@ -3637,14 +3667,16 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
 
   const statusByEmail = new Map<string, string>();
   const meetByEmail = new Map<string, string>();
-  for (const row of reservationRows) {
+  const reservationRowByEmail = new Map<string, number>();
+  reservationRows.forEach((row, index) => {
     const resEmail = normalize(String(row[4] ?? ""));
-    if (!resEmail) continue;
+    if (!resEmail) return;
     const status = String(row[8] ?? "").trim();
     if (status) statusByEmail.set(resEmail, status);
     const meet = String(row[7] ?? "").trim();
     if (meet) meetByEmail.set(resEmail, meet);
-  }
+    reservationRowByEmail.set(resEmail, index + 2);
+  });
 
   const FIRST_QUESTION_COLUMN = 20;
 
@@ -3681,7 +3713,8 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         createdAt: String(row[19] ?? ""),
         answers,
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
-        meetLink: meetByEmail.get(normalize(email)) ?? ""
+        meetLink: meetByEmail.get(normalize(email)) ?? "",
+        reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
       };
     });
 }
