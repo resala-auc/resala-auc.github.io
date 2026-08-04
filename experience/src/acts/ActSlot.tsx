@@ -128,7 +128,8 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               >
                 <p className="mb-2 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
                   <ClipboardList className="h-4 w-4" strokeWidth={1.8} />
-                  Bring this with you · {task.title ?? task.summary}
+                  {task.atInterview ? "At your interview" : "Bring this with you"} ·{" "}
+                  {task.title ?? task.summary}
                 </p>
                 <p className="text-sm leading-relaxed text-white/80">{task.detail}</p>
                 {task.scenario ? (

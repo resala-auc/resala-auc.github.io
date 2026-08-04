@@ -108,6 +108,7 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
                 className="mb-10 rounded-3xl border border-brand-orange/30 bg-brand-orange/[0.07] p-6"
               >
                 <p className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+                  {task.atInterview ? "At your interview" : "Before your interview"} ·{" "}
                   {task.title ?? task.summary}
                 </p>
                 <p className="leading-relaxed text-white/80">{task.detail}</p>

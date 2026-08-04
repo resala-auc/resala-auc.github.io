@@ -21,6 +21,8 @@ export type ApplicationQuestion = {
 
 export type InterviewTask = {
   required: boolean;
+  /** True when the task is handed out at the interview, not prepared beforehand. */
+  atInterview?: boolean;
   summary?: string;
   detail?: string;
   /** The shared situation the task is set in, where a brief defines one. */

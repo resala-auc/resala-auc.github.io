@@ -151,9 +151,40 @@ export const interviewConfig = {
      */
     durationMinutes: 60,
     interviewers: ["Children's Day leads"],
-    // The trial task is handed out at the interview, not prepared in advance,
-    // so there is nothing for the applicant to bring.
-    task: NO_TASK,
+    /*
+     * The trial task is handed out at the interview, not prepared in advance.
+     * It is still declared here: the applicant needs to know before they book
+     * that a task is coming and that it carries the most weight, even though
+     * there is nothing to bring. atInterview flips the wording from "bring
+     * this" to "at your interview" wherever the task is shown.
+     */
+    task: {
+      required: true,
+      atInterview: true,
+      summary: "A short trial task, given at the interview",
+      detail:
+        "There is nothing to prepare. You will be given a 15-30 minute task during the interview itself, and it carries the most weight in the scoring.",
+      byRole: {
+        creative: {
+          title: "Creative Logistics & Visual Identity Lead",
+          points: [
+            "Design a ~4-slide interactive presentation that holds children's attention and delivers a clear educational benefit by the end."
+          ]
+        },
+        english: {
+          title: "English Sessions Lead",
+          points: [
+            "Structure a ~4-slide deck for intermediate-level students, teaching key vocabulary alongside a grammar lesson, built around a real-life problem these students face."
+          ]
+        },
+        teaching: {
+          title: "Teaching & Organizing Lead",
+          points: [
+            "Two ~150-word parent phone scripts, an operations contingency plan, and a placement-conflict response."
+          ]
+        }
+      }
+    },
     days: [
       { date: "2026-08-05", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "19:00", "22:00", "23:00"] },
       { date: "2026-08-06", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
