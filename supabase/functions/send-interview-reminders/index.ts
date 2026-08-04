@@ -14,6 +14,7 @@ const EMAIL_LOGO_URL =
 const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const REMINDER_STALE_MINUTES = Number(Deno.env.get("REMINDER_STALE_MINUTES") ?? 90);
+const HIERARCHY_SHEET_NAME = "Board Hierarchy";
 const REMINDER_JOB_SECRET = Deno.env.get("REMINDER_JOB_SECRET") ?? "";
 
 const RESERVATION_HEADERS = [
@@ -160,7 +161,7 @@ Deno.serve(async (request) => {
       }
 
       try {
-        await sendReminderEmail({ ...reservation, reminderSendAt });
+        await sendReminderEmail({ ...reservation, reminderSendAt }, token);
         await updateReminderState(token, reservation.rowIndex, reminderSendAt, now, "Sent");
         sent += 1;
       } catch (error) {
@@ -259,7 +260,25 @@ async function updateReminderState(
   });
 }
 
-async function sendReminderEmail(reservation: ReservationRow): Promise<void> {
+/** Director and Vice-Director for a committee, so they get the reminder too. */
+async function loadPanelEmails(token: string, roleAppliedFor: string): Promise<string[]> {
+  try {
+    const response = await sheetsFetch(token, "GET", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}`);
+    const rows = ((await response.json()).values ?? []) as string[][];
+    const wanted = normalizeRole(roleAppliedFor);
+    return rows
+      .filter((row) => normalizeRole(String(row[1] ?? "")) === wanted)
+      .filter((row) => String(row[2] ?? "").toLowerCase().includes("director"))
+      .map((row) => String(row[4] ?? "").trim())
+      .filter((email) => /^[A-Za-z0-9._%+-]+@aucegypt\.edu$/i.test(email));
+  } catch (error) {
+    // A hierarchy problem must not stop the applicant being reminded.
+    console.error(`Could not load panel for reminder: ${error instanceof Error ? error.message : error}`);
+    return [];
+  }
+}
+
+async function sendReminderEmail(reservation: ReservationRow, token?: string): Promise<void> {
   const slot = reservation.slotLabel || reservation.reminderSendAt;
   const taskDeadline = formatLocalDateTimeLabel(reservation.reminderSendAt);
   const template = buildReminderEmailTemplate(
@@ -270,7 +289,8 @@ async function sendReminderEmail(reservation: ReservationRow): Promise<void> {
     reservation.secondPreference,
     taskDeadline
   );
-  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html);
+  const panel = token ? await loadPanelEmails(token, reservation.roleAppliedFor) : [];
+  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html, panel.join(", "));
 }
 
 async function sendPreviewEmails(to: string): Promise<void> {
@@ -288,11 +308,12 @@ async function sendPreviewEmails(to: string): Promise<void> {
   await sendEmail(to, reminder.subject, reminder.body, reminder.html);
 }
 
-async function sendEmail(to: string, subject: string, text: string, html: string): Promise<void> {
+async function sendEmail(to: string, subject: string, text: string, html: string, cc = ""): Promise<void> {
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
     to,
+    cc: cc || undefined,
     subject,
     text,
     html
@@ -332,7 +353,7 @@ function buildPreviewConfirmationEmailTemplate(): { subject: string; body: strin
     "",
     `Your interview slot is: ${slot}.`,
     `Google Meet link: ${meetLink}`,
-    "You will also receive a Google Calendar reminder 30 minutes before the interview.",
+    "You will also receive a Google Calendar reminder 1 hour before the interview.",
     "",
     "Please complete two pre-interview tasks, one for each preference:",
     "",
@@ -354,7 +375,7 @@ function buildPreviewConfirmationEmailTemplate(): { subject: string; body: strin
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. We received your application and reserved your interview slot.</p>
       ${infoCard("Your interview slot", escapeHtml(slot))}
-      ${linkCard("Google Meet", "Join the interview meeting", meetLink, "You will also receive a Google Calendar reminder 30 minutes before the interview.")}
+      ${linkCard("Google Meet", "Join the interview meeting", meetLink, "You will also receive a Google Calendar reminder 1 hour before the interview.")}
       ${buildTaskDocumentsHtml(tasks)}
       ${darkCallout("Task deadline", `Submit both tasks by ${escapeHtml(taskDeadline)}.${buildSubmissionActionHtml()}`)}
       <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything feels unclear, just reply to this email and we will help.</p>
@@ -376,11 +397,11 @@ function buildReminderEmailTemplate(
 ): { subject: string; body: string; html: string } {
   const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
   const submissionLine = getTaskSubmissionLine();
-  const subject = "Resala AUC: your interview starts in 30 minutes";
+  const subject = "Resala AUC: your interview starts in 1 hour";
   const body = [
     `Hi ${fullName},`,
     "",
-    "This is a reminder that your Resala AUC interview starts in 30 minutes.",
+    "This is a reminder that your Resala AUC interview starts in 1 hour.",
     "",
     `Interview slot: ${slot}`,
     `Google Meet link: ${meetLink}`,
@@ -389,7 +410,7 @@ function buildReminderEmailTemplate(
     "",
     ...formatTaskDocumentTextLines(tasks),
     "",
-    `Task deadline: ${taskDeadline || "30 minutes before your interview"}.`,
+    `Task deadline: ${taskDeadline || "1 hour before your interview"}.`,
     submissionLine,
     "",
     "Please join from a quiet place if possible.",
@@ -400,16 +421,16 @@ function buildReminderEmailTemplate(
   ].join("\n");
 
   const html = buildCenteredEmailHtml({
-    preheader: "Your Resala AUC interview starts in 30 minutes.",
+    preheader: "Your Resala AUC interview starts in 1 hour.",
     heroTitle: "Your Interview Starts Soon",
     heroSubtitle: "Join from a quiet place and submit your tasks if you have not yet.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview starts in <strong>30 minutes</strong>.</p>
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview starts in <strong>1 hour</strong>.</p>
       ${infoCard("Interview slot", escapeHtml(slot))}
       ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible.")}
       ${buildTaskDocumentsHtml(tasks)}
-      ${darkCallout("Task deadline", `If you have not submitted both tasks yet, submit them now. Deadline: ${escapeHtml(taskDeadline || "30 minutes before your interview")}.${buildSubmissionActionHtml()}`)}
+      ${darkCallout("Task deadline", `If you have not submitted both tasks yet, submit them now. Deadline: ${escapeHtml(taskDeadline || "1 hour before your interview")}.${buildSubmissionActionHtml()}`)}
       <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything comes up, reply to this email.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
@@ -620,12 +641,14 @@ async function getGmailAccessToken(): Promise<string> {
 function buildRawEmailMessage({
   from,
   to,
+  cc,
   subject,
   text,
   html
 }: {
   from: string;
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html: string;
@@ -634,6 +657,7 @@ function buildRawEmailMessage({
   const message = [
     `From: ${from}`,
     `To: ${to}`,
+    ...(cc ? [`Cc: ${cc}`] : []),
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "MIME-Version: 1.0",
     `Subject: ${subject}`,

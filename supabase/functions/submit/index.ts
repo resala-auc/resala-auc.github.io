@@ -18,7 +18,11 @@ const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
 const INTERVIEW_SLOT_DURATION_MINUTES = 60;
-const INTERVIEW_REMINDER_MINUTES = 30;
+const INTERVIEW_REMINDER_MINUTES = 60;
+/** Where interviewers review this cycle's applicants. */
+const DASHBOARD_URL = Deno.env.get("RECRUITMENT_DASHBOARD_URL") ?? "https://resala-auc.github.io/director/";
+/** An applicant must move a slot at least this far ahead of it. */
+const RESCHEDULE_NOTICE_MINUTES = 60;
 
 const APPLICATION_BASE_HEADERS = [
   "Timestamp",
@@ -1148,8 +1152,9 @@ Deno.serve(async (request) => {
     // Same panel the invite went to, so the email names the right people.
     const panel = await getCommitteePanel(token, payload.roleAppliedFor);
     const emailSent = await trySendConfirmationEmail(payload, reservation, panel);
+    const interviewersNotified = await trySendInterviewerNotification(payload, reservation, panel);
 
-    return jsonResponse({ ok: true, emailSent });
+    return jsonResponse({ ok: true, emailSent, interviewersNotified });
   } catch (error) {
     return jsonResponse(
       {
@@ -1487,6 +1492,128 @@ async function sendConfirmationEmail(
   }
 }
 
+/**
+ * Tells the committee's Director and Vice-Director that they have a new
+ * applicant, with enough detail to prepare and a link to the portal for the
+ * full answers. Sent alongside the applicant's own confirmation.
+ */
+async function sendInterviewerNotification(
+  payload: ApplicationPayload,
+  reservation: ReservationDetails | null,
+  panel: Array<{ email: string; name: string; positionType: string }>
+): Promise<void> {
+  if (!gmailConfigured() || !panel.length) return;
+
+  const head = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
+  const slot = reservation ? reservation.slot.label : "not booked yet";
+  const meet = reservation?.meetLink ?? "";
+  const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+
+  const subject = `New applicant: ${payload.fullName} — ${payload.roleAppliedFor}`;
+  const text = [
+    `${payload.fullName} has applied to ${payload.roleAppliedFor}${head ? ` (${head})` : ""}.`,
+    "",
+    `Interview: ${slot}`,
+    meet ? `Google Meet: ${meet}` : "",
+    "",
+    "Applicant",
+    `- Email: ${payload.aucEmail}`,
+    `- Phone: ${payload.phone}`,
+    `- Student ID: ${payload.studentId}`,
+    `- Major: ${payload.major}`,
+    `- Standing: ${payload.yearLevel}`,
+    `- Second preference: ${payload.secondPreference}`,
+    "",
+    task
+      ? task.atInterview
+        ? "They have been told a trial task will be given during the interview."
+        : "They have been sent the task to prepare and told to bring it."
+      : "This committee asks for no task, so they were told to expect questions only.",
+    "",
+    `Their full answers are in the portal: ${DASHBOARD_URL}`,
+    "",
+    `You are on the calendar invite and will be reminded ${INTERVIEW_REMINDER_MINUTES} minutes before.`,
+    `If they ask to move the slot, agree a new time at least ${RESCHEDULE_NOTICE_MINUTES} minutes before it starts.`,
+    "",
+    "Resala AUC"
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+
+  const row = (k: string, v: string) =>
+    `<tr><td style="padding:5px 14px 5px 0;color:#64748b;font-size:14px;white-space:nowrap;">${escapeHtml(k)}</td><td style="padding:5px 0;color:#172033;font-size:14px;font-weight:600;">${escapeHtml(v)}</td></tr>`;
+
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f7f3ea;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;padding:24px 0;">
+      <tr><td align="center" style="padding:0 12px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+          <tr><td style="background:#0c2c80;padding:22px 28px;color:#ffffff;">
+            <div style="font-size:13px;color:#eac262;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">New applicant</div>
+            <div style="font-size:24px;font-weight:bold;margin-top:6px;">${escapeHtml(payload.fullName)}</div>
+            <div style="font-size:15px;color:#dbe7ef;margin-top:4px;">${escapeHtml(payload.roleAppliedFor)}${head ? ` &middot; ${escapeHtml(head)}` : ""}</div>
+          </td></tr>
+          <tr><td style="padding:24px 28px;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-bottom:18px;">
+              ${row("Interview", slot)}
+              ${row("Email", payload.aucEmail)}
+              ${row("Phone", payload.phone)}
+              ${row("Student ID", payload.studentId)}
+              ${row("Major", payload.major)}
+              ${row("Standing", payload.yearLevel)}
+              ${row("Second preference", payload.secondPreference)}
+            </table>
+            ${meet ? `<p style="margin:0 0 18px;"><a href="${escapeHtml(meet)}" style="color:#0c2c80;font-weight:bold;">Join the interview meeting</a></p>` : ""}
+            <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#4b5563;">${
+              task
+                ? task.atInterview
+                  ? "They have been told a trial task will be given during the interview."
+                  : "They have been sent the task to prepare and told to bring it."
+                : "This committee asks for no task, so they were told to expect questions only."
+            }</p>
+            <p style="margin:0 0 18px;">
+              <a href="${escapeHtml(DASHBOARD_URL)}" style="display:inline-block;background:#eac262;color:#1b1f23;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">Open the portal</a>
+            </p>
+            <p style="margin:0;font-size:14px;line-height:1.6;color:#64748b;">You are on the calendar invite and will be reminded ${INTERVIEW_REMINDER_MINUTES} minutes before. If they ask to move the slot, agree a new time at least ${RESCHEDULE_NOTICE_MINUTES} minutes before it starts.</p>
+          </td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body></html>`;
+
+  const accessToken = await getGmailAccessToken();
+  const raw = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: panel.map((m) => m.email).join(", "),
+    subject,
+    text,
+    html
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw })
+  });
+  if (!response.ok) {
+    throw new Error(`Interviewer notification failed: ${await response.text()}`);
+  }
+}
+
+async function trySendInterviewerNotification(
+  payload: ApplicationPayload,
+  reservation: ReservationDetails | null,
+  panel: Array<{ email: string; name: string; positionType: string }>
+): Promise<boolean> {
+  try {
+    await sendInterviewerNotification(payload, reservation, panel);
+    return panel.length > 0 && gmailConfigured();
+  } catch (error) {
+    // Never fail an application because the interviewers could not be told.
+    console.error(error instanceof Error ? error.message : "Interviewer notification failed.");
+    return false;
+  }
+}
+
 async function trySendConfirmationEmail(
   payload: ApplicationPayload,
   reservation: ReservationDetails,
@@ -1563,6 +1690,8 @@ function buildConfirmationEmailTemplate(
     bodyLines.push(
       `Questions about ${payload.roleAppliedFor}? Contact the people interviewing you:`,
       ...panel.map((m) => `- ${m.name}${m.positionType ? ` (${m.positionType})` : ""}: ${m.email}`),
+      "",
+      `Need to move your interview? Reply to this email and agree a new time with them at least ${RESCHEDULE_NOTICE_MINUTES} minutes before your slot. They are on this thread.`,
       ""
     );
   }
