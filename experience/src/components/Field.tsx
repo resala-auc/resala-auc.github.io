@@ -1,4 +1,5 @@
 import { motion } from "motion/react";
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { TOUCH_SPRING, rise } from "../lib/motion";
 
@@ -94,22 +95,34 @@ export function SelectField({
 }: SelectFieldProps) {
   return (
     <Frame id={id} label={label} helper={helper} error={error}>
-      <select
-        id={id}
-        value={value}
-        aria-invalid={Boolean(error)}
-        onChange={(event) => onChange(event.target.value)}
-        className={`${shell} appearance-none ${error ? "border-brand-orange/70" : "border-white/12"}`}
-      >
-        <option value="" disabled className="bg-brand-ink">
-          {placeholder}
-        </option>
-        {options.map((option) => (
-          <option key={option} value={option} className="bg-brand-ink">
-            {option}
+      {/* `appearance-none` strips the native arrow, which left this looking like a
+          text field with no hint that it opens — so the chevron is drawn back in. */}
+      <div className="group relative">
+        <select
+          id={id}
+          value={value}
+          aria-invalid={Boolean(error)}
+          onChange={(event) => onChange(event.target.value)}
+          className={`${shell} cursor-pointer appearance-none pr-12 hover:border-white/30 hover:bg-white/[0.06] ${
+            value ? "text-white" : "text-white/45"
+          } ${error ? "border-brand-orange/70" : "border-white/12"}`}
+        >
+          <option value="" disabled className="bg-brand-ink text-white/60">
+            {placeholder}
           </option>
-        ))}
-      </select>
+          {options.map((option) => (
+            <option key={option} value={option} className="bg-brand-ink text-white">
+              {option}
+            </option>
+          ))}
+        </select>
+
+        <ChevronDown
+          aria-hidden
+          strokeWidth={1.75}
+          className="pointer-events-none absolute top-1/2 right-5 h-5 w-5 -translate-y-1/2 text-white/40 transition-colors duration-300 group-hover:text-white/70"
+        />
+      </div>
     </Frame>
   );
 }

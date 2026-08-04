@@ -160,18 +160,16 @@ export function ActPen({
           </AnimatePresence>
         ))}
 
-        {/* The president's closing words, printed the way they are spoken. */}
+        {/* The closing line, left on screen after the recording ends. */}
         <AnimatePresence>
           {finished ? (
             <motion.p
-              lang="ar"
-              dir="rtl"
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 1.2, ease: CHAPTER_EASE, delay: 0.35 }}
-              className="font-arabic mt-2 text-2xl text-brand-orange md:text-3xl"
+              className="mt-2 font-serif text-2xl text-brand-orange md:text-3xl"
             >
-              ابني أول خطوة في حياتهم.
+              Build the first step.
             </motion.p>
           ) : null}
         </AnimatePresence>
