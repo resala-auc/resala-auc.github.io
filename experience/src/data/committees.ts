@@ -94,7 +94,8 @@ export type Committee = RoleGuide & {
 };
 
 const displayNames: Record<string, string> = {
-  "tech-director": "Tech Team"
+  "tech-director": "Tech Team",
+  "initiatives-director": "Initiatives"
 };
 
 const vows: Record<string, string> = {

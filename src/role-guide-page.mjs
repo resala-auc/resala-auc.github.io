@@ -6,7 +6,8 @@ import { roleGuide, roleGuides } from "./role-guide-data.mjs";
  * a cosmetic rename lives here instead, never on the field the backend keys off of.
  */
 const displayNames = {
-  "tech-director": "Tech Team"
+  "tech-director": "Tech Team",
+  "initiatives-director": "Initiatives"
 };
 
 function displayName(role) {
