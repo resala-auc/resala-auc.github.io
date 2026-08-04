@@ -655,12 +655,12 @@ function buildRawEmailMessage({
 }): string {
   const boundary = `resala-${crypto.randomUUID()}`;
   const message = [
-    `From: ${from}`,
+    `From: ${encodeAddressHeader(from)}`,
     `To: ${to}`,
     ...(cc ? [`Cc: ${cc}`] : []),
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "MIME-Version: 1.0",
-    `Subject: ${subject}`,
+    `Subject: ${encodeEmailHeader(subject)}`,
     "",
     `--${boundary}`,
     "Content-Type: text/plain; charset=utf-8",
@@ -789,6 +789,48 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   }
 
   return bytes.buffer;
+}
+
+/**
+ * RFC 2047 encoding for a header value. Mail headers are ASCII only; a raw UTF-8
+ * character in Subject or a sender name is decoded by the client as Latin-1,
+ * turning an em dash into "Ã¢Â€Â”". Chunks split on character boundaries because
+ * an encoded-word must hold a whole number of characters.
+ */
+function encodeEmailHeader(value: string): string {
+  const raw = String(value ?? "");
+  if (/^[\x20-\x7E]*$/.test(raw)) return raw;
+
+  const encoder = new TextEncoder();
+  const chunks: string[] = [];
+  let current = "";
+  for (const character of raw) {
+    const candidate = current + character;
+    if (encoder.encode(candidate).length > 45) {
+      if (current) chunks.push(current);
+      current = character;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  return chunks
+    .map((chunk) => {
+      let binary = "";
+      for (const byte of encoder.encode(chunk)) binary += String.fromCharCode(byte);
+      return `=?UTF-8?B?${btoa(binary)}?=`;
+    })
+    .join("\r\n ");
+}
+
+/** Encodes the display name of "Name <address>" and leaves the address alone. */
+function encodeAddressHeader(value: string): string {
+  const match = String(value ?? "").match(/^(.*)<([^>]+)>\s*$/);
+  if (!match) return encodeEmailHeader(value);
+  const name = match[1].trim().replace(/^"|"$/g, "");
+  const address = match[2].trim();
+  return name ? `${encodeEmailHeader(name)} <${address}>` : `<${address}>`;
 }
 
 function base64UrlEncode(value: string | ArrayBuffer): string {

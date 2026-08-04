@@ -2232,6 +2232,51 @@ async function getGmailAccessToken(): Promise<string> {
   return body.access_token;
 }
 
+/**
+ * RFC 2047 encoding for a header value.
+ *
+ * Mail headers are ASCII only. A raw UTF-8 character in Subject or a sender name
+ * is decoded by the client as Latin-1, which is why an em dash arrived as
+ * "Ã¢Â€Â”". Non-ASCII must travel as encoded-words instead.
+ *
+ * Chunks are split on character boundaries, never mid-sequence: an encoded-word
+ * has to hold a whole number of characters, and 45 bytes keeps the whole word
+ * inside the 75-character limit once the "=?UTF-8?B?" wrapper is added.
+ */
+function encodeEmailHeader(value: string): string {
+  const raw = String(value ?? "");
+  // Printable ASCII needs no encoding, and leaving it alone keeps headers readable.
+  if (/^[\x20-\x7E]*$/.test(raw)) return raw;
+
+  const encoder = new TextEncoder();
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const character of raw) {
+    const candidate = current + character;
+    if (encoder.encode(candidate).length > 45) {
+      if (current) chunks.push(current);
+      current = character;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+
+  // Folded with CRLF + space, the continuation form for a long header.
+  return chunks.map((chunk) => `=?UTF-8?B?${bytesToBase64(encoder.encode(chunk))}?=`).join("\r\n ");
+}
+
+/** Encodes the display name of "Name <address>" and leaves the address alone. */
+function encodeAddressHeader(value: string): string {
+  const match = String(value ?? "").match(/^(.*)<([^>]+)>\s*$/);
+  if (!match) return encodeEmailHeader(value);
+
+  const name = match[1].trim().replace(/^"|"$/g, "");
+  const address = match[2].trim();
+  return name ? `${encodeEmailHeader(name)} <${address}>` : `<${address}>`;
+}
+
 function buildRawEmailMessage({
   from,
   to,
@@ -2267,11 +2312,11 @@ function buildRawEmailMessage({
   ].join("\r\n");
 
   const headers = [
-    `From: ${from}`,
+    `From: ${encodeAddressHeader(from)}`,
     `To: ${to}`,
     ...(cc ? [`Cc: ${cc}`] : []),
     "MIME-Version: 1.0",
-    `Subject: ${subject}`
+    `Subject: ${encodeEmailHeader(subject)}`
   ];
 
   if (!attachments.length) {
