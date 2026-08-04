@@ -1685,7 +1685,25 @@ async function appendHeadsApplication(token: string, payload: ApplicationPayload
   // roleStepTitle carries the chosen head after a middle dot.
   const headName = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
 
-  const answers = Array.isArray(payload.answers) ? payload.answers : [];
+  /*
+   * A browser running a cached bundle from before the answers array existed
+   * sends only the four legacy fields. Falling back to them keeps the answers,
+   * labelled generically, instead of writing an empty row that looks like the
+   * applicant said nothing.
+   */
+  let answers = Array.isArray(payload.answers) ? payload.answers.filter((a) => a && (a.prompt || a.answer)) : [];
+  if (!answers.length) {
+    answers = [
+      { id: "why-role", prompt: "Why this role", answer: payload.whyThisRole ?? "" },
+      { id: "why-you", prompt: "Why choose yourself", answer: payload.whyChooseYourself ?? "" },
+      { id: "learn", prompt: "What do you hope to learn", answer: payload.hopeToLearn ?? "" },
+      { id: "experience", prompt: "Previous Resala experience", answer: payload.previousResalaExperience ?? "" }
+    ].filter((entry) => String(entry.answer).trim());
+    if (answers.length) {
+      console.error(`${payload.aucEmail} submitted without the answers array; fell back to the legacy fields.`);
+    }
+  }
+
   const questionCells: string[] = [];
   for (let i = 0; i < HEADS_APPLICATION_QUESTION_SLOTS; i += 1) {
     const entry = answers[i];
@@ -4177,6 +4195,20 @@ async function migrateLegacyApplications(
         const index = headsRows.findIndex((entry) => normalize(entry[2] ?? "") === normalize(String(row[2])));
         const rowNumber = index >= 0 ? index + 2 : -1;
         if (rowNumber < 2) continue;
+
+        /*
+         * Repair, not replace. A rebuilt cell wins where it has content, so
+         * missing answers get filled and generic prompts get corrected; the
+         * existing cell survives where the legacy tab has nothing to offer,
+         * which is how the committee and head ids written by a live submission
+         * are not wiped by a row reconstructed from the old sheet.
+         */
+        const existing = headsRows[index] ?? [];
+        for (let col = 0; col < row.length; col += 1) {
+          if (!String(row[col] ?? "").trim() && String(existing[col] ?? "").trim()) {
+            row[col] = existing[col];
+          }
+        }
         await sheetsFetch(
           token,
           "PUT",
