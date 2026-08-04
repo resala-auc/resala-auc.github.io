@@ -245,6 +245,51 @@ export const applicationQuestions = {
       : [])
   ],
 
+  /*
+   * The brief lists seven questions; these four carry all seven. They are
+   * grouped onto the four sections of the committee's own scoring rubric, so
+   * every section still has a question feeding it:
+   *   1 -> Skills (40) and why this program   (brief Q1 + Q7)
+   *   2 -> Leadership (30)                    (brief Q3 + Q4)
+   *   3 -> Ownership (15)                     (brief Q5)
+   *   4 -> Self-awareness & commitment (15)   (brief Q6 + Q2)
+   */
+  "children-day-director": (role) => [
+    {
+      id: "why-and-skills",
+      field: "whyThisRole",
+      eyebrow: "Why this programme, and what you bring",
+      prompt: `What do you know about Resala, and why did you choose Children's Day specifically? Tell us the relevant skills or experience you bring to ${role?.name ?? "this role"} — design, teaching, or operations.`,
+      helper: "Skills carry the most weight in scoring, so be concrete about what you have actually done.",
+      placeholder: "What you know, why this programme, and what you can already do.",
+      required: true
+    },
+    {
+      id: "leadership",
+      field: "whyChooseYourself",
+      eyebrow: "Leading, and deciding",
+      prompt: "Tell us about a project or team you led: what was your role, and what did you decide on your own? Include a time you had to make a decision your team disagreed with, and what you did.",
+      placeholder: "One example is enough if it covers both the leading and the disagreement.",
+      required: true
+    },
+    {
+      id: "sacrifice",
+      field: "hopeToLearn",
+      eyebrow: "What it cost you",
+      prompt: "Describe a time you sacrificed something — time, comfort, a personal plan — for a team or cause. What did you give up?",
+      placeholder: "Name the actual thing you gave up.",
+      required: true
+    },
+    {
+      id: "limit-and-hours",
+      field: "previousResalaExperience",
+      eyebrow: "Your limits, and your week",
+      prompt: "What's a limit or weakness you're aware of in yourself, and how do you work around it? Also, roughly how many hours a week can you genuinely commit, and for how many weeks?",
+      placeholder: "A real limit, and an honest number of hours and weeks.",
+      required: true
+    }
+  ],
+
   "initiatives-director": (role) => [
     {
       id: "background-fit",

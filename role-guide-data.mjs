@@ -547,6 +547,26 @@ export const roleGuides = [
     stepTitle: "The Step of Growth",
     shortDescription: "Builds the weekly journey for children's educational, emotional, and developmental growth.",
     preparation: "Draft a proposal for the outcome underprivileged children need based on your knowledge.",
+    heads: [
+      {
+        id: "creative",
+        name: "Creative Logistics & Visual Identity Lead",
+        description:
+          "Leads the Creative & Design Committee: turns every session's content into polished, kid-friendly slide decks a full module ahead of time, designs certificates and event visuals, and keeps Operations stocked with exactly what each session needs."
+      },
+      {
+        id: "english",
+        name: "English Sessions Lead",
+        description:
+          "Leads the English Committee: adapts each module's content into interactive English lessons, vets and prepares volunteer instructors through mock-teaching auditions, and makes sure homework is assigned and graded every week."
+      },
+      {
+        id: "teaching",
+        name: "Teaching & Organizing Lead",
+        description:
+          "Leads the Teaching & Organizing Committee: runs live Saturday sessions, staffs and supports facilitators, tracks attendance and behavior in real time, and keeps parents in the loop."
+      }
+    ],
     whyChoose: "Children Day is one of the most central roles in Resala. It is where Resala works directly on children's educational, emotional, and developmental growth week by week.",
     actualWork: [
       "Set the semester goals for Children Day.",

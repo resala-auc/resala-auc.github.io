@@ -46,12 +46,8 @@ export type RoleGuide = (typeof roleGuides)[number];
  * Everything else reuses the single source of truth in src/role-guide-data.mjs so
  * the guides at /guides and this flow never drift.
  */
-/*
- * Treasurer is filled outside this cycle. Children Day Director has no
- * heads-cycle recruitment brief yet, so it cannot be recruited for accurately —
- * add it here once that document exists.
- */
-export const EXCLUDED_ROLE_IDS = ["treasurer", "children-day-director"];
+/** Treasurer is filled outside this cycle; every other committee recruits here. */
+export const EXCLUDED_ROLE_IDS = ["treasurer"];
 
 /** One head position (or persona) inside a committee that has more than one. */
 export type CommitteeRole = {
@@ -95,7 +91,8 @@ export type Committee = RoleGuide & {
 
 const displayNames: Record<string, string> = {
   "tech-director": "Tech Team",
-  "initiatives-director": "Initiatives"
+  "initiatives-director": "Initiatives",
+  "children-day-director": "Children\u2019s Day"
 };
 
 const vows: Record<string, string> = {
@@ -158,6 +155,23 @@ const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
       logistics: ["Live: describe a situation where something unexpected happened during an event or project. What did you do to solve it?"],
       inventory: ["Live: tell us about a time you were responsible for keeping things organized or tracking important items. How did you make sure nothing was misplaced?"]
     })[role?.id ?? ""] ?? [],
+  "children-day-director": (role) => [
+    "You will be given a short trial task at the interview itself — 15 to 30 minutes, and it carries the most weight in scoring. Nothing to prepare in advance.",
+    ...(({
+      creative: [
+        "Your trial task: design a ~4-slide interactive presentation that holds children's attention and delivers a clear educational benefit by the end.",
+        "Live: how would you organise your committee to design 15+ slide decks in three weeks while keeping quality high?"
+      ],
+      english: [
+        "Your trial task: structure a ~4-slide deck for intermediate-level students teaching key vocabulary alongside a grammar lesson, built around a real-life problem these students face.",
+        "Live: what criteria do you look for in a mock-teaching audition to decide if someone is fit to teach children?"
+      ],
+      teaching: [
+        "Your trial task: two ~150-word parent phone scripts, an operations contingency plan, and a placement-conflict response.",
+        "Live: how do you keep a minimum of 3 facilitators per 20 students if volunteers do not show up on Saturday morning?"
+      ]
+    })[role?.id ?? ""] ?? [])
+  ],
   "initiatives-director": (role) =>
     ({
       research: [

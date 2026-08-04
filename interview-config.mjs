@@ -34,6 +34,7 @@ export const committeeContacts = {
   "branding-media": [],
   hr: [],
   "pr-fundraising": [],
+  "children-day-director": [],
   "initiatives-director": [],
   visits: []
 };
@@ -145,6 +146,25 @@ export const interviewConfig = {
       { date: "2026-08-12", times: ["11:00", "12:00", "15:00", "16:00", "17:00"] },
       { date: "2026-08-13", times: ["11:00", "12:00", "15:00", "16:00", "17:00"] },
       { date: "2026-08-14", times: ["11:00", "12:00", "15:00", "16:00"] }
+    ]
+  },
+
+  "children-day-director": {
+    /*
+     * The brief does not state a length. Slots are spaced an hour apart, and the
+     * flow runs seven fixed questions plus 10-20 minutes to review the trial
+     * task, so an hour is the only length that fits.
+     */
+    durationMinutes: 60,
+    interviewers: ["Children's Day leads"],
+    // The trial task is handed out at the interview, not prepared in advance,
+    // so there is nothing for the applicant to bring.
+    task: NO_TASK,
+    days: [
+      { date: "2026-08-05", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "19:00", "22:00", "23:00"] },
+      { date: "2026-08-06", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-07", times: ["15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-08", times: ["15:00", "16:00", "17:00"] }
     ]
   },
 

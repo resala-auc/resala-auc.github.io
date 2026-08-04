@@ -7,7 +7,8 @@ import { roleGuide, roleGuides } from "./role-guide-data.mjs";
  */
 const displayNames = {
   "tech-director": "Tech Team",
-  "initiatives-director": "Initiatives"
+  "initiatives-director": "Initiatives",
+  "children-day-director": "Children\u2019s Day"
 };
 
 function displayName(role) {

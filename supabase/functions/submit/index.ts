@@ -191,6 +191,16 @@ const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
       { date: "2026-08-14", times: ["11:00", "12:00", "15:00", "16:00"] }
     ]
   },
+  "children day director": {
+    committee: "Children Day Director",
+    durationMinutes: 60,
+    days: [
+      { date: "2026-08-05", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "19:00", "22:00", "23:00"] },
+      { date: "2026-08-06", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-07", times: ["15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-08", times: ["15:00", "16:00", "17:00"] }
+    ]
+  },
   "initiatives director": {
     committee: "Initiatives Director",
     durationMinutes: 30,
