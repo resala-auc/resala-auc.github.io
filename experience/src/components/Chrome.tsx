@@ -53,7 +53,7 @@ export function TopNav({ act }: { act: Act }) {
         animate={{ y: [0, -5, 0] }}
         transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
         whileHover={{ scale: 1.08 }}
-        className="flex h-14 w-14 items-center justify-center"
+        className="flex h-20 w-20 items-center justify-center sm:h-24 sm:w-24"
       >
         <img src={asset("resala-logo.png")} alt="Resala AUC" className="h-full w-full object-contain" />
       </motion.div>
