@@ -74,6 +74,24 @@ function loadDraft(): Draft {
  * everything else is gathered, with its question text, into the last column so
  * no answer is lost and no existing sheet column has to move.
  */
+/**
+ * Every question this applicant was asked, with its prompt, in order. The four
+ * fixed columns below stay for the old sheet; this is what the heads tab and
+ * the committee dashboards read, because it survives committees asking
+ * different questions from each other.
+ */
+function collectAnswers(
+  committee: Committee,
+  role: CommitteeRole | null,
+  answers: Record<string, string>
+): Array<{ id: string; prompt: string; answer: string }> {
+  return committee.questions(role).map((question) => ({
+    id: question.id,
+    prompt: question.prompt,
+    answer: (answers[question.id] ?? "").trim()
+  }));
+}
+
 function mapAnswersToColumns(
   committee: Committee,
   role: CommitteeRole | null,
@@ -172,6 +190,11 @@ export default function App() {
       roleStepTitle: role ? `${committee.stepTitle} · ${role.name}` : committee.stepTitle,
       roleDescription: role ? role.description : committee.shortDescription,
       secondPreference,
+      committeeId: committee.id,
+      roleId: role?.id ?? "",
+      secondCommitteeId: secondCommittee?.id ?? "",
+      secondRoleId: secondRole?.id ?? "",
+      answers: collectAnswers(committee, role, answers),
       ...mapAnswersToColumns(committee, role, answers),
       interviewSlot: slot?.startDateTime ?? "",
       interviewSlotId: slot?.id ?? "",

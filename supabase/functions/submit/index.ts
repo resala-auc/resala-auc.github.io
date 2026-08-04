@@ -112,6 +112,100 @@ const TASK_NOTE_HEADERS = [
  * ---------------------------------------------------------------------------
  */
 const HEADS_SLOT_SHEET_NAME = Deno.env.get("HEADS_SLOT_SHEET_NAME") ?? "Interview Slots Heads";
+
+/*
+ * Heads-cycle interview scoring lives in its own tabs. The applications sheet
+ * already carries score columns, but those are the director cycle's fixed six
+ * categories — the heads rubrics differ per committee and, in HR's case, per
+ * head, so they cannot be flattened into one set of columns.
+ */
+/*
+ * The heads cycle's own applications tab.
+ *
+ * The original tab has four fixed answer columns, which was right for the
+ * director cycle where every applicant answered the same four questions. Heads
+ * applicants answer between three and six questions that differ by committee,
+ * so those columns silently merged several answers into one cell. This tab
+ * stores each question next to its own answer instead: the sheet stays readable
+ * to a director, and no answer is lost or mixed with another.
+ *
+ * Six pairs, because six is the most any committee asks (Operations, Branding
+ * and PR). A committee that later asks more needs another pair added here.
+ */
+const HEADS_APPLICATION_SHEET_NAME =
+  Deno.env.get("HEADS_APPLICATION_SHEET_NAME") ?? "Heads Applications";
+const HEADS_APPLICATION_QUESTION_SLOTS = 6;
+const HEADS_APPLICATION_HEADERS = [
+  "Timestamp",
+  "Full Name",
+  "AUC Email",
+  "Student ID",
+  "Major",
+  "Year / Level",
+  "Phone",
+  "Committee",
+  "Committee ID",
+  "Head Applied For",
+  "Head ID",
+  "Second Preference Committee",
+  "Second Preference Head",
+  "Second Preference Committee ID",
+  "Second Preference Head ID",
+  "Interview Slot",
+  "Interview Slot ID",
+  "Interview Status",
+  "Status",
+  "Created At",
+  ...Array.from({ length: HEADS_APPLICATION_QUESTION_SLOTS }, (_, i) => [
+    `Question ${i + 1}`,
+    `Answer ${i + 1}`
+  ]).flat()
+];
+
+const HEADS_SCORE_SHEET_NAME = Deno.env.get("HEADS_SCORE_SHEET_NAME") ?? "Interview Scores Heads";
+const HEADS_SCORE_HEADERS = [
+  "Score ID",
+  "Applicant Email",
+  "Applicant Name",
+  "Committee",
+  "Head Role",
+  "Preference",
+  "Interviewer Email",
+  "Interviewer Name",
+  "Interviewer Position",
+  "Criterion Scores",
+  "Total Score",
+  "Notes",
+  "Task Link",
+  "Updated At"
+];
+
+const HEADS_ASSIGNMENT_SHEET_NAME = Deno.env.get("HEADS_ASSIGNMENT_SHEET_NAME") ?? "Interview Assignments";
+const HEADS_ASSIGNMENT_HEADERS = [
+  "Assignment ID",
+  "Applicant Email",
+  "Committee",
+  "Head Role",
+  "Assignee Email",
+  "Assignee Name",
+  "Assigned By",
+  "Assigned At",
+  "Note"
+];
+
+/*
+ * Who may open the heads recruitment admin view. Deliberately NOT the general
+ * admin secret: other admins exist who should not see applicant answers. The
+ * sheet is the working list so it can be changed without a deploy; the env var
+ * only exists so the first admin can get in before the sheet has any rows.
+ */
+const RECRUITMENT_ADMIN_SHEET_NAME =
+  Deno.env.get("RECRUITMENT_ADMIN_SHEET_NAME") ?? "Recruitment Admins";
+const RECRUITMENT_ADMIN_HEADERS = ["Name", "AUC Email", "Added At", "Note"];
+const BOOTSTRAP_ADMIN_EMAILS = (Deno.env.get("RECRUITMENT_ADMIN_EMAILS") ?? "")
+  .split(/[,;\s]+/)
+  .map((value) => normalize(value))
+  .filter(Boolean);
 const HEADS_SLOT_HEADERS = [
   "Slot ID",
   "Committee",
@@ -541,6 +635,12 @@ type ApplicationPayload = {
   roleStepTitle: string;
   roleDescription: string;
   secondPreference: string;
+  committeeId?: string;
+  roleId?: string;
+  secondCommitteeId?: string;
+  secondRoleId?: string;
+  /** Every question this applicant was actually asked, in order. */
+  answers?: Array<{ id: string; prompt: string; answer: string }>;
   whyThisRole: string;
   whyChooseYourself: string;
   hopeToLearn?: string;
@@ -686,6 +786,39 @@ type DirectorLoadApplicantsPayload = {
   email: string;
 };
 
+type HeadsCommitteeLoadPayload = {
+  mode: "heads-committee-load";
+  email: string;
+};
+
+type HeadsSaveScorePayload = {
+  mode: "heads-save-score";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  headRole?: string;
+  preference?: string;
+  scores?: Record<string, number>;
+  total?: number;
+  notes?: string;
+  taskLink?: string;
+};
+
+type HeadsAdminLoadPayload = {
+  mode: "heads-admin-load";
+  email: string;
+};
+
+type HeadsAssignInterviewerPayload = {
+  mode: "heads-assign-interviewer";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  headRole?: string;
+  assigneeEmail: string;
+  note?: string;
+};
+
 type AdminCreateHeadsMeetingPayload = {
   mode: "admin-create-heads-meeting";
 };
@@ -738,6 +871,10 @@ type SubmissionPayload =
   | AdminLoadHierarchyPayload
   | AdminSaveHierarchyPayload
   | DirectorLoadApplicantsPayload
+  | HeadsCommitteeLoadPayload
+  | HeadsSaveScorePayload
+  | HeadsAdminLoadPayload
+  | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
@@ -1055,6 +1192,30 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isHeadsCommitteeLoadPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await loadCommitteePortal(token, payload.email)) });
+    }
+
+    if (isHeadsSaveScorePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await saveHeadsScore(token, payload)) });
+    }
+
+    if (isHeadsAdminLoadPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await loadHeadsAdmin(token, payload.email)) });
+    }
+
+    if (isHeadsAssignInterviewerPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await assignHeadsInterviewer(token, payload)) });
+    }
+
     if (isAdminCreateHeadsMeetingPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -1139,6 +1300,20 @@ Deno.serve(async (request) => {
     }
 
     await appendApplication(token, payload, sheetName);
+    /*
+     * The heads tab is what the committee dashboards read. A failure to write it
+     * must not lose an application that is already in the legacy tab and already
+     * holds a booked slot, so it is logged rather than thrown.
+     */
+    try {
+      await appendHeadsApplication(token, payload);
+    } catch (error) {
+      console.error(
+        `Heads applications row failed for ${payload.aucEmail}: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`
+      );
+    }
     // Same panel the invite went to, so the email names the right people.
     const panel = await getCommitteePanel(token, payload.roleAppliedFor);
     const emailSent = await trySendConfirmationEmail(payload, reservation, panel);
@@ -1165,6 +1340,24 @@ async function parsePayload(
   }
 
   return JSON.parse(text) as SubmissionPayload;
+}
+
+function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is HeadsCommitteeLoadPayload {
+  return (payload as HeadsCommitteeLoadPayload).mode === "heads-committee-load";
+}
+
+function isHeadsSaveScorePayload(payload: SubmissionPayload): payload is HeadsSaveScorePayload {
+  return (payload as HeadsSaveScorePayload).mode === "heads-save-score";
+}
+
+function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
+  return (payload as HeadsAdminLoadPayload).mode === "heads-admin-load";
+}
+
+function isHeadsAssignInterviewerPayload(
+  payload: SubmissionPayload
+): payload is HeadsAssignInterviewerPayload {
+  return (payload as HeadsAssignInterviewerPayload).mode === "heads-assign-interviewer";
 }
 
 function isTaskSubmissionPayload(payload: SubmissionPayload): payload is TaskSubmissionPayload {
@@ -1378,6 +1571,70 @@ async function ensureNotDuplicate(token: string, payload: ApplicationPayload, sh
   if (duplicate) {
     throw new Error("An application with this AUC email or Student ID already exists.");
   }
+}
+
+/**
+ * The heads-cycle row: identity, both preferences by name *and* stable id, the
+ * booked slot, and each question paired with its own answer.
+ */
+async function appendHeadsApplication(token: string, payload: ApplicationPayload): Promise<void> {
+  await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+
+  // roleStepTitle carries the chosen head after a middle dot.
+  const headName = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
+
+  const answers = Array.isArray(payload.answers) ? payload.answers : [];
+  const questionCells: string[] = [];
+  for (let i = 0; i < HEADS_APPLICATION_QUESTION_SLOTS; i += 1) {
+    const entry = answers[i];
+    questionCells.push(entry ? String(entry.prompt ?? "") : "", entry ? String(entry.answer ?? "") : "");
+  }
+
+  if (answers.length > HEADS_APPLICATION_QUESTION_SLOTS) {
+    // Never silently drop an answer: fold the overflow into the last pair
+    // rather than losing it, and make the crowding visible in the sheet.
+    const overflow = answers
+      .slice(HEADS_APPLICATION_QUESTION_SLOTS)
+      .map((entry) => `${entry.prompt}\n${entry.answer}`)
+      .join("\n\n");
+    const lastAnswer = questionCells.length - 1;
+    questionCells[lastAnswer] = `${questionCells[lastAnswer]}\n\n[overflow]\n${overflow}`;
+    console.error(
+      `${payload.aucEmail} answered ${answers.length} questions but the sheet has ${HEADS_APPLICATION_QUESTION_SLOTS} pairs.`
+    );
+  }
+
+  const row = [
+    payload.timestamp,
+    payload.fullName,
+    payload.aucEmail,
+    payload.studentId,
+    payload.major,
+    payload.yearLevel,
+    payload.phone,
+    payload.roleAppliedFor,
+    payload.committeeId ?? "",
+    headName,
+    payload.roleId ?? "",
+    payload.secondPreference,
+    "",
+    payload.secondCommitteeId ?? "",
+    payload.secondRoleId ?? "",
+    payload.interviewSlotLabel ?? payload.interviewSlot ?? "",
+    payload.interviewSlotId ?? "",
+    "Scheduled",
+    "Submitted",
+    payload.createdAt,
+    ...questionCells
+  ];
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [row] }
+  );
 }
 
 async function appendApplication(token: string, payload: ApplicationPayload, sheetName: string): Promise<void> {
@@ -3179,6 +3436,463 @@ async function loadAdminApplicants(token: string): Promise<{
 
   return { applicants };
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Heads recruitment dashboards
+ *
+ * Two audiences. A committee portal, shared by a committee's Director and
+ * Vice-Director, that shows only their own applicants. And an admin view for
+ * the people running this cycle, which sees everything.
+ *
+ * Access is by AUC email in both cases, checked live against a sheet, so a
+ * roster change takes effect without a deploy. Email alone is a weak boundary
+ * and is a deliberate choice: anyone who knows a director's address can read
+ * their applicants. Adding an emailed one-time code later only changes the two
+ * `require*` helpers below.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+type CommitteeAccess = {
+  department: string;
+  name: string;
+  positionType: string;
+  email: string;
+};
+
+/** Verifies the caller runs a committee, and returns which one. */
+async function requireCommitteeAccess(token: string, email: string): Promise<CommitteeAccess> {
+  const wanted = normalize(email);
+  if (!wanted) throw new Error("Enter your AUC email.");
+
+  const { entries } = await loadHierarchy(token);
+  const match = entries.find(
+    (entry) =>
+      normalize(entry.aucEmail ?? "") === wanted &&
+      Boolean(entry.department) &&
+      (entry.positionType === "Director" || entry.positionType === "Vice-Director")
+  );
+
+  if (!match) throw new Error("No committee access found for this email.");
+
+  return {
+    department: match.department,
+    name: String(match.name ?? "").trim(),
+    positionType: String(match.positionType ?? "").trim(),
+    email: String(match.aucEmail ?? "").trim()
+  };
+}
+
+/**
+ * Verifies the caller runs THIS recruitment cycle. Separate from the general
+ * admin secret on purpose: other admins exist who should not see applications.
+ */
+async function requireRecruitmentAdmin(token: string, email: string): Promise<{ name: string; email: string }> {
+  const wanted = normalize(email);
+  if (!wanted) throw new Error("Enter your AUC email.");
+
+  await ensureSheetTab(token, RECRUITMENT_ADMIN_SHEET_NAME);
+  await ensureSheetHeaders(token, RECRUITMENT_ADMIN_SHEET_NAME, RECRUITMENT_ADMIN_HEADERS);
+
+  const response = await sheetsFetch(token, "GET", `${sheetRange(RECRUITMENT_ADMIN_SHEET_NAME, "A2:D")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const listed = rows.find((row) => normalize(row[1] ?? "") === wanted);
+  if (listed) return { name: String(listed[0] ?? "").trim(), email: String(listed[1] ?? "").trim() };
+
+  // Bootstrap: the sheet starts empty, so the first admin comes from the env.
+  if (BOOTSTRAP_ADMIN_EMAILS.includes(wanted)) return { name: "Recruitment admin", email: email.trim() };
+
+  throw new Error("No recruitment admin access found for this email.");
+}
+
+/** Deterministic, so saving a second time updates the row instead of duplicating it. */
+function headsScoreId(applicantEmail: string, committee: string, interviewerEmail: string): string {
+  return [normalize(applicantEmail), normalizeRole(committee), normalize(interviewerEmail)].join("::");
+}
+
+function headsAssignmentId(applicantEmail: string, committee: string, assigneeEmail: string): string {
+  return [normalize(applicantEmail), normalizeRole(committee), normalize(assigneeEmail)].join("::");
+}
+
+async function ensureHeadsScoreSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HEADS_SCORE_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_SCORE_SHEET_NAME, HEADS_SCORE_HEADERS);
+}
+
+async function ensureHeadsAssignmentSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HEADS_ASSIGNMENT_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_ASSIGNMENT_SHEET_NAME, HEADS_ASSIGNMENT_HEADERS);
+}
+
+type HeadsScoreRow = {
+  rowNumber: number;
+  scoreId: string;
+  applicantEmail: string;
+  committee: string;
+  headRole: string;
+  preference: string;
+  interviewerEmail: string;
+  interviewerName: string;
+  interviewerPosition: string;
+  scores: Record<string, number>;
+  total: string;
+  notes: string;
+  taskLink: string;
+  updatedAt: string;
+};
+
+async function readHeadsScores(token: string): Promise<HeadsScoreRow[]> {
+  await ensureHeadsScoreSheet(token);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SCORE_SHEET_NAME, "A2:N")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  return rows.map((row, index) => {
+    let scores: Record<string, number> = {};
+    try {
+      scores = row[9] ? JSON.parse(String(row[9])) : {};
+    } catch {
+      scores = {}; // A hand-edited cell must not take the whole portal down.
+    }
+    return {
+      rowNumber: index + 2,
+      scoreId: String(row[0] ?? ""),
+      applicantEmail: String(row[1] ?? ""),
+      committee: String(row[3] ?? ""),
+      headRole: String(row[4] ?? ""),
+      preference: String(row[5] ?? ""),
+      interviewerEmail: String(row[6] ?? ""),
+      interviewerName: String(row[7] ?? ""),
+      interviewerPosition: String(row[8] ?? ""),
+      scores,
+      total: String(row[10] ?? ""),
+      notes: String(row[11] ?? ""),
+      taskLink: String(row[12] ?? ""),
+      updatedAt: String(row[13] ?? "")
+    };
+  });
+}
+
+async function readHeadsAssignments(token: string): Promise<
+  Array<{ applicantEmail: string; committee: string; headRole: string; assigneeEmail: string; assigneeName: string; assignedBy: string; assignedAt: string; note: string }>
+> {
+  await ensureHeadsAssignmentSheet(token);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_ASSIGNMENT_SHEET_NAME, "A2:I")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  return rows.map((row) => ({
+    applicantEmail: String(row[1] ?? ""),
+    committee: String(row[2] ?? ""),
+    headRole: String(row[3] ?? ""),
+    assigneeEmail: String(row[4] ?? ""),
+    assigneeName: String(row[5] ?? ""),
+    assignedBy: String(row[6] ?? ""),
+    assignedAt: String(row[7] ?? ""),
+    note: String(row[8] ?? "")
+  }));
+}
+
+/**
+ * Every heads-cycle applicant, read from the heads tab so each answer arrives
+ * with the question that produced it. Interview status is joined in from the
+ * reservations sheet, which is where rescheduling and no-shows are recorded.
+ */
+async function readHeadsApplicants(token: string): Promise<Array<Record<string, unknown>>> {
+  await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const [applicationResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`)
+  ]);
+
+  const rows = ((await applicationResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const statusByEmail = new Map<string, string>();
+  const meetByEmail = new Map<string, string>();
+  for (const row of reservationRows) {
+    const resEmail = normalize(String(row[4] ?? ""));
+    if (!resEmail) continue;
+    const status = String(row[8] ?? "").trim();
+    if (status) statusByEmail.set(resEmail, status);
+    const meet = String(row[9] ?? "").trim();
+    if (meet) meetByEmail.set(resEmail, meet);
+  }
+
+  const FIRST_QUESTION_COLUMN = 20;
+
+  return rows
+    .filter((row) => String(row[2] ?? "").trim())
+    .map((row) => {
+      const answers: Array<{ prompt: string; answer: string }> = [];
+      for (let i = 0; i < HEADS_APPLICATION_QUESTION_SLOTS; i += 1) {
+        const prompt = String(row[FIRST_QUESTION_COLUMN + i * 2] ?? "").trim();
+        const answer = String(row[FIRST_QUESTION_COLUMN + i * 2 + 1] ?? "").trim();
+        if (prompt || answer) answers.push({ prompt, answer });
+      }
+
+      const email = String(row[2] ?? "");
+      return {
+        timestamp: String(row[0] ?? ""),
+        fullName: String(row[1] ?? ""),
+        email,
+        studentId: String(row[3] ?? ""),
+        major: String(row[4] ?? ""),
+        yearLevel: String(row[5] ?? ""),
+        phone: String(row[6] ?? ""),
+        roleAppliedFor: String(row[7] ?? ""),
+        committeeId: String(row[8] ?? ""),
+        headName: String(row[9] ?? ""),
+        headId: String(row[10] ?? ""),
+        secondPreference: String(row[11] ?? ""),
+        secondHeadName: String(row[12] ?? ""),
+        secondCommitteeId: String(row[13] ?? ""),
+        secondHeadId: String(row[14] ?? ""),
+        interviewSlot: String(row[15] ?? ""),
+        interviewSlotId: String(row[16] ?? ""),
+        status: String(row[18] ?? ""),
+        createdAt: String(row[19] ?? ""),
+        answers,
+        interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
+        meetLink: meetByEmail.get(normalize(email)) ?? ""
+      };
+    });
+}
+
+/**
+ * The committee portal payload: this committee's first preferences, the people
+ * who put it second, and anything the caller was assigned as third interviewer.
+ */
+async function loadCommitteePortal(
+  token: string,
+  email: string
+): Promise<{
+  access: CommitteeAccess;
+  firstPreference: Array<Record<string, unknown>>;
+  secondPreference: Array<Record<string, unknown>>;
+  assigned: Array<Record<string, unknown>>;
+}> {
+  const access = await requireCommitteeAccess(token, email);
+  const [applicants, scores, assignments] = await Promise.all([
+    readHeadsApplicants(token),
+    readHeadsScores(token),
+    readHeadsAssignments(token)
+  ]);
+
+  const department = normalizeRole(access.department);
+  const me = normalize(access.email);
+
+  // A director sees every score on their own applicants, including their
+  // vice-director's — they share one portal and are expected to compare.
+  const decorate = (applicant: Record<string, unknown>, committee: string, preference: string) => ({
+    ...applicant,
+    committee,
+    preference,
+    scores: scores.filter(
+      (score) =>
+        normalize(score.applicantEmail) === normalize(String(applicant.email ?? "")) &&
+        normalizeRole(score.committee) === normalizeRole(committee)
+    )
+  });
+
+  const firstPreference = applicants
+    .filter((a) => normalizeRole(String(a.roleAppliedFor ?? "")) === department)
+    .map((a) => decorate(a, String(a.roleAppliedFor ?? ""), "First"));
+
+  const secondPreference = applicants
+    .filter((a) => normalizeRole(String(a.secondPreference ?? "")) === department)
+    .filter((a) => normalizeRole(String(a.roleAppliedFor ?? "")) !== department)
+    .map((a) => decorate(a, String(a.secondPreference ?? ""), "Second"));
+
+  const myAssignments = assignments.filter((entry) => normalize(entry.assigneeEmail) === me);
+  const assigned = myAssignments
+    .map((entry) => {
+      const applicant = applicants.find((a) => normalize(String(a.email ?? "")) === normalize(entry.applicantEmail));
+      if (!applicant) return null;
+      return { ...decorate(applicant, entry.committee, "Assigned"), assignmentNote: entry.note };
+    })
+    .filter(Boolean) as Array<Record<string, unknown>>;
+
+  return { access, firstPreference, secondPreference, assigned };
+}
+
+/**
+ * Upsert one interviewer's score for one applicant in one committee. Keyed on
+ * Score ID so a director revising their own numbers overwrites their row and
+ * never touches their vice-director's.
+ */
+async function saveHeadsScore(
+  token: string,
+  payload: HeadsSaveScorePayload
+): Promise<{ scoreId: string; updated: boolean }> {
+  const committee = String(payload.committee ?? "").trim();
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!committee || !applicantEmail) throw new Error("Applicant and committee are required.");
+
+  /*
+   * The caller may score a committee they do not run — that is the whole point
+   * of a third interviewer — so committee access alone is not enough. Either
+   * they run this committee, or an admin assigned them to this applicant.
+   */
+  const access = await requireCommitteeAccess(token, payload.email);
+  const runsCommittee = normalizeRole(access.department) === normalizeRole(committee);
+
+  if (!runsCommittee) {
+    const assignments = await readHeadsAssignments(token);
+    const assigned = assignments.some(
+      (entry) =>
+        normalize(entry.assigneeEmail) === normalize(access.email) &&
+        normalize(entry.applicantEmail) === normalize(applicantEmail) &&
+        normalizeRole(entry.committee) === normalizeRole(committee)
+    );
+    if (!assigned) throw new Error("You are not assigned to score this applicant.");
+  }
+
+  const applicants = await readHeadsApplicants(token);
+  const applicant = applicants.find((a) => normalize(String(a.email ?? "")) === normalize(applicantEmail));
+  if (!applicant) throw new Error("Applicant not found.");
+
+  const scoreId = headsScoreId(applicantEmail, committee, access.email);
+  const row = [
+    scoreId,
+    applicantEmail,
+    String(applicant.fullName ?? ""),
+    committee,
+    String(payload.headRole ?? ""),
+    String(payload.preference ?? ""),
+    access.email,
+    access.name,
+    access.positionType,
+    JSON.stringify(payload.scores ?? {}),
+    payload.total === undefined || payload.total === null ? "" : String(payload.total),
+    String(payload.notes ?? ""),
+    String(payload.taskLink ?? ""),
+    new Date().toISOString()
+  ];
+
+  const existing = await readHeadsScores(token);
+  const match = existing.find((entry) => entry.scoreId === scoreId);
+
+  if (match) {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HEADS_SCORE_SHEET_NAME, `A${match.rowNumber}:N${match.rowNumber}`)}?valueInputOption=RAW`,
+      { values: [row] }
+    );
+    return { scoreId, updated: true };
+  }
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HEADS_SCORE_SHEET_NAME, "A:N")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [row] }
+  );
+  return { scoreId, updated: false };
+}
+
+/** Everything, for whoever is running this cycle. */
+async function loadHeadsAdmin(
+  token: string,
+  email: string
+): Promise<{
+  admin: { name: string; email: string };
+  applicants: Array<Record<string, unknown>>;
+  assignments: Array<Record<string, string>>;
+  panel: Array<{ name: string; email: string; department: string; positionType: string }>;
+}> {
+  const admin = await requireRecruitmentAdmin(token, email);
+  const [applicants, scores, assignments, hierarchy] = await Promise.all([
+    readHeadsApplicants(token),
+    readHeadsScores(token),
+    readHeadsAssignments(token),
+    loadHierarchy(token)
+  ]);
+
+  const withScores = applicants.map((applicant) => ({
+    ...applicant,
+    scores: scores.filter(
+      (score) => normalize(score.applicantEmail) === normalize(String(applicant.email ?? ""))
+    ),
+    assignments: assignments.filter(
+      (entry) => normalize(entry.applicantEmail) === normalize(String(applicant.email ?? ""))
+    )
+  }));
+
+  // Who an admin can pick as a third interviewer: anyone who runs a committee.
+  const panel = hierarchy.entries
+    .filter((entry) => entry.positionType === "Director" || entry.positionType === "Vice-Director")
+    .filter((entry) => isValidAucEmail(entry.aucEmail))
+    .map((entry) => ({
+      name: String(entry.name ?? "").trim(),
+      email: String(entry.aucEmail ?? "").trim(),
+      department: String(entry.department ?? "").trim(),
+      positionType: String(entry.positionType ?? "").trim()
+    }));
+
+  return { admin, applicants: withScores, assignments, panel };
+}
+
+/**
+ * Assign a third interviewer, normally so somebody can probe an applicant's
+ * second preference during the interview they already have booked.
+ */
+async function assignHeadsInterviewer(
+  token: string,
+  payload: HeadsAssignInterviewerPayload
+): Promise<{ assignmentId: string; updated: boolean }> {
+  const admin = await requireRecruitmentAdmin(token, payload.email);
+
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  const assigneeEmail = String(payload.assigneeEmail ?? "").trim();
+  if (!applicantEmail || !committee || !assigneeEmail) {
+    throw new Error("Applicant, committee and interviewer are required.");
+  }
+
+  const { entries } = await loadHierarchy(token);
+  const assignee = entries.find((entry) => normalize(entry.aucEmail ?? "") === normalize(assigneeEmail));
+  if (!assignee) throw new Error("That interviewer is not on the board hierarchy.");
+
+  const assignmentId = headsAssignmentId(applicantEmail, committee, assigneeEmail);
+  const row = [
+    assignmentId,
+    applicantEmail,
+    committee,
+    String(payload.headRole ?? ""),
+    assigneeEmail,
+    String(assignee.name ?? "").trim(),
+    admin.email,
+    new Date().toISOString(),
+    String(payload.note ?? "")
+  ];
+
+  await ensureHeadsAssignmentSheet(token);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_ASSIGNMENT_SHEET_NAME, "A2:I")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((entry) => String(entry[0] ?? "") === assignmentId);
+
+  if (index >= 0) {
+    const rowNumber = index + 2;
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HEADS_ASSIGNMENT_SHEET_NAME, `A${rowNumber}:I${rowNumber}`)}?valueInputOption=RAW`,
+      { values: [row] }
+    );
+    return { assignmentId, updated: true };
+  }
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HEADS_ASSIGNMENT_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [row] }
+  );
+  return { assignmentId, updated: false };
+}
+
 
 async function loadDirectorApplicants(
   token: string,

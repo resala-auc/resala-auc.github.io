@@ -50,6 +50,22 @@ export type ApplicationPayload = {
   roleStepTitle: string;
   roleDescription: string;
   secondPreference: string;
+  /*
+   * Stable ids alongside the display names. The names are what a human reads in
+   * the sheet; these are what the dashboards match on, so a committee being
+   * renamed never orphans an application.
+   */
+  committeeId: string;
+  roleId: string;
+  secondCommitteeId: string;
+  secondRoleId: string;
+  /*
+   * Every question this applicant was actually asked, with its prompt, in the
+   * order it appeared. Committees ask between three and six different
+   * questions, so the four fixed columns below cannot hold them without
+   * collapsing several answers into one cell.
+   */
+  answers: Array<{ id: string; prompt: string; answer: string }>;
   whyThisRole: string;
   whyChooseYourself: string;
   hopeToLearn: string;
