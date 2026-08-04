@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Committee Portal — Resala AUC</title>
+<link rel="icon" href="../favicon.png">
+<style>
+  /* Brand tokens. Royal Blue is a light-ground colour and never carries text on
+     a dark surface; Sky Blue does that job. */
+  :root {
+    --blue: #0c2c80; --sky: #a7d4f2; --gold: #eac262;
+    --ivory: #fdf9f3; --ink: #1b1f23;
+    --line: #e4dccd; --muted: #6b7280; --soft: #f7f4ee;
+    --good: #1a7f4b; --warn: #9a6b00;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ivory); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* ── login ─────────────────────────────────────────────────────────────── */
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card {
+    width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--line);
+    border-radius: 18px; padding: 34px 30px; text-align: center;
+  }
+  .login-card img { width: 68px; height: 68px; margin: 0 auto 16px; display: block; }
+  .login-card h1 { margin: 0 0 6px; font-size: 21px; color: var(--blue); }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  label { display: block; text-align: left; font-size: 12px; font-weight: 700;
+          text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin-bottom: 6px; }
+  input[type=email], input[type=url], textarea, select {
+    width: 100%; padding: 11px 13px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--soft); color: var(--ink);
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .btn {
+    background: var(--blue); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 18px; font-weight: 700;
+  }
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-gold { background: var(--gold); color: var(--ink); }
+  .btn-ghost { background: transparent; color: var(--blue); border: 1px solid var(--line); }
+  .btn-block { width: 100%; margin-top: 18px; }
+  .error {
+    margin-top: 14px; padding: 10px 12px; border-radius: 9px;
+    background: #fdecec; color: #8c1c1c; font-size: 13px; text-align: left;
+  }
+
+  /* ── shell ─────────────────────────────────────────────────────────────── */
+  header.bar {
+    background: var(--blue); color: #fff; padding: 14px 20px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  header.bar img { width: 38px; height: 38px; }
+  .bar-title { font-weight: 700; font-size: 17px; }
+  .bar-sub { color: var(--sky); font-size: 12.5px; }
+  .bar-spacer { flex: 1; }
+  header.bar button {
+    background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+    border-radius: 8px; padding: 7px 13px; font-size: 13px;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 60px; }
+
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+  .tab {
+    background: #fff; border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 16px; font-size: 14px; color: var(--ink);
+  }
+  .tab[aria-selected="true"] { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  .tab .n { opacity: .7; margin-left: 5px; }
+
+  .layout { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    width: 100%; text-align: left; background: #fff; border: 1px solid var(--line);
+    border-radius: 13px; padding: 13px 15px; display: grid; gap: 3px;
+  }
+  .card:hover { border-color: var(--gold); }
+  .card[aria-current="true"] { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(12,44,128,.12); }
+  .card .nm { font-weight: 700; }
+  .card .meta { font-size: 12.5px; color: var(--muted); }
+  .rank { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .score-pill {
+    display: inline-block; background: var(--blue); color: #fff; border-radius: 999px;
+    padding: 2px 10px; font-size: 12.5px; font-weight: 700;
+  }
+  .score-pill.partial { background: var(--gold); color: var(--ink); }
+  .score-pill.none { background: var(--soft); color: var(--muted); }
+
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; }
+  .panel h2 { margin: 0 0 2px; font-size: 22px; color: var(--blue); }
+  .panel .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; margin-bottom: 20px; }
+  .facts b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; }
+  .qa { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 4px; }
+  .qa .q { font-weight: 700; font-size: 14px; margin-bottom: 3px; }
+  .qa .a { white-space: pre-wrap; color: #3f4650; margin-bottom: 16px; }
+  h3.sec {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+    margin: 26px 0 10px; padding-top: 16px; border-top: 1px solid var(--line);
+  }
+  .crit { margin-bottom: 18px; }
+  .crit-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .crit-head .name { font-weight: 700; }
+  .crit-head .w { font-size: 12.5px; color: var(--muted); }
+  .anchor { font-size: 13px; color: #3f4650; background: var(--soft); border-left: 3px solid var(--line); padding: 8px 11px; border-radius: 4px; margin: 7px 0; }
+  .anchor.full { border-left-color: var(--good); }
+  .anchor.low { border-left-color: #c0392b; }
+  .anchor .lbl { font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: .7px; }
+  .crit input[type=number] { width: 96px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--soft); }
+  textarea { min-height: 120px; resize: vertical; }
+  .total { font-size: 17px; font-weight: 700; color: var(--blue); }
+  .others { font-size: 13.5px; }
+  .others .row { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; margin-bottom: 8px; }
+  .note { font-size: 13px; color: var(--muted); }
+  .banner { padding: 11px 14px; border-radius: 10px; font-size: 13.5px; margin-bottom: 16px; }
+  .banner.warn { background: #fdf4e0; color: var(--warn); }
+  .banner.ok { background: #e8f6ee; color: var(--good); }
+  .empty { color: var(--muted); padding: 28px 4px; }
+  .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+</style>
+</head>
+<body>
+
+<!-- login ─────────────────────────────────────────────────────────────────── -->
+<div class="login" id="login">
+  <div class="login-card">
+    <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="Resala AUC">
+    <h1>Committee Portal</h1>
+    <p>Heads recruitment. Sign in with the AUC email on your board record.</p>
+    <label for="email">AUC email</label>
+    <input type="email" id="email" placeholder="you@aucegypt.edu" autocomplete="email">
+    <button class="btn btn-block" id="login-btn">Enter portal</button>
+    <div class="error hidden" id="login-error"></div>
+  </div>
+</div>
+
+<!-- portal ────────────────────────────────────────────────────────────────── -->
+<div class="hidden" id="portal">
+  <header class="bar">
+    <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="">
+    <div>
+      <div class="bar-title" id="bar-title">—</div>
+      <div class="bar-sub" id="bar-sub">—</div>
+    </div>
+    <div class="bar-spacer"></div>
+    <button id="refresh">Refresh</button>
+    <button id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div class="layout">
+      <div>
+        <div class="list" id="list"></div>
+        <div class="empty hidden" id="list-empty">No applicants here yet.</div>
+      </div>
+      <div class="panel" id="panel"><div class="empty">Select an applicant.</div></div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+import { getRubric, totalScore } from "../scoring-rubrics.js";
+
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+
+/* The sheet stores the committee's display name; rubrics are keyed by id. Rows
+   written before the heads tab existed have no id, so fall back to the name. */
+const IDS_BY_NAME = {
+  "tech director": "tech-director",
+  "operations": "operations",
+  "branding / media": "branding-media",
+  "hr": "hr",
+  "pr / fundraising": "pr-fundraising",
+  "visits": "visits",
+  "children day director": "children-day-director",
+  "initiatives director": "initiatives-director"
+};
+
+const DISPLAY_NAMES = {
+  "tech director": "Tech Team",
+  "initiatives director": "Initiatives",
+  "children day director": "Children\u2019s Day"
+};
+const display = (v) => DISPLAY_NAMES[String(v ?? "").trim().toLowerCase()] ?? String(v ?? "");
+
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let state = { access: null, tab: "firstPreference", data: null, selected: null, busy: false };
+
+async function api(payload) {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json();
+  if (!res.ok || body.ok === false) throw new Error(body.error || "Something went wrong.");
+  return body;
+}
+
+function committeeIdOf(applicant) {
+  return applicant.committeeId || IDS_BY_NAME[norm(applicant.committee || applicant.roleAppliedFor)] || "";
+}
+
+/* HR weights its criteria differently per head, so the rubric needs the head
+   key. Migrated rows carry only the head's display name. */
+function headIdOf(applicant) {
+  if (applicant.headId) return applicant.headId;
+  const name = norm(applicant.headName);
+  for (const key of ["engagement", "inclusion", "tracking", "recognition"]) {
+    if (name.includes(key)) return key;
+  }
+  return "";
+}
+
+function rubricFor(applicant) {
+  return getRubric(committeeIdOf(applicant), headIdOf(applicant));
+}
+
+/** This interviewer's own saved score for an applicant, if any. */
+function myScore(applicant) {
+  return (applicant.scores || []).find((s) => norm(s.interviewerEmail) === norm(state.access.email)) || null;
+}
+
+/** Panel average, used for ranking. Null until at least one score exists. */
+function rankScore(applicant) {
+  const totals = (applicant.scores || [])
+    .map((s) => Number(s.total))
+    .filter((n) => Number.isFinite(n));
+  if (!totals.length) return null;
+  return totals.reduce((a, b) => a + b, 0) / totals.length;
+}
+
+/* ── rendering ──────────────────────────────────────────────────────────── */
+
+function renderTabs() {
+  const tabs = [
+    ["firstPreference", "First preference"],
+    ["secondPreference", "Second preference"],
+    ["assigned", "Assigned to me"]
+  ];
+  document.getElementById("tabs").innerHTML = tabs.map(([key, label]) => `
+    <button class="tab" role="tab" data-tab="${key}" aria-selected="${state.tab === key}">
+      ${label}<span class="n">${(state.data?.[key] ?? []).length}</span>
+    </button>`).join("");
+}
+
+function currentList() {
+  // Ranked by panel average. Unscored applicants sink below scored ones rather
+  // than counting as zero, which would rank them against people who were judged.
+  return [...(state.data?.[state.tab] ?? [])].sort((a, b) => {
+    const sa = rankScore(a), sb = rankScore(b);
+    if (sa === null && sb === null) return String(a.fullName).localeCompare(String(b.fullName));
+    if (sa === null) return 1;
+    if (sb === null) return -1;
+    return sb - sa;
+  });
+}
+
+function renderList() {
+  const list = currentList();
+  const el = document.getElementById("list");
+  document.getElementById("list-empty").classList.toggle("hidden", list.length > 0);
+
+  el.innerHTML = list.map((a, i) => {
+    const score = rankScore(a);
+    const mine = myScore(a);
+    const cls = score === null ? "none" : mine ? "" : "partial";
+    const label = score === null ? "Not scored" : `${Math.round(score)}/100`;
+    return `
+      <button class="card" data-email="${esc(a.email)}" aria-current="${norm(a.email) === norm(state.selected)}">
+        <div class="rank">${score === null ? "—" : "#" + (i + 1)}</div>
+        <div class="nm">${esc(a.fullName)}</div>
+        <div class="meta">${esc(a.headName || display(a.roleAppliedFor))}</div>
+        <div class="meta">${esc(a.interviewSlot || "No slot booked")}</div>
+        <div><span class="score-pill ${cls}">${label}</span></div>
+      </button>`;
+  }).join("");
+}
+
+function renderCriterion(criterion, value) {
+  const id = `crit-${criterion.name.replace(/\W+/g, "-")}`;
+  const anchors = criterion.bands
+    // PR grades in three bands with their own point ranges.
+    ? criterion.bands.map((band) => `
+        <div class="anchor full">
+          <span class="lbl">${esc(band.label)} · ${band.range[0]}–${band.range[1]}</span><br>${esc(band.text)}
+        </div>`).join("")
+    : `<div class="anchor full"><span class="lbl">Full marks</span><br>${esc(criterion.anchors.full)}</div>
+       <div class="anchor low"><span class="lbl">Low marks</span><br>${esc(criterion.anchors.low)}</div>`;
+
+  return `
+    <div class="crit">
+      <div class="crit-head">
+        <span class="name">${esc(criterion.name)}</span>
+        <span class="w">out of ${criterion.weight}${criterion.lookFor ? " · look for " + esc(criterion.lookFor) : ""}</span>
+      </div>
+      ${anchors}
+      <input type="number" id="${id}" data-criterion="${esc(criterion.name)}"
+             min="0" max="${criterion.weight}" step="1"
+             value="${value === undefined || value === null ? "" : esc(value)}"
+             placeholder="0–${criterion.weight}">
+    </div>`;
+}
+
+function renderPanel() {
+  const panel = document.getElementById("panel");
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) { panel.innerHTML = `<div class="empty">Select an applicant.</div>`; return; }
+
+  const rubric = rubricFor(applicant);
+  const mine = myScore(applicant);
+  const others = (applicant.scores || []).filter((s) => norm(s.interviewerEmail) !== norm(state.access.email));
+
+  const facts = [
+    ["Email", applicant.email],
+    ["Phone", applicant.phone],
+    ["Major", applicant.major],
+    ["Year", applicant.yearLevel],
+    ["Interview", applicant.interviewSlot || "Not booked"],
+    ["Status", applicant.interviewStatus || applicant.status]
+  ].filter(([, v]) => String(v ?? "").trim());
+
+  const answers = (applicant.answers || []).map((qa) => `
+    <div class="q">${esc(qa.prompt)}</div>
+    <div class="a">${esc(qa.answer) || "<span class='note'>No answer</span>"}</div>`).join("");
+
+  const scoring = rubric
+    ? rubric.criteria.map((c) => renderCriterion(c, mine?.scores?.[c.name])).join("")
+    : `<div class="banner warn">${esc(display(applicant.committee || applicant.roleAppliedFor))} has no scoring rubric in its
+       brief, so this interview is recorded as notes only. Add a rubric to score it.</div>`;
+
+  panel.innerHTML = `
+    <h2>${esc(applicant.fullName)}</h2>
+    <div class="sub">
+      ${esc(applicant.headName || "—")} · ${esc(display(applicant.committee || applicant.roleAppliedFor))}
+      ${applicant.preference === "Second" ? " · applied here as second preference" : ""}
+      ${applicant.preference === "Assigned" ? " · you were assigned to this interview" : ""}
+    </div>
+
+    ${applicant.preference === "Second" ? `<div class="banner warn">Second preference. Their first choice is
+       ${esc(display(applicant.roleAppliedFor))}, and the interview they booked follows that committee's questions.</div>` : ""}
+    ${/^https?:\/\//.test(applicant.meetLink || "") ? `<div class="banner ok">Google Meet: <a href="${esc(applicant.meetLink)}">${esc(applicant.meetLink)}</a></div>` : ""}
+
+    <div class="facts">
+      ${facts.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join("")}
+    </div>
+
+    <div class="qa">${answers || "<div class='note'>No answers recorded.</div>"}</div>
+
+    ${others.length ? `<h3 class="sec">Also scored by</h3><div class="others">
+      ${others.map((s) => `<div class="row"><b>${esc(s.interviewerName || s.interviewerEmail)}</b>
+        ${s.interviewerPosition ? " · " + esc(s.interviewerPosition) : ""} — ${esc(s.total || "no total")}/100
+        ${s.notes ? `<div class="note">${esc(s.notes)}</div>` : ""}</div>`).join("")}
+    </div>` : ""}
+
+    <h3 class="sec">Your scoring${rubric ? ` · ${esc(rubric.source || "")}` : ""}</h3>
+    ${scoring}
+
+    <div class="crit">
+      <label for="task-link">Task link</label>
+      <input type="url" id="task-link" placeholder="https://…"
+             value="${esc(mine?.taskLink || "")}">
+      <div class="note" style="margin-top:6px;">Paste the work they sent or brought, so the panel can open it later.</div>
+    </div>
+
+    <div class="crit">
+      <label for="notes">Interview notes</label>
+      <textarea id="notes" placeholder="What they actually said. Specifics beat impressions.">${esc(mine?.notes || "")}</textarea>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-gold" id="save">Save</button>
+      <span class="total" id="running"></span>
+      <span class="note" id="saved">${mine ? "Last saved " + esc(String(mine.updatedAt).slice(0, 16).replace("T", " ")) : ""}</span>
+    </div>`;
+
+  updateRunningTotal();
+}
+
+function readScores() {
+  const scores = {};
+  for (const input of document.querySelectorAll("[data-criterion]")) {
+    const raw = input.value.trim();
+    if (raw !== "") scores[input.dataset.criterion] = Number(raw);
+  }
+  return scores;
+}
+
+function updateRunningTotal() {
+  const el = document.getElementById("running");
+  if (!el) return;
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  const rubric = applicant && rubricFor(applicant);
+  if (!rubric) { el.textContent = ""; return; }
+  const total = totalScore(rubric, readScores());
+  el.textContent = total === null ? "Incomplete" : `${total} / 100`;
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+
+async function load(email) {
+  const data = await api({ mode: "heads-committee-load", email });
+  state.access = data.access;
+  state.data = data;
+  sessionStorage.setItem("committeeEmail", data.access.email);
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("portal").classList.remove("hidden");
+  document.getElementById("bar-title").textContent = display(data.access.department);
+  document.getElementById("bar-sub").textContent = `${data.access.name} · ${data.access.positionType}`;
+  renderTabs(); renderList(); renderPanel();
+}
+
+async function save() {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant || state.busy) return;
+  const rubric = rubricFor(applicant);
+  const scores = readScores();
+  const btn = document.getElementById("save");
+
+  state.busy = true; btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    await api({
+      mode: "heads-save-score",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee: applicant.committee || applicant.roleAppliedFor,
+      headRole: applicant.headName || "",
+      preference: applicant.preference || "",
+      scores,
+      total: rubric ? totalScore(rubric, scores) : null,
+      notes: document.getElementById("notes").value,
+      taskLink: document.getElementById("task-link").value.trim()
+    });
+    await load(state.access.email);
+    document.getElementById("saved").textContent = "Saved";
+  } catch (e) {
+    document.getElementById("saved").textContent = e.message;
+  } finally {
+    state.busy = false;
+    const b = document.getElementById("save");
+    if (b) { b.disabled = false; b.textContent = "Save"; }
+  }
+}
+
+/* ── wiring ─────────────────────────────────────────────────────────────── */
+
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const err = document.getElementById("login-error");
+  const btn = document.getElementById("login-btn");
+  err.classList.add("hidden");
+  if (!email) { err.textContent = "Enter your AUC email."; err.classList.remove("hidden"); return; }
+  btn.disabled = true; btn.textContent = "Checking…";
+  try { await load(email); }
+  catch (e) { err.textContent = e.message; err.classList.remove("hidden"); }
+  finally { btn.disabled = false; btn.textContent = "Enter portal"; }
+});
+
+document.getElementById("email").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("login-btn").click();
+});
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  const tab = e.target.closest("[data-tab]");
+  if (!tab) return;
+  state.tab = tab.dataset.tab; state.selected = null;
+  renderTabs(); renderList(); renderPanel();
+});
+
+document.getElementById("list").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-email]");
+  if (!card) return;
+  state.selected = card.dataset.email;
+  renderList(); renderPanel();
+});
+
+document.getElementById("panel").addEventListener("input", (e) => {
+  if (e.target.dataset.criterion) updateRunningTotal();
+});
+document.getElementById("panel").addEventListener("click", (e) => {
+  if (e.target.id === "save") save();
+});
+
+document.getElementById("refresh").addEventListener("click", () => load(state.access.email));
+document.getElementById("logout").addEventListener("click", () => {
+  sessionStorage.removeItem("committeeEmail");
+  location.reload();
+});
+
+const saved = sessionStorage.getItem("committeeEmail");
+if (saved) load(saved).catch(() => sessionStorage.removeItem("committeeEmail"));
+</script>
+</body>
+</html>

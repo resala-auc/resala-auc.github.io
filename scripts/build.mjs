@@ -34,6 +34,11 @@ await cp("admin", "dist/admin", { recursive: true });
 await cp("task-files", "dist/task-files", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
 await cp("director", "dist/director", { recursive: true });
+await cp("committee", "dist/committee", { recursive: true });
+// The committee portal builds its scoring form from the rubrics at runtime.
+// Copied as .js: some static hosts serve .mjs as application/octet-stream,
+// which browsers refuse to execute as a module.
+await cp("src/scoring-rubrics.mjs", "dist/scoring-rubrics.js");
 
 const applyConfigSource = await readFile("src/apply-config.ts", "utf8");
 const applySource = await readFile("src/apply.ts", "utf8");

@@ -3642,7 +3642,7 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
     if (!resEmail) continue;
     const status = String(row[8] ?? "").trim();
     if (status) statusByEmail.set(resEmail, status);
-    const meet = String(row[9] ?? "").trim();
+    const meet = String(row[7] ?? "").trim();
     if (meet) meetByEmail.set(resEmail, meet);
   }
 
