@@ -829,6 +829,24 @@ type HeadsReschedulePayload = {
   endTime?: string;
 };
 
+type HeadsSetInterviewStatusPayload = {
+  mode: "heads-set-interview-status";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  interviewStatus: string;
+};
+
+type HeadsCommitteeReschedulePayload = {
+  mode: "heads-committee-reschedule";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  date: string;
+  startTime: string;
+  endTime?: string;
+};
+
 type HeadsAdminLoadPayload = {
   mode: "heads-admin-load";
   email: string;
@@ -901,6 +919,8 @@ type SubmissionPayload =
   | HeadsAdminLoadPayload
   | HeadsMigrateLegacyPayload
   | HeadsReschedulePayload
+  | HeadsSetInterviewStatusPayload
+  | HeadsCommitteeReschedulePayload
   | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1237,6 +1257,18 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await migrateLegacyApplications(token, payload)) });
     }
 
+    if (isHeadsSetInterviewStatusPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await setHeadsInterviewStatus(token, payload)) });
+    }
+
+    if (isHeadsCommitteeReschedulePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await rescheduleAsCommittee(token, payload)) });
+    }
+
     if (isHeadsReschedulePayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1401,6 +1433,18 @@ function isHeadsSaveScorePayload(payload: SubmissionPayload): payload is HeadsSa
 
 function isHeadsMigrateLegacyPayload(payload: SubmissionPayload): payload is HeadsMigrateLegacyPayload {
   return (payload as HeadsMigrateLegacyPayload).mode === "heads-migrate-legacy";
+}
+
+function isHeadsSetInterviewStatusPayload(
+  payload: SubmissionPayload
+): payload is HeadsSetInterviewStatusPayload {
+  return (payload as HeadsSetInterviewStatusPayload).mode === "heads-set-interview-status";
+}
+
+function isHeadsCommitteeReschedulePayload(
+  payload: SubmissionPayload
+): payload is HeadsCommitteeReschedulePayload {
+  return (payload as HeadsCommitteeReschedulePayload).mode === "heads-committee-reschedule";
 }
 
 function isHeadsReschedulePayload(payload: SubmissionPayload): payload is HeadsReschedulePayload {
@@ -3606,6 +3650,91 @@ async function requireRecruitmentAdmin(token: string, email: string): Promise<{ 
   throw new Error("No recruitment admin access found for this email.");
 }
 
+/**
+ * May this person act on this applicant, for this committee?
+ *
+ * Either they run the committee, or an admin assigned them to the applicant —
+ * the second case is what lets a third interviewer work on someone whose
+ * committee they have nothing to do with.
+ */
+async function authorizeApplicantAccess(
+  token: string,
+  email: string,
+  committee: string,
+  applicantEmail: string
+): Promise<CommitteeAccess> {
+  const access = await requireCommitteeAccess(token, email);
+  if (normalizeRole(access.department) === normalizeRole(committee)) return access;
+
+  const assignments = await readHeadsAssignments(token);
+  const assigned = assignments.some(
+    (entry) =>
+      normalize(entry.assigneeEmail) === normalize(access.email) &&
+      normalize(entry.applicantEmail) === normalize(applicantEmail) &&
+      normalizeRole(entry.committee) === normalizeRole(committee)
+  );
+  if (!assigned) throw new Error("You do not have access to this applicant.");
+  return access;
+}
+
+/** The applicant's row in the reservations sheet, or 0 when they never booked. */
+async function findReservationRow(token: string, applicantEmail: string): Promise<number> {
+  const response = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((row) => normalize(String(row[4] ?? "")) === normalize(applicantEmail));
+  return index >= 0 ? index + 2 : 0;
+}
+
+/**
+ * Mark an interview done, missed, or back to not done. Committees run their own
+ * interview phase, so this does not need an admin.
+ */
+async function setHeadsInterviewStatus(
+  token: string,
+  payload: HeadsSetInterviewStatusPayload
+): Promise<{ interviewStatus: string }> {
+  const status = normalizeInterviewStatus(payload.interviewStatus);
+  if (!status) throw new Error("Unknown interview status.");
+
+  await authorizeApplicantAccess(token, payload.email, payload.committee, payload.applicantEmail);
+
+  const rowNumber = await findReservationRow(token, payload.applicantEmail);
+  if (!rowNumber) throw new Error("This applicant has no booked interview.");
+
+  // Column I of the reservations sheet is Interview Status.
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(RESERVATION_SHEET_NAME, `I${rowNumber}:I${rowNumber}`)}?valueInputOption=RAW`,
+    { values: [[status]] }
+  );
+
+  return { interviewStatus: status };
+}
+
+/**
+ * The same reschedule the admin has, but scoped: the caller must run this
+ * committee or be assigned to the applicant, and the reservation row is looked
+ * up here rather than taken from the client.
+ */
+async function rescheduleAsCommittee(
+  token: string,
+  payload: HeadsCommitteeReschedulePayload
+): Promise<Record<string, unknown>> {
+  await authorizeApplicantAccess(token, payload.email, payload.committee, payload.applicantEmail);
+
+  const rowNumber = await findReservationRow(token, payload.applicantEmail);
+  if (!rowNumber) throw new Error("This applicant has no booked interview.");
+
+  return await rescheduleInterview(token, {
+    mode: "admin-reschedule",
+    reservationRowIndex: rowNumber,
+    date: payload.date,
+    startTime: payload.startTime,
+    endTime: payload.endTime
+  });
+}
+
 /** Deterministic, so saving a second time updates the row instead of duplicating it. */
 function headsScoreId(applicantEmail: string, committee: string, interviewerEmail: string): string {
   return [normalize(applicantEmail), normalizeRole(committee), normalize(interviewerEmail)].join("::");
@@ -3839,19 +3968,7 @@ async function saveHeadsScore(
    * of a third interviewer — so committee access alone is not enough. Either
    * they run this committee, or an admin assigned them to this applicant.
    */
-  const access = await requireCommitteeAccess(token, payload.email);
-  const runsCommittee = normalizeRole(access.department) === normalizeRole(committee);
-
-  if (!runsCommittee) {
-    const assignments = await readHeadsAssignments(token);
-    const assigned = assignments.some(
-      (entry) =>
-        normalize(entry.assigneeEmail) === normalize(access.email) &&
-        normalize(entry.applicantEmail) === normalize(applicantEmail) &&
-        normalizeRole(entry.committee) === normalizeRole(committee)
-    );
-    if (!assigned) throw new Error("You are not assigned to score this applicant.");
-  }
+  const access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
 
   const applicants = await readHeadsApplicants(token);
   const applicant = applicants.find((a) => normalize(String(a.email ?? "")) === normalize(applicantEmail));

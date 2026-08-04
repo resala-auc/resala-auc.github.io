@@ -126,6 +126,19 @@
   .banner.ok { background: #e8f6ee; color: var(--good); }
   .empty { color: var(--muted); padding: 28px 4px; }
   .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+  .state { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; }
+  .state.done  { background: #e8f6ee; color: var(--good); }
+  .state.noshow{ background: #fdecec; color: #a3231b; }
+  .state.notdone { background: var(--soft); color: var(--muted); }
+  .state.pending { background: #fdf4e0; color: var(--warn); }
+  .row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .row2 > div { flex: 1 1 140px; }
+  .row2 .go { flex: 0 0 auto; }
+  input[type=date], input[type=time] { width: 100%; padding: 9px 11px; border: 1px solid var(--line);
+    border-radius: 9px; background: var(--soft); color: var(--ink); }
+  .msg { font-size: 13.5px; margin-top: 9px; }
+  .msg.ok { color: var(--good); }
+  .msg.bad { color: #a3231b; }
 </style>
 </head>
 <body>
@@ -229,6 +242,12 @@ function rubricFor(applicant) {
   return getRubric(committeeIdOf(applicant), headIdOf(applicant));
 }
 
+const STATES = ["Not Done", "Done", "No Show", "Pending"];
+const stateLabel = (a) => String(a.interviewStatus || "").trim() || "Not Done";
+const stateClass = (a) => ({
+  "done": "done", "no show": "noshow", "pending": "pending"
+}[norm(stateLabel(a))] ?? "notdone");
+
 /** This interviewer's own saved score for an applicant, if any. */
 function myScore(applicant) {
   return (applicant.scores || []).find((s) => norm(s.interviewerEmail) === norm(state.access.email)) || null;
@@ -285,7 +304,8 @@ function renderList() {
         <div class="nm">${esc(a.fullName)}</div>
         <div class="meta">${esc(a.headName || display(a.roleAppliedFor))}</div>
         <div class="meta">${esc(a.interviewSlot || "No slot booked")}</div>
-        <div><span class="score-pill ${cls}">${label}</span></div>
+        <div><span class="score-pill ${cls}">${label}</span>
+             <span class="state ${stateClass(a)}">${esc(stateLabel(a))}</span></div>
       </button>`;
   }).join("");
 }
@@ -337,6 +357,19 @@ function renderPanel() {
     <div class="q">${esc(qa.prompt)}</div>
     <div class="a">${esc(qa.answer) || "<span class='note'>No answer</span>"}</div>`).join("");
 
+  // "2026-08-12 at 4:00 PM" -> date and 24h time for the inputs.
+  const slotMatch = String(applicant.interviewSlot || "")
+    .match(/^(\d{4}-\d{2}-\d{2})\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  let reDate = "", reTime = "";
+  if (slotMatch) {
+    reDate = slotMatch[1];
+    let hour = Number(slotMatch[2]);
+    const meridiem = (slotMatch[4] || "").toUpperCase();
+    if (meridiem === "PM" && hour !== 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+    reTime = `${String(hour).padStart(2, "0")}:${slotMatch[3]}`;
+  }
+
   const scoring = rubric
     ? rubric.criteria.map((c) => renderCriterion(c, mine?.scores?.[c.name])).join("")
     : `<div class="banner warn">${esc(display(applicant.committee || applicant.roleAppliedFor))} has no scoring rubric in its
@@ -365,6 +398,30 @@ function renderPanel() {
         ${s.interviewerPosition ? " · " + esc(s.interviewerPosition) : ""} — ${esc(s.total || "no total")}/100
         ${s.notes ? `<div class="note">${esc(s.notes)}</div>` : ""}</div>`).join("")}
     </div>` : ""}
+
+    <h3 class="sec">Interview</h3>
+    ${applicant.interviewSlot ? `
+      <div class="row2" style="margin-bottom:10px;">
+        <div>
+          <label for="state">Did it happen?</label>
+          <select id="state">
+            ${STATES.map((v) => `<option value="${v}"${norm(v) === norm(stateLabel(applicant)) ? " selected" : ""}>${v}</option>`).join("")}
+          </select>
+        </div>
+        <div class="go"><button class="btn btn-sm btn-ghost" id="set-state">Update</button></div>
+      </div>
+      <div class="note" style="margin-bottom:14px;">
+        Mark <b>No Show</b> if they never joined. It is what the ranking and any follow-up read.
+      </div>
+
+      <div class="row2">
+        <div><label for="re-date">Move to date</label><input type="date" id="re-date" value="${esc(reDate)}"></div>
+        <div><label for="re-time">Start</label><input type="time" id="re-time" value="${esc(reTime)}"></div>
+        <div class="go"><button class="btn btn-sm btn-ghost" id="reschedule">Reschedule</button></div>
+      </div>
+      <div class="note" style="margin-top:6px;">Moves the calendar event and emails the applicant. Agree the new time with them first.</div>
+      <div class="msg" id="int-msg"></div>
+    ` : `<div class="note">No interview booked, so there is nothing to mark or move.</div>`}
 
     <h3 class="sec">Your scoring${rubric ? ` · ${esc(rubric.source || "")}` : ""}</h3>
     ${scoring}
@@ -492,7 +549,60 @@ document.getElementById("panel").addEventListener("input", (e) => {
 });
 document.getElementById("panel").addEventListener("click", (e) => {
   if (e.target.id === "save") save();
+  if (e.target.id === "set-state") setState();
+  if (e.target.id === "reschedule") reschedule();
 });
+
+async function setState() {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  const msg = document.getElementById("int-msg");
+  const btn = document.getElementById("set-state");
+  if (!applicant) return;
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+  try {
+    await api({
+      mode: "heads-set-interview-status",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee: applicant.committee || applicant.roleAppliedFor,
+      interviewStatus: document.getElementById("state").value
+    });
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+}
+
+async function reschedule() {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  const msg = document.getElementById("int-msg");
+  const btn = document.getElementById("reschedule");
+  if (!applicant) return;
+  const date = document.getElementById("re-date").value;
+  const startTime = document.getElementById("re-time").value;
+  if (!date || !startTime) { msg.className = "msg bad"; msg.textContent = "Pick a date and time."; return; }
+  if (!confirm(`Move ${applicant.fullName}'s interview to ${date} at ${startTime}? This emails them.`)) return;
+
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Rescheduling…";
+  try {
+    const r = await api({
+      mode: "heads-committee-reschedule",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee: applicant.committee || applicant.roleAppliedFor,
+      date, startTime
+    });
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+    const m = document.getElementById("int-msg");
+    if (m) { m.className = "msg ok"; m.textContent = `Moved.${r.emailSent ? " Applicant emailed." : " Email not sent."}`; }
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+}
 
 document.getElementById("refresh").addEventListener("click", () => load(state.access.email));
 document.getElementById("logout").addEventListener("click", () => {
