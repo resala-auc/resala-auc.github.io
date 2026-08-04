@@ -217,19 +217,18 @@ const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
   visits: {
     committee: "Visits",
     durationMinutes: 60,
-    // Ezz and Amina are merged into one pool; `double` marks the hours both are
-    // free, which therefore accept two bookings.
+    // Ezz and Amina interview together, so every slot takes one applicant.
     days: [
       { date: "2026-08-04", times: ["14:00", "15:00", "16:00", "17:00"] },
-      { date: "2026-08-05", times: ["10:00", "11:00", "12:00", "13:00", "18:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
-      { date: "2026-08-06", times: ["10:00", "11:00", "12:00", "13:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
-      { date: "2026-08-07", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
-      { date: "2026-08-08", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
-      { date: "2026-08-11", times: ["14:00", "18:00", "19:00"], double: ["15:00", "16:00", "17:00"] },
-      { date: "2026-08-12", times: ["14:00", "18:00", "19:00"], double: ["15:00", "16:00", "17:00"] },
-      { date: "2026-08-13", times: ["10:00", "11:00", "12:00", "13:00"], double: ["14:00", "15:00", "16:00", "17:00"] },
-      { date: "2026-08-14", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] },
-      { date: "2026-08-15", times: ["10:00", "11:00", "12:00", "13:00", "17:00"], double: ["14:00", "15:00", "16:00"] }
+      { date: "2026-08-05", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"] },
+      { date: "2026-08-06", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-07", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-08", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-11", times: ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-12", times: ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"] },
+      { date: "2026-08-13", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-14", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] },
+      { date: "2026-08-15", times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"] }
     ]
   }
 };
@@ -238,6 +237,8 @@ type HeadsTask = {
   summary: string;
   detail: string;
   scenario?: string;
+  /** True when the task is handed out at the interview, not prepared beforehand. */
+  atInterview?: boolean;
   byRole?: Record<string, { title: string; points: string[] }>;
 };
 
@@ -250,6 +251,32 @@ type HeadsTask = {
  * Mirrors the `task` blocks in src/interview-config.mjs — change both together.
  */
 const HEADS_TASKS: Record<string, HeadsTask> = {
+  "children day director": {
+    summary: "A short trial task, given at the interview",
+    detail:
+      "There is nothing to prepare. You will be given a 15-30 minute task during the interview itself, and it carries the most weight in the scoring.",
+    atInterview: true,
+    byRole: {
+      creative: {
+        title: "Creative Logistics & Visual Identity Lead",
+        points: [
+          "Design a ~4-slide interactive presentation that holds children's attention and delivers a clear educational benefit by the end."
+        ]
+      },
+      english: {
+        title: "English Sessions Lead",
+        points: [
+          "Structure a ~4-slide deck for intermediate-level students, teaching key vocabulary alongside a grammar lesson, built around a real-life problem these students face."
+        ]
+      },
+      teaching: {
+        title: "Teaching & Organizing Lead",
+        points: [
+          "Two ~150-word parent phone scripts, an operations contingency plan, and a placement-conflict response."
+        ]
+      }
+    }
+  },
   "branding media": {
     summary: "Bring a portfolio link",
     detail:
@@ -323,11 +350,11 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
     ? Object.entries(task.byRole).find(([key]) => normalize(headName).includes(key))?.[1]
     : undefined;
 
-  const lines = [`Before your interview: ${task.summary}`, ""];
+  const lines = [`${task.atInterview ? "At your interview" : "Before your interview"}: ${task.summary}`, ""];
   if (task.scenario) lines.push(task.scenario, "");
   lines.push(task.detail, "");
   if (forHead) {
-    lines.push(`${forHead.title} — cover:`, ...forHead.points.map((p) => `- ${p}`), "");
+    lines.push(`${forHead.title} — ${task.atInterview ? "your task will be" : "cover"}:`, ...forHead.points.map((p) => `- ${p}`), "");
   }
   return lines;
 }
@@ -1523,7 +1550,8 @@ function buildConfirmationEmailTemplate(
     "",
   );
 
-  if (HEADS_TASKS[normalizeRole(payload.roleAppliedFor)]) {
+  const emailTask = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
+  if (emailTask && !emailTask.atInterview) {
     bodyLines.push(
       hasSlot
         ? `Have it ready by ${taskDeadline || "30 minutes before your interview"}.`
@@ -1641,7 +1669,7 @@ function buildConfirmationEmailHtml({
                 `}
                 ${buildHeadsTaskHtml(payload)}
                 ${buildRoleGuideHtml(roleGuideLinks)}
-                ${!HEADS_TASKS[normalizeRole(roleAppliedFor)] ? "" : `
+                ${!HEADS_TASKS[normalizeRole(roleAppliedFor)] || HEADS_TASKS[normalizeRole(roleAppliedFor)].atInterview ? "" : `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
@@ -1780,7 +1808,7 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
     <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
-      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Before your interview</div>
+      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">${task.atInterview ? "At your interview" : "Before your interview"}</div>
       <div style="font-size:17px;line-height:1.4;font-weight:bold;color:#0d2b45;margin-bottom:8px;">${escapeHtml(forHead ? forHead.title : task.summary)}</div>
       ${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
       <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
@@ -2087,15 +2115,41 @@ async function ensureHeadsSlotSheet(token: string): Promise<void> {
   const existing = ((await response.json()).values ?? []) as string[][];
   const present = new Set(existing.map((row) => normalize(row[0])));
 
-  const missing = buildHeadsSlotRows().filter((row) => !present.has(normalize(String(row[0]))));
-  if (!missing.length) return;
+  const published = buildHeadsSlotRows();
+  const missing = published.filter((row) => !present.has(normalize(String(row[0]))));
 
-  await sheetsFetch(
-    token,
-    "POST",
-    `${sheetRange(HEADS_SLOT_SHEET_NAME, "A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { values: missing }
-  );
+  if (missing.length) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(HEADS_SLOT_SHEET_NAME, "A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: missing }
+    );
+  }
+
+  /*
+   * Reconcile capacity and duration on rows that already exist. Appending alone
+   * is not enough: Visits was seeded when two interviewers were assumed to take
+   * two bookings an hour, and those rows kept a capacity of 2 after the schedule
+   * changed to one shared interview. Only these two columns are touched, so a
+   * slot deactivated by hand stays deactivated.
+   */
+  const byId = new Map(published.map((row) => [normalize(String(row[0])), row]));
+  const updates: Array<{ range: string; values: string[][] }> = [];
+
+  for (const [index, row] of existing.entries()) {
+    const wanted = byId.get(normalize(row[0]));
+    if (!wanted) continue;
+    const rowIndex = index + 2;
+    if (String(row[6] ?? "") !== String(wanted[6])) {
+      updates.push({ range: sheetA1Range(HEADS_SLOT_SHEET_NAME, `G${rowIndex}`), values: [[String(wanted[6])]] });
+    }
+    if (String(row[7] ?? "") !== String(wanted[7])) {
+      updates.push({ range: sheetA1Range(HEADS_SLOT_SHEET_NAME, `H${rowIndex}`), values: [[String(wanted[7])]] });
+    }
+  }
+
+  await sheetsBatchUpdateValues(token, updates);
 }
 
 /**

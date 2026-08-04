@@ -185,9 +185,9 @@ export const interviewConfig = {
 
   visits: {
     durationMinutes: 60,
-    // Ezz and Amina both interview. Their two schedules are merged into one
-    // pool: the applicant picks a time, not a person, and an hour where both
-    // are free simply takes two bookings.
+    // Ezz and Amina interview together, so an hour where both are free is still
+    // a single interview. Their schedules are merged into one pool of times and
+    // every slot takes exactly one applicant.
     //
     // Ezz's published table also lists an 11:00 PM-12:00 AM slot on every one of
     // his days. It is deliberately not offered here: it would schedule an
@@ -249,48 +249,39 @@ export const interviewConfig = {
       { date: "2026-08-04", times: ["14:00", "15:00", "16:00", "17:00"] },
       {
         date: "2026-08-05",
-        times: ["10:00", "11:00", "12:00", "13:00", "18:00"],
-        double: ["14:00", "15:00", "16:00", "17:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00"]
       },
       {
         date: "2026-08-06",
-        times: ["10:00", "11:00", "12:00", "13:00"],
-        double: ["14:00", "15:00", "16:00", "17:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       },
       {
         date: "2026-08-07",
-        times: ["10:00", "11:00", "12:00", "13:00", "17:00"],
-        double: ["14:00", "15:00", "16:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       },
       {
         date: "2026-08-08",
-        times: ["10:00", "11:00", "12:00", "13:00", "17:00"],
-        double: ["14:00", "15:00", "16:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       },
       {
         date: "2026-08-11",
-        times: ["14:00", "18:00", "19:00"],
-        double: ["15:00", "16:00", "17:00"]
+        times: ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
       },
       {
         date: "2026-08-12",
-        times: ["14:00", "18:00", "19:00"],
-        double: ["15:00", "16:00", "17:00"]
+        times: ["14:00", "15:00", "16:00", "17:00", "18:00", "19:00"]
       },
       {
         date: "2026-08-13",
-        times: ["10:00", "11:00", "12:00", "13:00"],
-        double: ["14:00", "15:00", "16:00", "17:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       },
       {
         date: "2026-08-14",
-        times: ["10:00", "11:00", "12:00", "13:00", "17:00"],
-        double: ["14:00", "15:00", "16:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       },
       {
         date: "2026-08-15",
-        times: ["10:00", "11:00", "12:00", "13:00", "17:00"],
-        double: ["14:00", "15:00", "16:00"]
+        times: ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
       }
     ]
   }
