@@ -389,6 +389,32 @@ function taskBanner(applicant) {
     <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`;
 }
 
+/* There is no second interview slot — a second preference only ever rides
+   along on the interview the applicant already booked with their first
+   choice. So this asks one question: can this committee actually staff that
+   existing time. A "No" is what should send HR to assign someone else. */
+function availabilityBlock(applicant) {
+  const status = String(applicant.secondPreferenceAvailability || "").trim();
+  const when = String(applicant.secondPreferenceAvailabilitySetAt || "").slice(0, 16).replace("T", " ");
+  const disabledIf = !applicant.interviewSlot;
+
+  const statusLine = status
+    ? `<div class="banner ${status === "Available" ? "ok" : "warn"}">
+        ${status === "Available" ? "Marked available" : "Marked not available"} for ${esc(applicant.interviewSlot || "this interview")}${when ? ` · ${esc(when)}` : ""}.
+      </div>`
+    : `<div class="banner warn">Not answered yet: can your committee join this applicant's interview
+       ${applicant.interviewSlot ? `on <b>${esc(applicant.interviewSlot)}</b>` : ""}? Say so below, so HR knows
+       whether to find someone else.</div>`;
+
+  return `${statusLine}
+    <div class="row2" style="margin-bottom:18px;">
+      <div class="go"><button class="btn btn-sm ${status === "Available" ? "btn-gold" : "btn-ghost"}"
+        id="avail-yes" ${disabledIf ? "disabled" : ""}>We can make it</button></div>
+      <div class="go"><button class="btn btn-sm ${status === "Not Available" ? "btn-gold" : "btn-ghost"}"
+        id="avail-no" ${disabledIf ? "disabled" : ""}>We can't make it</button></div>
+    </div>`;
+}
+
 function renderPanel() {
   const panel = document.getElementById("panel");
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
@@ -441,6 +467,7 @@ function renderPanel() {
        ${esc(display(applicant.roleAppliedFor))}, and the interview they booked follows that committee's questions.</div>` : ""}
     ${/^https?:\/\//.test(applicant.meetLink || "") ? `<div class="banner ok">Google Meet: <a href="${esc(applicant.meetLink)}">${esc(applicant.meetLink)}</a></div>` : ""}
     ${taskBanner(applicant)}
+    ${applicant.preference === "Second" ? availabilityBlock(applicant) : ""}
 
     <div class="facts">
       ${facts.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join("")}
@@ -621,7 +648,39 @@ document.getElementById("panel").addEventListener("click", (e) => {
   if (e.target.id === "set-state") setState();
   if (e.target.id === "reschedule") reschedule();
   if (e.target.id === "cancel-interview") cancelInterview();
+  if (e.target.id === "avail-yes") setSecondPreferenceAvailability(true);
+  if (e.target.id === "avail-no") setSecondPreferenceAvailability(false);
 });
+
+async function setSecondPreferenceAvailability(available) {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) return;
+  if (!available && !confirm(
+    `Tell HR your committee can't cover ${applicant.fullName}'s interview on ${applicant.interviewSlot}? ` +
+    "They will need to find a third interviewer."
+  )) return;
+
+  const yesBtn = document.getElementById("avail-yes");
+  const noBtn = document.getElementById("avail-no");
+  if (yesBtn) yesBtn.disabled = true;
+  if (noBtn) noBtn.disabled = true;
+  try {
+    await api({
+      mode: "heads-confirm-second-availability",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee: applicant.committee || applicant.roleAppliedFor,
+      available
+    });
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+  } catch (e) {
+    alert(e.message);
+    if (yesBtn) yesBtn.disabled = false;
+    if (noBtn) noBtn.disabled = false;
+  }
+}
 
 async function cancelInterview() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));

@@ -76,6 +76,7 @@
   .pill.done { background: #e8f6ee; color: var(--good); }
   .pill.open { background: var(--soft); color: var(--muted); }
   .pill.part { background: #fdf4e0; color: var(--warn); }
+  .pill.bad { background: #fdecec; color: var(--bad); }
   .wrap-x { overflow-x: auto; }
 
   dialog { border: 0; border-radius: 16px; padding: 0; max-width: 760px; width: calc(100% - 32px);
@@ -214,6 +215,18 @@ const submittedLink = (a) => {
   return /^https?:\/\//.test(link) ? link : "";
 };
 
+/* There is no second interview slot: a second preference only ever rides
+   along on the interview already booked with the first choice, so this is
+   the second committee's own answer to "can you make that time" — not a
+   score, not a booking. A "Not available" is the cue to assign someone else. */
+const secondPrefAvailabilityPill = (a) => {
+  if (!a.secondPreference) return "";
+  const status = String(a.secondPreferenceAvailability || "").trim();
+  if (status === "Available") return `<span class="pill done">Available</span>`;
+  if (status === "Not Available") return `<span class="pill bad">Can't make it</span>`;
+  return `<span class="pill part">Awaiting reply</span>`;
+};
+
 /** Scores for the committee the applicant actually applied to. */
 const firstScores = (a) =>
   (a.scores || []).filter((s) => norm(s.committee) === norm(a.roleAppliedFor));
@@ -310,7 +323,8 @@ function renderGroups() {
             }</td>` : ""}
             <td class="num">${avg === null ? "—" : Math.round(avg) + "/100"}</td>
             <td><span class="pill ${st}">${st === "none" ? "Not scored" : st === "part" ? "1 of 2" : "Both"}</span></td>
-            <td>${esc(display(a.secondPreference) || "—")}</td>
+            <td>${esc(display(a.secondPreference) || "—")}
+                ${secondPrefAvailabilityPill(a) ? `<div style="margin-top:4px;">${secondPrefAvailabilityPill(a)}</div>` : ""}</td>
             <td>${esc(assigned || "—")}</td>
           </tr>`;
         }).join("")}</tbody>
@@ -335,6 +349,27 @@ function taskLine(a) {
     : "";
 }
 
+/* Shown just above the assign-a-third-interviewer form: what to act on, and
+   why, rather than making HR cross-reference the pill in the table. */
+function secondPreferenceStatusBanner(a) {
+  const status = String(a.secondPreferenceAvailability || "").trim();
+  const committee = display(a.secondPreference);
+  const when = String(a.secondPreferenceAvailabilitySetAt || "").slice(0, 16).replace("T", " ");
+  if (status === "Not Available") {
+    return `<div class="note" style="background:#fdecec;color:var(--bad);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+      <b>${esc(committee)} can't cover this interview</b>${when ? ` · told us ${esc(when)}` : ""}.
+      ${esc(a.secondPreferenceAvailabilityNote || "")} Assign someone else below.
+    </div>`;
+  }
+  if (status === "Available") {
+    return `<div class="note" style="margin-bottom:10px;">${esc(committee)} confirmed they can join this
+      interview${when ? ` (${esc(when)})` : ""} — an assignment below is optional, only if you want a third
+      opinion anyway.</div>`;
+  }
+  return `<div class="note" style="margin-bottom:10px;">${esc(committee)} has not said yet whether they can join
+    this applicant's interview. If time is short, assign someone else directly.</div>`;
+}
+
 function renderDialog(a) {
   const rubric = getRubric(committeeIdOf(a), headIdOf(a));
   const scores = a.scores || [];
@@ -343,6 +378,9 @@ function renderDialog(a) {
     ["Email", a.email], ["Phone", a.phone], ["Major", a.major], ["Year", a.yearLevel],
     ["First preference", `${display(a.roleAppliedFor)} · ${a.headName || "—"}`],
     ["Second preference", display(a.secondPreference) || "—"],
+    ["Second preference availability", a.secondPreference
+      ? (String(a.secondPreferenceAvailability || "").trim() || "Awaiting reply")
+      : ""],
     ["Interview", a.interviewSlot || "Not booked"],
     ["Interview status", a.interviewStatus || a.status]
   ].filter(([, v]) => String(v ?? "").trim());
@@ -395,6 +433,7 @@ function renderDialog(a) {
     ${rubric ? "" : `<div class="note">${esc(display(a.roleAppliedFor))} has no rubric in its brief, so its interviews are notes only.</div>`}
 
     <h3 class="sec">Assign a third interviewer</h3>
+    ${a.secondPreference ? secondPreferenceStatusBanner(a) : ""}
     <div class="note" style="margin-bottom:8px;">
       They will see this applicant under “Assigned to me” and can score
       ${esc(display(a.secondPreference) || "the second preference")} with that committee's own rubric.

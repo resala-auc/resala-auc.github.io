@@ -168,10 +168,23 @@ const HEADS_APPLICATION_HEADERS = [
   // brought to it, this is the applicant's own submission. Last two columns so
   // adding them does not move anything a reader already knows the position of.
   "Task Link",
-  "Task Submitted At"
+  "Task Submitted At",
+  // There is one interview, run by the first-preference committee, and a
+  // second-preference committee only ever joins it as a third interviewer —
+  // so before HR assigns one, the second committee says whether they can
+  // actually make that time.
+  "Second Preference Availability",
+  "Second Preference Availability Note",
+  "Second Preference Availability Set At"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
+const SECOND_PREFERENCE_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Committee");
+const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
+const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
+const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
+  "Second Preference Availability Set At"
+);
 
 const HEADS_SCORE_SHEET_NAME = Deno.env.get("HEADS_SCORE_SHEET_NAME") ?? "Interview Scores Heads";
 const HEADS_SCORE_HEADERS = [
@@ -905,6 +918,20 @@ type HeadsCancelInterviewPayload = {
   reason?: string;
 };
 
+/**
+ * The second-preference committee saying whether it can staff the interview
+ * the applicant already has booked (with their first-preference committee) —
+ * not a booking of its own, since second preference never gets one.
+ */
+type HeadsConfirmSecondAvailabilityPayload = {
+  mode: "heads-confirm-second-availability";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  available: boolean;
+  note?: string;
+};
+
 type HeadsAdminLoadPayload = {
   mode: "heads-admin-load";
   email: string;
@@ -986,6 +1013,7 @@ type SubmissionPayload =
   | HeadsSetInterviewStatusPayload
   | HeadsCommitteeReschedulePayload
   | HeadsCancelInterviewPayload
+  | HeadsConfirmSecondAvailabilityPayload
   | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1100,6 +1128,19 @@ function secondPreferenceLabel(payload: ApplicationPayload): string {
   const head = rest.join("—").trim();
   const named = displayCommitteeName(committee);
   return head ? `${named} — ${head}` : named;
+}
+
+/**
+ * "Second Preference Committee" is stored pre-joined as "Committee — Head" (see
+ * `secondPreferenceLabel` above) — the applicant chooses both in one step and
+ * only the combined string comes back from the form. Everywhere that needs to
+ * match the committee alone against a department, or hand the head name to a
+ * rubric, has to split it back apart first.
+ */
+function splitSecondPreference(value: unknown): { committee: string; head: string } {
+  const raw = String(value ?? "").trim();
+  const [committee, ...rest] = raw.split("—");
+  return { committee: committee.trim(), head: rest.join("—").trim() };
 }
 
 Deno.serve(async (request) => {
@@ -1396,6 +1437,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await cancelHeadsInterview(token, payload)) });
     }
 
+    if (isHeadsConfirmSecondAvailabilityPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await confirmSecondPreferenceAvailability(token, payload)) });
+    }
+
     if (isHeadsReschedulePayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1578,6 +1625,12 @@ function isHeadsCancelInterviewPayload(
   payload: SubmissionPayload
 ): payload is HeadsCancelInterviewPayload {
   return (payload as HeadsCancelInterviewPayload).mode === "heads-cancel-interview";
+}
+
+function isHeadsConfirmSecondAvailabilityPayload(
+  payload: SubmissionPayload
+): payload is HeadsConfirmSecondAvailabilityPayload {
+  return (payload as HeadsConfirmSecondAvailabilityPayload).mode === "heads-confirm-second-availability";
 }
 
 function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
@@ -3873,6 +3926,74 @@ async function clearHeadsApplicationSlot(token: string, aucEmail: string): Promi
   return true;
 }
 
+/**
+ * A second-preference committee saying whether it can actually staff the
+ * interview an applicant already booked with their first-preference one.
+ * There is no separate second-preference slot to accept or decline — this
+ * only ever answers "can you make that time", and a "No" is what should send
+ * HR to the assign-a-third-interviewer flow to find someone who can.
+ */
+async function confirmSecondPreferenceAvailability(
+  token: string,
+  payload: HeadsConfirmSecondAvailabilityPayload
+): Promise<{
+  applicantEmail: string;
+  committee: string;
+  available: boolean;
+  setAt: string;
+}> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  if (!applicantEmail || !committee) {
+    throw new Error("Applicant and committee are required.");
+  }
+
+  // Only the second-preference committee itself answers this — not an
+  // assigned third interviewer, who is a stand-in for exactly the case this
+  // exists to flag.
+  const access = await requireCommitteeAccess(token, payload.email);
+  if (normalizeRole(access.department) !== normalizeRole(committee)) {
+    throw new Error("You do not run this committee.");
+  }
+
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((row) => normalize(row[2]) === normalize(applicantEmail));
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  // This applicant must actually have named this committee as their second
+  // preference — otherwise a mistaken click here would silently overwrite a
+  // status meant for whichever committee they really picked.
+  const secondPrefColumn = columnLetter(SECOND_PREFERENCE_COMMITTEE_COLUMN + 1);
+  const fullRowResponse = await sheetsFetch(
+    token,
+    "GET",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${secondPrefColumn}${index + 2}:${secondPrefColumn}${index + 2}`)}`
+  );
+  const storedSecondPreference = fullRowResponse.ok ? (await fullRowResponse.json()).values?.[0]?.[0] ?? "" : "";
+  if (normalizeRole(splitSecondPreference(storedSecondPreference).committee) !== normalizeRole(committee)) {
+    throw new Error("This committee is not this applicant's second preference.");
+  }
+
+  const setAt = new Date().toISOString();
+  const status = payload.available ? "Available" : "Not Available";
+  const note = String(payload.note ?? "").trim();
+
+  await sheetsBatchUpdateValues(token, [
+    {
+      range: sheetA1Range(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(SECOND_PREF_AVAILABILITY_COLUMN + 1)}${index + 2}:${columnLetter(
+          SECOND_PREF_AVAILABILITY_SET_AT_COLUMN + 1
+        )}${index + 2}`
+      ),
+      values: [[status, note, setAt]]
+    }
+  ]);
+
+  return { applicantEmail, committee, available: payload.available, setAt };
+}
+
 /** Deterministic, so saving a second time updates the row instead of duplicating it. */
 function headsScoreId(applicantEmail: string, committee: string, interviewerEmail: string): string {
   return [normalize(applicantEmail), normalizeRole(committee), normalize(interviewerEmail)].join("::");
@@ -4111,6 +4232,11 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         // before the interview. Blank for every other committee.
         taskLink: String(row[TASK_LINK_COLUMN] ?? ""),
         taskSubmittedAt: String(row[TASK_SUBMITTED_AT_COLUMN] ?? ""),
+        // Whether the second-preference committee can staff the interview
+        // already booked with the first-preference one. Blank until they say.
+        secondPreferenceAvailability: String(row[SECOND_PREF_AVAILABILITY_COLUMN] ?? ""),
+        secondPreferenceAvailabilityNote: String(row[SECOND_PREF_AVAILABILITY_NOTE_COLUMN] ?? ""),
+        secondPreferenceAvailabilitySetAt: String(row[SECOND_PREF_AVAILABILITY_SET_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
@@ -4158,10 +4284,33 @@ async function loadCommitteePortal(
     .filter((a) => normalizeRole(String(a.roleAppliedFor ?? "")) === department)
     .map((a) => decorate(a, String(a.roleAppliedFor ?? ""), "First"));
 
+  /*
+   * "Second Preference Committee" is stored as "Committee — Head" in one cell
+   * (see `splitSecondPreference`), so matching it against a bare department
+   * name needs the split first — comparing the combined string never matches,
+   * which is why this tab was silently empty for every committee. The split
+   * committee/head also replace the applicant's first-preference committeeId
+   * and headId for this row, or the rubric and task lookups below would grade
+   * the second-preference committee's applicant against the first committee's
+   * rubric.
+   */
   const secondPreference = applicants
-    .filter((a) => normalizeRole(String(a.secondPreference ?? "")) === department)
+    .filter((a) => normalizeRole(splitSecondPreference(a.secondPreference).committee) === department)
     .filter((a) => normalizeRole(String(a.roleAppliedFor ?? "")) !== department)
-    .map((a) => decorate(a, String(a.secondPreference ?? ""), "Second"));
+    .map((a) => {
+      const { committee, head } = splitSecondPreference(a.secondPreference);
+      return decorate(
+        {
+          ...a,
+          committee,
+          committeeId: String(a.secondCommitteeId ?? "") || String(a.committeeId ?? ""),
+          headId: String(a.secondHeadId ?? "") || "",
+          headName: head || String(a.headName ?? "")
+        },
+        committee,
+        "Second"
+      );
+    });
 
   const myAssignments = assignments.filter((entry) => normalize(entry.assigneeEmail) === me);
   const assigned = myAssignments
