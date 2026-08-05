@@ -30,6 +30,9 @@ await cp("admin", "dist/admin", { recursive: true });
 await cp("task-files", "dist/task-files", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
 // Where applicants hand in a task their committee collects before the interview.
+await cp("tasks", "dist/tasks", { recursive: true });
+// The page used to live at /task/, and emails carrying that address are already
+// in people's inboxes. Keep it, forwarding to the real one.
 await cp("task", "dist/task", { recursive: true });
 await cp("director", "dist/director", { recursive: true });
 await cp("committee", "dist/committee", { recursive: true });

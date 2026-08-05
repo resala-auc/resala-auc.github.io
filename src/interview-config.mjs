@@ -169,7 +169,7 @@ export const interviewConfig = {
       detail:
         "Your task sheet is attached to your confirmation email. It carries the most weight in the scoring, so give it real time.",
       dueBeforeInterviewMinutes: 60,
-      submissionUrl: "https://resala-auc.github.io/task/",
+      submissionUrl: "https://resala-auc.github.io/tasks/",
       // The brief's own note to applicants, kept in their words.
       aiNote: "You can use AI as a tool, but not the other way around.",
       byRole: {

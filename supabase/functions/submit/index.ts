@@ -19,7 +19,7 @@ const TASK_FILE_BASE_URL = (Deno.env.get("TASK_FILE_BASE_URL") ?? "https://resal
   ""
 );
 /** Where an applicant hands in a task their committee asks for beforehand. */
-const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://resala-auc.github.io/task/").replace(
+const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://resala-auc.github.io/tasks/").replace(
   /\/*$/,
   "/"
 );
