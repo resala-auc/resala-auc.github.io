@@ -841,6 +841,11 @@ type HeadsAdminLoadPayload = {
   email: string;
 };
 
+type HeadsRepairSlotLinksPayload = {
+  mode: "heads-repair-slot-links";
+  email: string;
+};
+
 type HeadsAssignInterviewerPayload = {
   mode: "heads-assign-interviewer";
   email: string;
@@ -905,6 +910,7 @@ type SubmissionPayload =
   | HeadsCommitteeLoadPayload
   | HeadsSaveScorePayload
   | HeadsAdminLoadPayload
+  | HeadsRepairSlotLinksPayload
   | HeadsMigrateLegacyPayload
   | HeadsReschedulePayload
   | HeadsSetInterviewStatusPayload
@@ -1329,6 +1335,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadHeadsAdmin(token, payload.email)) });
     }
 
+    if (isHeadsRepairSlotLinksPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await repairHeadsSlotLinks(token, payload.email)) });
+    }
+
     if (isHeadsAssignInterviewerPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1477,6 +1489,10 @@ function isHeadsReschedulePayload(payload: SubmissionPayload): payload is HeadsR
 
 function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
   return (payload as HeadsAdminLoadPayload).mode === "heads-admin-load";
+}
+
+function isHeadsRepairSlotLinksPayload(payload: SubmissionPayload): payload is HeadsRepairSlotLinksPayload {
+  return (payload as HeadsRepairSlotLinksPayload).mode === "heads-repair-slot-links";
 }
 
 function isHeadsAssignInterviewerPayload(
@@ -3716,6 +3732,13 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
   const statusByEmail = new Map<string, string>();
   const meetByEmail = new Map<string, string>();
   const reservationRowByEmail = new Map<string, number>();
+  /*
+   * The booking itself lives on the reservation row: that is what a reschedule
+   * rewrites, what the calendar event follows, and what the reminder job reads.
+   * The application row only ever held a copy taken at submission time, so
+   * whenever the two disagree the reservation is right and the copy is stale.
+   */
+  const slotByEmail = new Map<string, { label: string; id: string }>();
   reservationRows.forEach((row, index) => {
     const resEmail = normalize(String(row[4] ?? ""));
     if (!resEmail) return;
@@ -3723,6 +3746,9 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
     if (status) statusByEmail.set(resEmail, status);
     const meet = String(row[7] ?? "").trim();
     if (meet) meetByEmail.set(resEmail, meet);
+    const slotLabel = String(row[2] ?? "").trim();
+    const slotId = String(row[1] ?? "").trim();
+    if (slotLabel || slotId) slotByEmail.set(resEmail, { label: slotLabel, id: slotId });
     reservationRowByEmail.set(resEmail, index + 2);
   });
 
@@ -3739,6 +3765,7 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
       }
 
       const email = String(row[2] ?? "");
+      const booked = slotByEmail.get(normalize(email));
       return {
         timestamp: String(row[0] ?? ""),
         fullName: String(row[1] ?? ""),
@@ -3755,8 +3782,8 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         secondHeadName: String(row[12] ?? ""),
         secondCommitteeId: String(row[13] ?? ""),
         secondHeadId: String(row[14] ?? ""),
-        interviewSlot: String(row[15] ?? ""),
-        interviewSlotId: String(row[16] ?? ""),
+        interviewSlot: booked?.label || String(row[15] ?? ""),
+        interviewSlotId: booked?.id || String(row[16] ?? ""),
         status: String(row[18] ?? ""),
         createdAt: String(row[19] ?? ""),
         answers,
@@ -4102,6 +4129,127 @@ async function migrateLegacyApplications(
 }
 
 /** Everything, for whoever is running this cycle. */
+/**
+ * Repairs bookings the old reschedule left dangling. Before the resolver knew
+ * about the heads slot sheet, a moved interview was written with a made-up slot
+ * id, so the slot it actually occupies still counts as free and could be handed
+ * to somebody else. This re-points those reservations at the real slot and
+ * copies the booked time back onto the application row.
+ *
+ * Touches sheets only: no calendar changes, no email, so it can be run again
+ * safely.
+ */
+async function repairHeadsSlotLinks(
+  token: string,
+  email: string
+): Promise<{
+  relinked: Array<Record<string, string>>;
+  slotsCopied: number;
+  slotsCleared: number;
+  unmatched: Array<Record<string, string>>;
+}> {
+  await requireRecruitmentAdmin(token, email);
+
+  const [slotResponse, reservationResponse, applicationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`),
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:Q")}`)
+  ]);
+  const slotRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+  const applicationRows = ((await applicationResponse.json()).values ?? []) as string[][];
+
+  const knownSlotIds = new Set(slotRows.map((row) => normalize(row[0])).filter(Boolean));
+  const relinked: Array<Record<string, string>> = [];
+  const unmatched: Array<Record<string, string>> = [];
+
+  for (const [index, row] of reservationRows.entries()) {
+    const slotId = String(row[1] ?? "").trim();
+    const label = String(row[2] ?? "").trim();
+    const applicant = String(row[4] ?? "").trim();
+    const committee = String(row[12] ?? "").trim();
+    if (!slotId || knownSlotIds.has(normalize(slotId))) continue;
+
+    // "2026-08-07 at 10:00 PM" — the only record of when the interview moved to.
+    const parts = label.split(" at ");
+    const date = parts[0]?.trim() ?? "";
+    const startTime24 = normalizeTime24(parts.slice(1).join(" at ").trim());
+    const wanted = normalizeRole(committee);
+    const match = slotRows.find(
+      (slotRow) =>
+        normalizeRole(slotRow[1]) === wanted &&
+        String(slotRow[2] ?? "").trim() === date &&
+        normalizeTime24(slotRow[3]) === startTime24
+    );
+
+    if (!match) {
+      unmatched.push({ applicant, committee, slotId, label });
+      continue;
+    }
+
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(RESERVATION_SHEET_NAME, `B${index + 2}`)}?valueInputOption=RAW`,
+      { values: [[String(match[0] ?? "").trim()]] }
+    );
+    relinked.push({ applicant, committee, from: slotId, to: String(match[0] ?? "").trim(), label });
+  }
+
+  // Second pass: the application row is a copy, so bring every stale one in line.
+  const bookedByEmail = new Map<string, { id: string; label: string }>();
+  reservationRows.forEach((row, index) => {
+    const resEmail = normalize(String(row[4] ?? ""));
+    if (!resEmail) return;
+    const relink = relinked.find((entry) => normalize(entry.applicant) === resEmail);
+    bookedByEmail.set(resEmail, {
+      id: relink ? relink.to : String(row[1] ?? "").trim(),
+      label: String(row[2] ?? "").trim()
+    });
+    void index;
+  });
+
+  let slotsCopied = 0;
+  for (const [index, row] of applicationRows.entries()) {
+    const booked = bookedByEmail.get(normalize(String(row[2] ?? "")));
+    if (!booked) continue;
+    if (String(row[15] ?? "").trim() === booked.label && String(row[16] ?? "").trim() === booked.id) continue;
+
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `P${index + 2}:Q${index + 2}`)}?valueInputOption=RAW`,
+      { values: [[booked.label, booked.id]] }
+    );
+    slotsCopied += 1;
+  }
+
+  // Third pass: a slot nobody holds should not still advertise last booking's
+  // meeting, which is what the old reschedule left behind when it freed one.
+  let slotsCleared = 0;
+  const heldSlotIds = new Set(
+    reservationRows
+      .map((row) => normalize(row[1]))
+      .filter(Boolean)
+      .concat(relinked.map((entry) => normalize(entry.to)))
+  );
+  for (const [index, row] of slotRows.entries()) {
+    const slotId = normalize(row[0]);
+    const hasCalendarFields = String(row[9] ?? "").trim() || String(row[10] ?? "").trim();
+    if (!slotId || heldSlotIds.has(slotId) || !hasCalendarFields) continue;
+
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HEADS_SLOT_SHEET_NAME, `J${index + 2}:K${index + 2}`)}?valueInputOption=RAW`,
+      { values: [["", ""]] }
+    );
+    slotsCleared += 1;
+  }
+
+  return { relinked, slotsCopied, slotsCleared, unmatched };
+}
+
 async function loadHeadsAdmin(
   token: string,
   email: string
