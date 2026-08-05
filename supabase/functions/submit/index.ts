@@ -444,7 +444,7 @@ function getHeadsTask(payload: ApplicationPayload): {
   if (!task) return { task: undefined, forHead: undefined };
 
   // roleStepTitle carries the chosen head after a middle dot.
-  const headName = String(payload.roleStepTitle ?? "").split("·").pop()?.trim() ?? "";
+  const headName = getHeadName(payload);
   // Match on the head key ("storytelling"), not the deliverable title — the
   // Storytelling Head's task is called "Content & Media Plan", so matching on
   // the title silently found nothing.
@@ -460,7 +460,7 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
   const { task, forHead } = getHeadsTask(payload);
   if (!task) {
     return [
-      `${payload.roleAppliedFor} does not ask for a task before the interview. Come ready to talk through your answers.`,
+      `${firstPreferenceLabel(payload)} does not ask for a task before the interview. Come ready to talk through your answers.`,
       ""
     ];
   }
@@ -986,6 +986,53 @@ const ROLE_GUIDE_SLUGS: Record<string, string> = {
   "children day director": "children-day-director",
   "initiatives director": "initiatives-director"
 };
+
+/**
+ * Cosmetic committee renames, mirroring src/committee-display.mjs. The stored
+ * `roleAppliedFor` still carries the raw name because every lookup here keys off
+ * it verbatim, so the rename happens at the moment of display instead.
+ */
+const COMMITTEE_DISPLAY_NAMES: Record<string, string> = {
+  "tech director": "Tech Team",
+  "initiatives director": "Initiatives",
+  "children day director": "Children’s Day"
+};
+
+function displayCommitteeName(name: unknown): string {
+  const raw = String(name ?? "").trim();
+  return COMMITTEE_DISPLAY_NAMES[normalizeRole(raw)] ?? raw;
+}
+
+/**
+ * The head this applicant chose. roleStepTitle is `${stepTitle} · ${head}`, so
+ * without the separator there is no head to read — returning the step title
+ * would label them with the committee's motto.
+ */
+function getHeadName(payload: { roleStepTitle?: string }): string {
+  const title = String(payload.roleStepTitle ?? "");
+  if (!title.includes("·")) return "";
+  return title.split("·").pop()?.trim() ?? "";
+}
+
+/**
+ * What the applicant actually applied for, as they should read it: the
+ * committee under its display name, then the head. Never bare "… Director" —
+ * nobody in this cycle is applying to be a Director.
+ */
+function firstPreferenceLabel(payload: ApplicationPayload): string {
+  const committee = displayCommitteeName(payload.roleAppliedFor);
+  const head = getHeadName(payload);
+  return head ? `${committee} — ${head}` : committee;
+}
+
+/** Same treatment for the second preference, which arrives pre-joined. */
+function secondPreferenceLabel(payload: ApplicationPayload): string {
+  const raw = String(payload.secondPreference ?? "").trim();
+  const [committee, ...rest] = raw.split("—");
+  const head = rest.join("—").trim();
+  const named = displayCommitteeName(committee);
+  return head ? `${named} — ${head}` : named;
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -1683,7 +1730,7 @@ async function appendHeadsApplication(token: string, payload: ApplicationPayload
   await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
 
   // roleStepTitle carries the chosen head after a middle dot.
-  const headName = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
+  const headName = getHeadName(payload);
 
   /*
    * A browser running a cached bundle from before the answers array existed
@@ -1826,7 +1873,7 @@ async function sendConfirmationEmail(
     return;
   }
 
-  const roleGuideLinks = getApplicantRoleGuideLinks(payload.roleAppliedFor, payload.secondPreference);
+  const roleGuideLinks = getApplicantRoleGuideLinks(payload);
   const template = buildConfirmationEmailTemplate(payload, reservation, roleGuideLinks, panel);
   const attachments = await getHeadsTaskAttachments(payload);
   const accessToken = await getGmailAccessToken();
@@ -1869,14 +1916,14 @@ async function sendInterviewerNotification(
 ): Promise<void> {
   if (!gmailConfigured() || !panel.length) return;
 
-  const head = String(payload.roleStepTitle ?? "").split("\u00b7").pop()?.trim() ?? "";
+  const head = getHeadName(payload);
   const slot = reservation ? reservation.slot.label : "not booked yet";
   const meet = reservation?.meetLink ?? "";
   const task = HEADS_TASKS[normalizeRole(payload.roleAppliedFor)];
 
-  const subject = `New applicant: ${payload.fullName} — ${payload.roleAppliedFor}`;
+  const subject = `New applicant: ${payload.fullName} — ${firstPreferenceLabel(payload)}`;
   const text = [
-    `${payload.fullName} has applied to ${payload.roleAppliedFor}${head ? ` (${head})` : ""}.`,
+    `${payload.fullName} has applied to ${firstPreferenceLabel(payload)}.`,
     "",
     `Interview: ${slot}`,
     meet ? `Google Meet: ${meet}` : "",
@@ -1887,7 +1934,7 @@ async function sendInterviewerNotification(
     `- Student ID: ${payload.studentId}`,
     `- Major: ${payload.major}`,
     `- Standing: ${payload.yearLevel}`,
-    `- Second preference: ${payload.secondPreference}`,
+    `- Second preference: ${secondPreferenceLabel(payload)}`,
     "",
     task
       ? task.atInterview
@@ -1915,7 +1962,7 @@ async function sendInterviewerNotification(
           <tr><td style="background:#0c2c80;padding:22px 28px;color:#ffffff;">
             <div style="font-size:13px;color:#eac262;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">New applicant</div>
             <div style="font-size:24px;font-weight:bold;margin-top:6px;">${escapeHtml(payload.fullName)}</div>
-            <div style="font-size:15px;color:#dbe7ef;margin-top:4px;">${escapeHtml(payload.roleAppliedFor)}${head ? ` &middot; ${escapeHtml(head)}` : ""}</div>
+            <div style="font-size:15px;color:#dbe7ef;margin-top:4px;">${escapeHtml(displayCommitteeName(payload.roleAppliedFor))}${head ? ` &middot; ${escapeHtml(head)}` : ""}</div>
           </td></tr>
           <tr><td style="padding:24px 28px;">
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin-bottom:18px;">
@@ -1925,7 +1972,7 @@ async function sendInterviewerNotification(
               ${row("Student ID", payload.studentId)}
               ${row("Major", payload.major)}
               ${row("Standing", payload.yearLevel)}
-              ${row("Second preference", payload.secondPreference)}
+              ${row("Second preference", secondPreferenceLabel(payload))}
             </table>
             ${meet ? `<p style="margin:0 0 18px;"><a href="${escapeHtml(meet)}" style="color:#0c2c80;font-weight:bold;">Join the interview meeting</a></p>` : ""}
             <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#4b5563;">${
@@ -2009,7 +2056,7 @@ function buildConfirmationEmailTemplate(
   const bodyLines = [
     `Hi ${payload.fullName},`,
     "",
-    `Thanks for applying to Resala AUC. Your first preference is ${payload.roleAppliedFor}, and your second preference is ${payload.secondPreference}.`,
+    `Thanks for applying to Resala AUC. Your first preference is ${firstPreferenceLabel(payload)}, and your second preference is ${secondPreferenceLabel(payload)}.`,
     "",
   ];
 
@@ -2047,7 +2094,7 @@ function buildConfirmationEmailTemplate(
 
   if (panel.length) {
     bodyLines.push(
-      `Questions about ${payload.roleAppliedFor}? Contact the people interviewing you:`,
+      `Questions about ${firstPreferenceLabel(payload)}? Contact the people interviewing you:`,
       ...panel.map((m) => `- ${m.name}${m.positionType ? ` (${m.positionType})` : ""}: ${m.email}`),
       "",
       `Need to move your interview? Reply to this email and agree a new time with them at least ${RESCHEDULE_NOTICE_MINUTES} minutes before your slot. They are on this thread.`,
@@ -2068,8 +2115,10 @@ function buildConfirmationEmailTemplate(
     html: buildConfirmationEmailHtml({
       payload,
       fullName: payload.fullName,
-      roleAppliedFor: payload.roleAppliedFor,
-      secondPreference: payload.secondPreference,
+      // Labels, not lookup keys: anything inside the template that has to find a
+      // task or a slot reads `payload` instead.
+      firstPreference: firstPreferenceLabel(payload),
+      secondPreference: secondPreferenceLabel(payload),
       slot: hasSlot ? slot : "",
       meetLink: hasSlot ? reservation!.meetLink : "",
       roleGuideLinks,
@@ -2081,7 +2130,7 @@ function buildConfirmationEmailTemplate(
 function buildConfirmationEmailHtml({
   payload,
   fullName,
-  roleAppliedFor,
+  firstPreference,
   secondPreference,
   slot,
   meetLink,
@@ -2090,7 +2139,7 @@ function buildConfirmationEmailHtml({
 }: {
   payload: ApplicationPayload;
   fullName: string;
-  roleAppliedFor: string;
+  firstPreference: string;
   secondPreference: string;
   slot: string;
   meetLink: string;
@@ -2117,7 +2166,7 @@ function buildConfirmationEmailHtml({
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. ${hasSlot ? "We received your application and reserved your interview slot." : "We received your application."}</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(firstPreference)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. ${hasSlot ? "We received your application and reserved your interview slot." : "We received your application."}</p>
                 ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
@@ -2148,7 +2197,7 @@ function buildConfirmationEmailHtml({
                 `}
                 ${buildHeadsTaskHtml(payload)}
                 ${buildRoleGuideHtml(roleGuideLinks)}
-                ${!HEADS_TASKS[normalizeRole(roleAppliedFor)] || HEADS_TASKS[normalizeRole(roleAppliedFor)].atInterview ? "" : `
+                ${!getHeadsTask(payload).task || getHeadsTask(payload).task!.atInterview ? "" : `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
@@ -2176,19 +2225,27 @@ function buildConfirmationEmailHtml({
 </html>`;
 }
 
-function getApplicantRoleGuideLinks(firstPreference: string, secondPreference: string): RoleGuideLink[] {
+/**
+ * The guide is found by the raw committee name; the applicant reads the display
+ * label. Keeping the two apart is why the card can say "Children’s Day —
+ * Creative Head" and still link to the right guide.
+ */
+function getApplicantRoleGuideLinks(payload: ApplicationPayload): RoleGuideLink[] {
   return [
-    { preferenceLabel: "First preference", roleName: firstPreference },
-    { preferenceLabel: "Second preference", roleName: secondPreference }
-  ].map(({ preferenceLabel, roleName }) => ({
+    { preferenceLabel: "First preference", roleName: firstPreferenceLabel(payload), lookup: payload.roleAppliedFor },
+    { preferenceLabel: "Second preference", roleName: secondPreferenceLabel(payload), lookup: payload.secondPreference }
+  ].map(({ preferenceLabel, roleName, lookup }) => ({
     preferenceLabel,
     roleName,
-    url: getRoleGuideUrl(roleName)
+    url: getRoleGuideUrl(lookup)
   }));
 }
 
 function getRoleGuideUrl(roleName: string): string {
-  const slug = ROLE_GUIDE_SLUGS[normalizeRole(roleName)];
+  // The second preference arrives as "Committee — Head", which matches no slug;
+  // the committee half in front of the dash does.
+  const committee = String(roleName ?? "").split("—")[0];
+  const slug = ROLE_GUIDE_SLUGS[normalizeRole(roleName)] ?? ROLE_GUIDE_SLUGS[normalizeRole(committee)];
   return slug ? `${ROLE_GUIDE_BASE_URL}/${slug}/` : `${ROLE_GUIDE_BASE_URL}/`;
 }
 
@@ -2230,7 +2287,7 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
     return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
       <tr><td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
         <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">No task required</div>
-        <div style="font-size:15px;line-height:1.6;color:#4b5563;">${escapeHtml(payload.roleAppliedFor)} does not ask for anything before the interview. Come ready to talk through your answers.</div>
+        <div style="font-size:15px;line-height:1.6;color:#4b5563;">${escapeHtml(firstPreferenceLabel(payload))} does not ask for anything before the interview. Come ready to talk through your answers.</div>
       </td></tr></table>`;
   }
 
@@ -5378,8 +5435,8 @@ async function createCalendarEvent(
         summary: `Resala AUC Interview - ${payload.fullName}`,
         description: [
           `Applicant: ${payload.fullName}`,
-          `Role: ${payload.roleAppliedFor}`,
-          `Second preference: ${payload.secondPreference}`,
+          `Role: ${firstPreferenceLabel(payload)}`,
+          `Second preference: ${secondPreferenceLabel(payload)}`,
           `AUC Email: ${payload.aucEmail}`,
           `Student ID: ${payload.studentId}`
         ].join("\n"),
