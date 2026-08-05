@@ -157,35 +157,50 @@ export const interviewConfig = {
     durationMinutes: 60,
     interviewers: ["Children's Day leads"],
     /*
-     * The trial task is handed out at the interview, not prepared in advance.
-     * It is still declared here: the applicant needs to know before they book
-     * that a task is coming and that it carries the most weight, even though
-     * there is nothing to bring. atInterview flips the wording from "bring
-     * this" to "at your interview" wherever the task is shown.
+     * The trial task is prepared in advance and submitted, not handed out in
+     * the room: the applicant gets their own sheet with the confirmation email
+     * and uploads a link to their work at least an hour before the interview,
+     * so the interviewers can read it before they sit down. It carries the most
+     * weight in the scoring (Skills, 40 of 100).
      */
     task: {
       required: true,
-      atInterview: true,
-      summary: "A short trial task, given at the interview",
+      summary: "Prepare and submit a task for the head you applied to",
       detail:
-        "There is nothing to prepare. You will be given a 15-30 minute task during the interview itself, and it carries the most weight in the scoring.",
+        "Your task sheet is attached to your confirmation email. It carries the most weight in the scoring, so give it real time.",
+      dueBeforeInterviewMinutes: 60,
+      submissionUrl: "https://resala-auc.github.io/task/",
+      // The brief's own note to applicants, kept in their words.
+      aiNote: "You can use AI as a tool, but not the other way around.",
       byRole: {
         creative: {
-          title: "Creative Logistics & Visual Identity Lead",
+          title: "Interactive Session Deck · ~4 slides",
+          file: "children-day-creative.pdf",
           points: [
-            "Design a ~4-slide interactive presentation that holds children's attention and delivers a clear educational benefit by the end."
+            "Design a ~4-slide interactive presentation, in PowerPoint or Canva, formatted to hold children's attention and deliver a clear educational benefit by the end — not entertainment alone.",
+            "Build it around a daily-life problem these underprivileged children face, the way a module does, and end on an activity with a tangible benefit.",
+            "Think of a creative concept and put forward your best execution.",
+            "We are looking for a creative concept, a clean and simple layout, and a finished deck rather than a half-built idea."
           ]
         },
         english: {
-          title: "English Sessions Lead",
+          title: "English Lesson Deck · ~4 slides",
+          file: "children-day-english.pdf",
           points: [
-            "Structure a ~4-slide deck for intermediate-level students, teaching key vocabulary alongside a grammar lesson, built around a real-life problem these students face."
+            "Structure an interactive ~4-slide deck for intermediate-level students — they already understand questions like “What is your name?” or “How old are you?”.",
+            "Teach key concept vocabulary alongside an appropriate grammar lesson (should / shouldn't, imperative verbs, and the like).",
+            "Choose a real-life problem these students face and build the lesson around it. For water pollution: words like pollution, trash, health, affect, then “You shouldn't pollute the water” or “You should reduce water pollution”.",
+            "We are looking for clear sequencing, age-appropriate language, and a lesson that teaches through activity rather than a lecture."
           ]
         },
         teaching: {
-          title: "Teaching & Organizing Lead",
+          title: "Scripts, Contingency & Placement Response",
+          file: "children-day-teaching.pdf",
           points: [
-            "Two ~150-word parent phone scripts, an operations contingency plan, and a placement-conflict response."
+            "Parent outreach: two ~150-word phone scripts for a facilitator calling a mother. Script A for a child who accumulated 3 negative points during the session; Script B for a child who was excessively sleepy, unfocused, and kept falling asleep. Both must balance firm behavioural feedback with empathy and encouragement.",
+            "Operations emergency: Operations tells you on Friday night that the budget and supplies for Saturday's craft activity cannot be delivered. Write a 200-250 word contingency plan for running the activity without disruption.",
+            "Placement conflict: a child was placed in the Beginner English track after their baseline test, and the parent demands the Intermediate track, believing their child is held back. Write a 200-word response — diplomatic, friendly, reassuring.",
+            "We are looking for decisive, step-by-step plans that solve the live scenario rather than list concerns, and communication that keeps firm boundaries while treating mothers as respected partners."
           ]
         }
       }
@@ -236,9 +251,11 @@ export const interviewConfig = {
         "Resala Visits is organizing a Fixing Visit for a low-income family. The initial assessment found the house needs wall repairs, repainting, a replacement wooden door and several electrical repairs. The visit is two weeks away with 25 volunteers, the materials are not secured yet, and all planning must be done before the visit date.",
       detail:
         "Complete the practical task for the head you picked, based on the Fixing Visit scenario. One to two pages — bullet points, tables, diagrams or sketches are fine.",
+      pageLimit: "One to two pages maximum.",
       byRole: {
         discovery: {
           title: "Discovery Report · 1–2 pages",
+          file: "visits-discovery.pdf",
           points: [
             "The additional information you would collect before approving the visit.",
             "Questions you would ask the beneficiaries.",
@@ -249,6 +266,7 @@ export const interviewConfig = {
         },
         execution: {
           title: "Execution Plan · 1–2 pages",
+          file: "visits-execution.pdf",
           points: [
             "A timeline from planning until the end of the visit.",
             "The main tasks that need to be completed before the visit.",
@@ -259,6 +277,7 @@ export const interviewConfig = {
         },
         impact: {
           title: "Impact Evaluation Plan · 1–2 pages",
+          file: "visits-impact.pdf",
           points: [
             "The success indicators you would use to evaluate the visit.",
             "The feedback you would collect and from whom.",
@@ -268,6 +287,7 @@ export const interviewConfig = {
         },
         storytelling: {
           title: "Content & Media Plan · 1–2 pages",
+          file: "visits-storytelling.pdf",
           points: [
             "The content you would create before, during, and after the visit.",
             "The types of photos and videos you would capture.",

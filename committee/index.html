@@ -348,6 +348,22 @@ function renderCriterion(criterion, value, headId) {
     </div>`;
 }
 
+/* Committees that collect a task before the interview: the work is the evidence
+   the Skills section grades, so it belongs at the top of the panel, not buried.
+   Applicants from every other committee simply have no link. */
+function taskBanner(applicant) {
+  const link = String(applicant.taskLink || "").trim();
+  if (!/^https?:\/\//.test(link)) {
+    return applicant.committeeId === "children-day-director"
+      ? `<div class="banner warn">No task submitted yet. It is due an hour before the interview and carries the
+         Skills score — if the slot is close, chase it.</div>`
+      : "";
+  }
+  const when = String(applicant.taskSubmittedAt || "").slice(0, 16).replace("T", " ");
+  return `<div class="banner ok">Task submitted${when ? ` ${esc(when)}` : ""}:
+    <a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a></div>`;
+}
+
 function renderPanel() {
   const panel = document.getElementById("panel");
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
@@ -399,6 +415,7 @@ function renderPanel() {
     ${applicant.preference === "Second" ? `<div class="banner warn">Second preference. Their first choice is
        ${esc(display(applicant.roleAppliedFor))}, and the interview they booked follows that committee's questions.</div>` : ""}
     ${/^https?:\/\//.test(applicant.meetLink || "") ? `<div class="banner ok">Google Meet: <a href="${esc(applicant.meetLink)}">${esc(applicant.meetLink)}</a></div>` : ""}
+    ${taskBanner(applicant)}
 
     <div class="facts">
       ${facts.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join("")}

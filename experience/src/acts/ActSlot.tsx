@@ -128,10 +128,33 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               >
                 <p className="mb-2 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
                   <ClipboardList className="h-4 w-4" strokeWidth={1.8} />
-                  {task.atInterview ? "At your interview" : "Bring this with you"} ·{" "}
-                  {task.title ?? task.summary}
+                  {task.atInterview
+                    ? "At your interview"
+                    : task.dueBeforeInterviewMinutes
+                      ? "Submit before your interview"
+                      : "Bring this with you"}{" "}
+                  · {task.title ?? task.summary}
                 </p>
                 <p className="text-sm leading-relaxed text-white/80">{task.detail}</p>
+                {task.dueBeforeInterviewMinutes ? (
+                  <p className="mt-3 text-sm leading-relaxed text-white/80">
+                    Your task sheet is emailed to you as soon as you book, and you hand your work in
+                    at{" "}
+                    <a
+                      className="font-medium text-brand-orange underline underline-offset-2"
+                      href={task.submissionUrl}
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      the submission page
+                    </a>{" "}
+                    at least{" "}
+                    {task.dueBeforeInterviewMinutes === 60
+                      ? "an hour"
+                      : `${task.dueBeforeInterviewMinutes} minutes`}{" "}
+                    before your interview.
+                  </p>
+                ) : null}
                 {task.scenario ? (
                   <p className="mt-3 text-sm leading-relaxed text-white/60">{task.scenario}</p>
                 ) : null}

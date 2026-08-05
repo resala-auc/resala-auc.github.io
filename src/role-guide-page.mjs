@@ -14,7 +14,12 @@ function interviewTaskLine(role) {
   if (!task?.required) {
     return "No task to prepare. The interview is this committee's own questions and a conversation about the answers you wrote.";
   }
-  return `${task.summary}. ${task.detail}`;
+  const line = `${task.summary}. ${task.detail}`;
+  if (!task.dueBeforeInterviewMinutes) return line;
+  // A submitted task has a deadline, and a deadline missed for not knowing about
+  // it is the committee's fault, not the applicant's — so it is said here too.
+  const due = task.dueBeforeInterviewMinutes === 60 ? "an hour" : `${task.dueBeforeInterviewMinutes} minutes`;
+  return `${line} You submit it online at least ${due} before your interview.`;
 }
 
 function escapeHtml(value) {

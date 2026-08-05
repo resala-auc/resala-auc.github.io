@@ -29,6 +29,8 @@ await cp("admin", "dist/admin", { recursive: true });
 // Interview task sheets, fetched by the submit function to attach to emails.
 await cp("task-files", "dist/task-files", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
+// Where applicants hand in a task their committee collects before the interview.
+await cp("task", "dist/task", { recursive: true });
 await cp("director", "dist/director", { recursive: true });
 await cp("committee", "dist/committee", { recursive: true });
 await cp("recruitment", "dist/recruitment", { recursive: true });

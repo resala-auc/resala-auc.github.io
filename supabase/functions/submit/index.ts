@@ -18,6 +18,11 @@ const TASK_FILE_BASE_URL = (Deno.env.get("TASK_FILE_BASE_URL") ?? "https://resal
   /\/+$/,
   ""
 );
+/** Where an applicant hands in a task their committee asks for beforehand. */
+const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://resala-auc.github.io/task/").replace(
+  /\/*$/,
+  "/"
+);
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
@@ -158,8 +163,15 @@ const HEADS_APPLICATION_HEADERS = [
   ...Array.from({ length: HEADS_APPLICATION_QUESTION_SLOTS }, (_, i) => [
     `Question ${i + 1}`,
     `Answer ${i + 1}`
-  ]).flat()
+  ]).flat(),
+  // Where a committee's task is handed in before the interview rather than
+  // brought to it, this is the applicant's own submission. Last two columns so
+  // adding them does not move anything a reader already knows the position of.
+  "Task Link",
+  "Task Submitted At"
 ];
+const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
+const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
 
 const HEADS_SCORE_SHEET_NAME = Deno.env.get("HEADS_SCORE_SHEET_NAME") ?? "Interview Scores Heads";
 const HEADS_SCORE_HEADERS = [
@@ -345,6 +357,9 @@ type HeadsTask = {
   scenario?: string;
   /** True when the task is handed out at the interview, not prepared beforehand. */
   atInterview?: boolean;
+  /** Set when the task is handed in online beforehand: the deadline, and where. */
+  dueBeforeInterviewMinutes?: number;
+  submissionUrl?: string;
   byRole?: Record<string, { title: string; points: string[]; file?: string }>;
 };
 
@@ -358,27 +373,37 @@ type HeadsTask = {
  */
 const HEADS_TASKS: Record<string, HeadsTask> = {
   "children day director": {
-    summary: "A short trial task, given at the interview",
+    summary: "Prepare and submit a task for the head you applied to",
     detail:
-      "There is nothing to prepare. You will be given a 15-30 minute task during the interview itself, and it carries the most weight in the scoring.",
-    atInterview: true,
+      "Your task sheet is attached to this email. It carries the most weight in the scoring, so give it real time.",
+    dueBeforeInterviewMinutes: 60,
+    submissionUrl: TASK_SUBMISSION_URL,
     byRole: {
       creative: {
-        title: "Creative Logistics & Visual Identity Lead",
+        title: "Interactive Session Deck · ~4 slides",
+        file: "children-day-creative.pdf",
         points: [
-          "Design a ~4-slide interactive presentation that holds children's attention and delivers a clear educational benefit by the end."
+          "Design a ~4-slide interactive presentation, in PowerPoint or Canva, formatted to hold children's attention and deliver a clear educational benefit by the end — not entertainment alone.",
+          "Build it around a daily-life problem these underprivileged children face, the way a module does, and end on an activity with a tangible benefit.",
+          "We are looking for a creative concept, a clean and simple layout, and a finished deck rather than a half-built idea."
         ]
       },
       english: {
-        title: "English Sessions Lead",
+        title: "English Lesson Deck · ~4 slides",
+        file: "children-day-english.pdf",
         points: [
-          "Structure a ~4-slide deck for intermediate-level students, teaching key vocabulary alongside a grammar lesson, built around a real-life problem these students face."
+          "Structure an interactive ~4-slide deck for intermediate-level students, teaching key concept vocabulary alongside an appropriate grammar lesson.",
+          "Choose a real-life problem these students face and build the lesson around it.",
+          "We are looking for clear sequencing, age-appropriate language, and a lesson that teaches through activity rather than a lecture."
         ]
       },
       teaching: {
-        title: "Teaching & Organizing Lead",
+        title: "Scripts, Contingency & Placement Response",
+        file: "children-day-teaching.pdf",
         points: [
-          "Two ~150-word parent phone scripts, an operations contingency plan, and a placement-conflict response."
+          "Two ~150-word parent phone scripts, one for a child with 3 negative points and one for a child who kept falling asleep.",
+          "A 200-250 word contingency plan for a craft activity whose supplies cannot be delivered in time.",
+          "A 200-word response to a parent demanding their child move from the Beginner to the Intermediate English track."
         ]
       }
     }
@@ -475,7 +500,21 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
   if (forHead) {
     lines.push(`${forHead.title} — ${task.atInterview ? "your task will be" : "cover"}:`, ...forHead.points.map((p) => `- ${p}`), "");
   }
+  if (task.submissionUrl) {
+    lines.push(`Hand it in here: ${task.submissionUrl}`, taskDeadlineSentence(task), "");
+  }
   return lines;
+}
+
+/**
+ * The deadline in the applicant's terms. A task that is submitted rather than
+ * brought needs the cut-off said plainly wherever the task itself is mentioned:
+ * an applicant who misses it because nobody told them is our failure.
+ */
+function taskDeadlineSentence(task: HeadsTask): string {
+  const minutes = task.dueBeforeInterviewMinutes ?? 0;
+  const due = minutes === 60 ? "one hour" : `${minutes} minutes`;
+  return `Submit at least ${due} before your interview, so the people interviewing you can read it first.`;
 }
 
 function getCommitteeInterview(roleName: string): CommitteeInterview | null {
@@ -671,6 +710,17 @@ type AdminAddTestSlotPayload = {
 
 type AdminLoadPayload = {
   mode: "admin-load";
+};
+
+/**
+ * An applicant handing in the task their committee asks for before the
+ * interview. Open to applicants, not admins: the only key is the AUC email they
+ * applied with, and it can only ever write to that applicant's own row.
+ */
+type HeadsTaskSubmissionPayload = {
+  mode: "heads-task-submission";
+  aucEmail: string;
+  taskLink: string;
 };
 
 type AdminReschedulePayload = {
@@ -913,6 +963,7 @@ type SubmissionPayload =
   | AdminSaveHierarchyPayload
   | DirectorLoadApplicantsPayload
   | HeadsCommitteeLoadPayload
+  | HeadsTaskSubmissionPayload
   | HeadsSaveScorePayload
   | HeadsAdminLoadPayload
   | HeadsRepairSlotLinksPayload
@@ -1288,6 +1339,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isHeadsTaskSubmissionPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await submitHeadsTask(token, payload)) });
+    }
+
     if (isHeadsCommitteeLoadPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1466,6 +1523,10 @@ async function parsePayload(
 
 function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is HeadsCommitteeLoadPayload {
   return (payload as HeadsCommitteeLoadPayload).mode === "heads-committee-load";
+}
+
+function isHeadsTaskSubmissionPayload(payload: SubmissionPayload): payload is HeadsTaskSubmissionPayload {
+  return (payload as HeadsTaskSubmissionPayload).mode === "heads-task-submission";
 }
 
 function isHeadsSaveScorePayload(payload: SubmissionPayload): payload is HeadsSaveScorePayload {
@@ -1904,10 +1965,11 @@ function buildConfirmationEmailTemplate(
 
   const { task: emailTask, forHead: emailHead } = getHeadsTask(payload);
   if (emailTask && !emailTask.atInterview) {
+    const sheetLine = emailHead?.file ? "Your task sheet is attached to this email." : "";
     bodyLines.push(
-      emailHead?.file
-        ? "Your task sheet is attached to this email. Bring your work with you to the interview."
-        : "Bring your work with you to the interview.",
+      emailTask.submissionUrl
+        ? `${sheetLine} ${taskDeadlineSentence(emailTask)} Hand it in at ${emailTask.submissionUrl}`.trim()
+        : `${sheetLine} Bring your work with you to the interview.`.trim(),
       ""
     );
   }
@@ -2022,7 +2084,7 @@ function buildConfirmationEmailHtml({
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
                       <div style="font-size:14px;color:#f5c46b;font-weight:bold;letter-spacing:.8px;text-transform:uppercase;">Before your interview</div>
-                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${getHeadsTask(payload).forHead?.file ? "Your task sheet is attached to this email. Bring your work with you to the interview." : "Bring your work with you to the interview."}</div>
+                      <div style="font-size:15px;line-height:1.7;color:#ffffff;margin-top:8px;">${buildTaskHandInHtml(payload)}</div>
                     </td>
                   </tr>
                 </table>
@@ -2118,7 +2180,24 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
       ${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
       <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
       ${forHead ? `<ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">${forHead.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
+      ${
+        task.submissionUrl
+          ? `<div style="font-size:14px;line-height:1.6;color:#8a4706;margin-top:12px;font-weight:bold;">${escapeHtml(taskDeadlineSentence(task))}</div>
+             <a href="${escapeHtml(task.submissionUrl)}" style="display:inline-block;margin-top:10px;background:#0d2b45;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">Submit your task</a>`
+          : ""
+      }
     </td></tr></table>`;
+}
+
+/** The one-line reminder under the interview details: hand it in, or bring it. */
+function buildTaskHandInHtml(payload: ApplicationPayload): string {
+  const { task, forHead } = getHeadsTask(payload);
+  if (!task) return "";
+
+  const sheet = forHead?.file ? "Your task sheet is attached to this email." : "";
+  if (!task.submissionUrl) return `${sheet} Bring your work with you to the interview.`.trim();
+
+  return `${sheet} ${escapeHtml(taskDeadlineSentence(task))} <a href="${escapeHtml(task.submissionUrl)}" style="color:#f5c46b;font-weight:bold;">Submit your task here</a>.`.trim();
 }
 
 /**
@@ -3717,6 +3796,78 @@ async function readHeadsAssignments(token: string): Promise<
 }
 
 /**
+ * An applicant handing in their task before the interview.
+ *
+ * The email they applied with is the whole key: no password, because there is
+ * nothing here worth guarding behind one and an applicant who cannot hand their
+ * work in is a worse outcome than an applicant whose link someone overwrote.
+ * A submission can be replaced right up to the deadline — people fix things.
+ *
+ * Only rows for a committee that actually sets a submitted task are accepted,
+ * so this cannot become a side door for writing to any application row.
+ */
+async function submitHeadsTask(
+  token: string,
+  payload: HeadsTaskSubmissionPayload
+): Promise<{ committee: string; headName: string; interviewSlot: string; taskLink: string; submittedAt: string }> {
+  const email = String(payload.aucEmail ?? "").trim();
+  const link = String(payload.taskLink ?? "").trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Enter the AUC email you applied with.");
+  }
+  if (!/^https?:\/\/\S+$/i.test(link)) {
+    throw new Error("Paste a link that starts with http:// or https:// — Google Drive, Canva, or a PDF.");
+  }
+
+  await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const [response, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`)
+  ]);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const index = rows.findIndex((row) => normalize(String(row[2] ?? "")) === normalize(email));
+  if (index < 0) {
+    throw new Error("We could not find an application under that email. Use the address you applied with.");
+  }
+
+  const row = rows[index];
+  const committee = String(row[7] ?? "");
+  const task = HEADS_TASKS[normalizeRole(committee)];
+  if (!task?.submissionUrl) {
+    throw new Error(`${displayCommitteeName(committee)} does not collect a task before the interview.`);
+  }
+
+  const submittedAt = new Date().toISOString();
+  await sheetsBatchUpdateValues(token, [
+    {
+      range: sheetA1Range(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(TASK_LINK_COLUMN + 1)}${index + 2}:${columnLetter(TASK_SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+      ),
+      values: [[link, submittedAt]]
+    }
+  ]);
+
+  // The booking lives on the reservation row; the application row only holds a
+  // copy from submission time, which a reschedule never rewrites.
+  const reservation = reservationRows.find((res) => normalize(String(res[4] ?? "")) === normalize(email));
+
+  return {
+    committee: displayCommitteeName(committee),
+    headName: String(row[9] ?? ""),
+    interviewSlot: String(reservation?.[2] ?? row[15] ?? ""),
+    taskLink: link,
+    submittedAt
+  };
+}
+
+/**
  * Every heads-cycle applicant, read from the heads tab so each answer arrives
  * with the question that produced it. Interview status is joined in from the
  * reservations sheet, which is where rescheduling and no-shows are recorded.
@@ -3792,6 +3943,10 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         status: String(row[18] ?? ""),
         createdAt: String(row[19] ?? ""),
         answers,
+        // What the applicant handed in, where their committee collects a task
+        // before the interview. Blank for every other committee.
+        taskLink: String(row[TASK_LINK_COLUMN] ?? ""),
+        taskSubmittedAt: String(row[TASK_SUBMITTED_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0

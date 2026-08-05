@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submit your task — Resala AUC</title>
+<meta name="description" content="Hand in your Resala AUC heads recruitment task before your interview.">
+<link rel="icon" href="../favicon.png">
+<style>
+  /* Same brand tokens as the committee portal: Royal Blue is a light-ground
+     colour and never carries text on a dark surface; Sky Blue does that job. */
+  :root {
+    --blue: #0c2c80; --sky: #a7d4f2; --gold: #eac262;
+    --ivory: #fdf9f3; --ink: #1b1f23;
+    --line: #e4dccd; --muted: #6b7280; --soft: #f7f4ee; --good: #1a7f4b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ivory); color: var(--ink);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+
+  .card {
+    width: 100%; max-width: 470px; background: #fff; border: 1px solid var(--line);
+    border-radius: 18px; padding: 34px 30px;
+  }
+  .card img.logo { width: 68px; height: 68px; margin: 0 auto 16px; display: block; }
+  h1 { margin: 0 0 6px; font-size: 21px; color: var(--blue); text-align: center; }
+  .lede { margin: 0 0 22px; color: var(--muted); font-size: 14px; text-align: center; }
+  label {
+    display: block; font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .8px; color: var(--muted); margin: 0 0 6px;
+  }
+  input[type=email], input[type=url] {
+    width: 100%; padding: 11px 13px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--soft); color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .field { margin-bottom: 16px; }
+  .hint { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
+  .btn {
+    background: var(--blue); color: #fff; border: 0; border-radius: 10px;
+    padding: 12px 18px; font-weight: 700; width: 100%; margin-top: 6px;
+  }
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
+  .deadline {
+    background: #fff7e8; border: 1px solid #f0d7a5; border-left: 5px solid var(--gold);
+    border-radius: 12px; padding: 13px 15px; margin: 0 0 22px; font-size: 13.5px;
+  }
+  .error {
+    margin-top: 14px; padding: 10px 12px; border-radius: 9px;
+    background: #fdecec; color: #8c1c1c; font-size: 13px;
+  }
+  .done { text-align: center; }
+  .done .tick {
+    width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 50%;
+    background: #e8f5ee; color: var(--good); display: grid; place-items: center;
+    font-size: 27px; font-weight: 700;
+  }
+  .facts { text-align: left; border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+  .fact { display: flex; justify-content: space-between; gap: 14px; padding: 5px 0; font-size: 14px; }
+  .fact span { color: var(--muted); }
+  .fact b { font-weight: 700; text-align: right; word-break: break-word; }
+  .again { background: none; border: 0; color: var(--blue); font-weight: 700; margin-top: 18px; width: auto; }
+  footer { margin-top: 22px; text-align: center; font-size: 12.5px; color: var(--muted); }
+  footer a { color: var(--blue); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <img class="logo" src="../favicon.png" alt="Resala AUC">
+
+    <section id="form-view">
+      <h1>Submit your task</h1>
+      <p class="lede">Heads Recruitment 2026</p>
+
+      <div class="deadline">
+        Hand in your work <b>at least one hour before your interview</b>, so the people
+        interviewing you can read it first. Your task sheet is the PDF attached to your
+        confirmation email.
+      </div>
+
+      <form id="form" novalidate>
+        <div class="field">
+          <label for="email">AUC email you applied with</label>
+          <input type="email" id="email" autocomplete="email" placeholder="name@aucegypt.edu" required>
+        </div>
+        <div class="field">
+          <label for="link">Link to your work</label>
+          <input type="url" id="link" placeholder="https://drive.google.com/..." required>
+          <p class="hint">
+            Google Drive, Canva, or a PDF link. Set it so anyone with the link can open it —
+            we cannot score what we cannot see. You can submit again to replace it.
+          </p>
+        </div>
+        <button class="btn" id="submit" type="submit">Submit my task</button>
+        <div class="error hidden" id="error"></div>
+      </form>
+    </section>
+
+    <section id="done-view" class="done hidden">
+      <div class="tick">&check;</div>
+      <h1>Task received</h1>
+      <p class="lede">We have your work. Nothing else to do before your interview.</p>
+      <div class="facts" id="facts"></div>
+      <button class="again" id="again" type="button">Submit a different link</button>
+    </section>
+
+    <footer>
+      Something wrong? Reply to your confirmation email, or write to
+      <a href="mailto:resala@aucegypt.edu">resala@aucegypt.edu</a>.
+    </footer>
+  </main>
+
+<script type="module">
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const form = document.getElementById("form");
+const button = document.getElementById("submit");
+const errorBox = document.getElementById("error");
+
+function showError(message) {
+  errorBox.textContent = message;
+  errorBox.classList.remove("hidden");
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  errorBox.classList.add("hidden");
+
+  const aucEmail = document.getElementById("email").value.trim();
+  const taskLink = document.getElementById("link").value.trim();
+  if (!aucEmail || !taskLink) {
+    showError("Fill in both your email and the link to your work.");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Submitting…";
+  try {
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      /* text/plain keeps this a simple request: no CORS preflight, which the
+         function does not answer. */
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ mode: "heads-task-submission", aucEmail, taskLink })
+    });
+    const body = await res.json();
+    if (!res.ok || body.ok === false) throw new Error(body.error || "Something went wrong.");
+
+    const facts = [
+      ["Committee", body.committee],
+      ["Head", body.headName],
+      ["Interview", body.interviewSlot],
+      ["Your link", body.taskLink]
+    ].filter(([, value]) => String(value ?? "").trim());
+
+    document.getElementById("facts").innerHTML = facts
+      .map(([label, value]) => `<div class="fact"><span>${esc(label)}</span><b>${esc(value)}</b></div>`)
+      .join("");
+    document.getElementById("form-view").classList.add("hidden");
+    document.getElementById("done-view").classList.remove("hidden");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Submit my task";
+  }
+});
+
+document.getElementById("again").addEventListener("click", () => {
+  document.getElementById("done-view").classList.add("hidden");
+  document.getElementById("form-view").classList.remove("hidden");
+});
+</script>
+</body>
+</html>

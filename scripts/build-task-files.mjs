@@ -1,26 +1,58 @@
 /**
- * Renders one task sheet per Resala Visits head into task-files/.
+ * Renders one task sheet per head into task-files/, for every committee whose
+ * brief sets a task per head.
  *
- * The brief sets a single scenario and then a different deliverable per head, so
- * an applicant must receive their own sheet rather than a shared one. Content
- * comes from src/interview-config.mjs, which is the same source the booking page
- * and the confirmation email read, so the three cannot disagree.
+ * A committee that sets one deliverable per head cannot send a shared sheet:
+ * the applicant must receive their own. Content comes from
+ * src/interview-config.mjs and head names from src/role-guide-data.mjs — the
+ * same sources the booking page, the guides and the confirmation email read, so
+ * none of them can disagree.
  *
- * Run with: node --experimental-strip-types scripts/build-task-files.mjs
- * Requires playwright-core and a local Chrome; not part of `npm run build`
- * because the output is committed and rarely changes.
+ * Run with: node scripts/build-task-files.mjs
+ * Uses headless Chrome directly (no Playwright); set CHROME_PATH if it is not
+ * at /usr/bin/google-chrome. Not part of `npm run build` because the output is
+ * committed and rarely changes.
  */
-import { mkdir, writeFile, rm } from "node:fs/promises";
-import { chromium } from "playwright-core";
-import { getInterviewConfig } from "../src/interview-config.mjs";
+import { mkdir, writeFile, readdir, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { interviewConfig } from "../src/interview-config.mjs";
+import { getRoleGuideById } from "../src/role-guide-data.mjs";
+import { displayNames } from "../src/committee-display.mjs";
 
+const run = promisify(execFile);
 const CHROME = process.env.CHROME_PATH ?? "/usr/bin/google-chrome";
 const OUT = "task-files";
 
 const escape = (v) =>
   String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function sheet({ headName, title, points, scenario }) {
+/**
+ * How the sheet ends differs by committee, because the briefs differ: Visits is
+ * brought to the interview, Children's Day is submitted online beforehand.
+ */
+function submissionRules(task) {
+  const rules = ["Complete only the task for the head you applied to."];
+  if (task.pageLimit) rules.push(task.pageLimit);
+  rules.push("You may use bullet points, tables, diagrams, or sketches where appropriate.");
+  rules.push("Your work should be clear, organized, and practical. Creativity is encouraged where relevant.");
+  if (task.aiNote) rules.push(task.aiNote);
+
+  if (task.submissionUrl) {
+    const due = task.dueBeforeInterviewMinutes === 60 ? "one hour" : `${task.dueBeforeInterviewMinutes} minutes`;
+    rules.push(`Submit at ${task.submissionUrl} at least ${due} before your interview.`);
+    rules.push("Share a link anyone at Resala can open — Google Drive, Canva, or a PDF link.");
+    return { rules, footer: `Submit at least ${due} before your interview · ${task.submissionUrl}` };
+  }
+
+  rules.push("Bring it to your interview.");
+  return { rules, footer: "Bring this to your interview · resala-auc.github.io/join" };
+}
+
+function sheet({ committeeName, headName, title, points, scenario, task }) {
+  const { rules, footer } = submissionRules(task);
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   @page { size: A4; margin: 16mm 15mm; }
   * { box-sizing: border-box; }
@@ -56,60 +88,76 @@ function sheet({ headName, title, points, scenario }) {
     font-size: 8.5pt; color: #6b6459;
   }
   </style></head><body>
-    <p class="kicker">Resala AUC &middot; Resala Visits &middot; Heads Recruitment 2026</p>
+    <p class="kicker">Resala AUC &middot; ${escape(committeeName)} &middot; Heads Recruitment 2026</p>
     <h1>${escape(headName)}</h1>
     <p class="deliverable">${escape(title)}</p>
     <div class="rule"></div>
-
-    <h2>The scenario</h2>
-    <div class="scenario">${escape(scenario)}</div>
-
+    ${scenario ? `<h2>The scenario</h2><div class="scenario">${escape(scenario)}</div>` : ""}
     <h2>What your submission must cover</h2>
     <ul>${points.map((p) => `<li>${escape(p)}</li>`).join("")}</ul>
 
     <h2>Submission requirements</h2>
-    <ul class="rules">
-      <li>Complete only the task for the head you applied to.</li>
-      <li>One to two pages maximum.</li>
-      <li>You may use bullet points, tables, diagrams, or sketches where appropriate.</li>
-      <li>Your work should be clear, organized, and practical. Creativity is encouraged where relevant.</li>
-      <li>Bring it to your interview.</li>
-    </ul>
+    <ul class="rules">${rules.map((r) => `<li>${escape(r)}</li>`).join("")}</ul>
 
-    <footer>Resala Visits &middot; Bring this to your interview &middot; resala-auc.github.io/join</footer>
+    <footer>${escape(committeeName)} &middot; ${escape(footer)}</footer>
   </body></html>`;
 }
 
-const config = getInterviewConfig("visits");
-const { task } = config;
-
-await rm(OUT, { recursive: true, force: true });
-await mkdir(OUT, { recursive: true });
-
-const browser = await chromium.launch({
-  executablePath: CHROME,
-  args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"]
-});
-const page = await browser.newPage();
-const written = [];
-
-for (const [headId, entry] of Object.entries(task.byRole)) {
-  const headName = { discovery: "Discovery Head", execution: "Execution Head", impact: "Impact Head", storytelling: "Storytelling Head" }[headId];
-  const html = sheet({
-    headName,
-    title: entry.title,
-    points: entry.points,
-    scenario: task.scenario
-  });
-  const file = `${OUT}/visits-${headId}.pdf`;
-  await page.setContent(html, { waitUntil: "networkidle" });
-  await page.pdf({ path: file, format: "A4", printBackground: true });
-  written.push(file);
+async function renderPdf(html, outFile) {
+  const work = join(tmpdir(), `resala-task-${Math.random().toString(36).slice(2)}`);
+  await mkdir(work, { recursive: true });
+  const htmlFile = join(work, "sheet.html");
+  await writeFile(htmlFile, html, "utf8");
+  await run(CHROME, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-gpu",
+    "--no-pdf-header-footer",
+    `--user-data-dir=${join(work, "profile")}`,
+    `--print-to-pdf=${outFile}`,
+    `file://${htmlFile}`
+  ]);
+  await rm(work, { recursive: true, force: true });
 }
 
-await browser.close();
+await mkdir(OUT, { recursive: true });
+const written = [];
+
+for (const [committeeId, config] of Object.entries(interviewConfig)) {
+  const task = config.task;
+  if (!task?.required || !task.byRole) continue;
+
+  const guide = getRoleGuideById(committeeId);
+  const committeeName = displayNames[committeeId] ?? guide?.name ?? committeeId;
+
+  for (const [headId, entry] of Object.entries(task.byRole)) {
+    if (!entry.file) continue;
+    const headName = guide?.heads?.find((head) => head.id === headId)?.name ?? headId;
+    const file = `${OUT}/${entry.file}`;
+    await renderPdf(
+      sheet({
+        committeeName,
+        headName,
+        title: entry.title,
+        points: entry.points,
+        scenario: task.scenario,
+        task
+      }),
+      file
+    );
+    written.push(file);
+  }
+}
+
 await writeFile(
   `${OUT}/README.md`,
   "# Interview task sheets\n\nGenerated by `scripts/build-task-files.mjs` from `src/interview-config.mjs`.\nEdit the task there and re-run the script; do not edit these PDFs by hand.\n"
 );
+
+// A sheet left behind by a task that no longer exists would still be emailed if
+// anything still pointed at it, so say so rather than leaving it unnoticed.
+const expected = new Set([...written.map((f) => f.split("/").pop()), "README.md"]);
+const stale = (await readdir(OUT)).filter((f) => !expected.has(f));
+if (stale.length) console.log("stale files still in task-files/:\n  " + stale.join("\n  "));
+
 console.log("wrote:\n  " + written.join("\n  "));
