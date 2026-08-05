@@ -38,6 +38,9 @@ await cp("recruitment", "dist/recruitment", { recursive: true });
 // Copied as .js: some static hosts serve .mjs as application/octet-stream,
 // which browsers refuse to execute as a module.
 await cp("src/scoring-rubrics.mjs", "dist/scoring-rubrics.js");
+// Both dashboards ask it which committees collect a task before the interview,
+// so the answer comes from the same file the booking flow and emails read.
+await cp("src/interview-config.mjs", "dist/interview-config.js");
 
 await cp("src/role-guide-data.mjs", "dist/role-guide-data.mjs");
 

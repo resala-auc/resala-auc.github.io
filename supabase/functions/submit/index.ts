@@ -891,6 +891,20 @@ type HeadsCommitteeReschedulePayload = {
   endTime?: string;
 };
 
+/**
+ * An applicant who asks to withdraw from their interview. Either the committee
+ * running it or a recruitment admin can act on the request, so the caller is
+ * authorized both ways.
+ */
+type HeadsCancelInterviewPayload = {
+  mode: "heads-cancel-interview";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  /** Shown to nobody but the sheet: why the interview was called off. */
+  reason?: string;
+};
+
 type HeadsAdminLoadPayload = {
   mode: "heads-admin-load";
   email: string;
@@ -971,6 +985,7 @@ type SubmissionPayload =
   | HeadsReschedulePayload
   | HeadsSetInterviewStatusPayload
   | HeadsCommitteeReschedulePayload
+  | HeadsCancelInterviewPayload
   | HeadsAssignInterviewerPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1375,6 +1390,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await rescheduleAsCommittee(token, payload)) });
     }
 
+    if (isHeadsCancelInterviewPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await cancelHeadsInterview(token, payload)) });
+    }
+
     if (isHeadsReschedulePayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1551,6 +1572,12 @@ function isHeadsCommitteeReschedulePayload(
 
 function isHeadsReschedulePayload(payload: SubmissionPayload): payload is HeadsReschedulePayload {
   return (payload as HeadsReschedulePayload).mode === "heads-reschedule";
+}
+
+function isHeadsCancelInterviewPayload(
+  payload: SubmissionPayload
+): payload is HeadsCancelInterviewPayload {
+  return (payload as HeadsCancelInterviewPayload).mode === "heads-cancel-interview";
 }
 
 function isHeadsAdminLoadPayload(payload: SubmissionPayload): payload is HeadsAdminLoadPayload {
@@ -3709,6 +3736,143 @@ async function rescheduleAsCommittee(
   });
 }
 
+/**
+ * Cancelling is not a status change: the point of it is that the time goes back
+ * on the board for somebody else. So it clears the Slot ID the availability
+ * count reads, drops the calendar event, and stops the reminder — while leaving
+ * the row itself in place, so the reschedule form can put them back on a new
+ * time later without them reapplying.
+ */
+async function cancelHeadsInterview(
+  token: string,
+  payload: HeadsCancelInterviewPayload
+): Promise<{
+  applicantEmail: string;
+  slot: string;
+  deletedEvent: boolean;
+  freedSlot: boolean;
+  emailSent: boolean;
+}> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Which applicant is cancelling?");
+
+  /*
+   * Either authority is enough. A committee cancels its own interviews; an
+   * admin cancels anyone's. Committee access is checked first because that is
+   * the common case, and its error message is the more useful one.
+   */
+  try {
+    await authorizeApplicantAccess(token, payload.email, payload.committee, applicantEmail);
+  } catch (committeeError) {
+    try {
+      await requireRecruitmentAdmin(token, payload.email);
+    } catch {
+      throw committeeError;
+    }
+  }
+
+  const rowNumber = await findReservationRow(token, applicantEmail);
+  if (!rowNumber) throw new Error("This applicant has no booked interview to cancel.");
+
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    `${sheetRange(RESERVATION_SHEET_NAME, `A${rowNumber}:N${rowNumber}`)}`
+  );
+  const row = (await response.json()).values?.[0] ?? [];
+  const slotId = String(row[1] ?? "").trim();
+  const slotLabel = String(row[2] ?? "").trim();
+  const fullName = String(row[3] ?? "").trim();
+  const calendarEventId = String(row[6] ?? "").trim();
+  const status = String(row[8] ?? "").trim();
+
+  if (!slotId && normalize(status) === "cancelled") {
+    throw new Error("That interview is already cancelled.");
+  }
+
+  let deletedEvent = false;
+  if (calendarEventId) {
+    try {
+      deletedEvent = await deleteCalendarEvent(calendarEventId);
+    } catch {
+      console.error(`Failed to delete calendar event ${calendarEventId} while cancelling`);
+    }
+  }
+
+  // Slot ID and Label, then the event and Meet link, then the status, then the
+  // reminder columns: written separately because they are not adjacent.
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(RESERVATION_SHEET_NAME, `B${rowNumber}:C${rowNumber}`)}?valueInputOption=RAW`,
+    { values: [["", ""]] }
+  );
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(RESERVATION_SHEET_NAME, `G${rowNumber}:L${rowNumber}`)}?valueInputOption=RAW`,
+    { values: [["", "", "Cancelled", "", "", "Cancelled"]] }
+  );
+
+  let freedSlot = false;
+  if (slotId) {
+    // The slot row still advertises the meeting it was given; nobody should
+    // join a call for an interview that is not happening.
+    await clearFreedSlotCalendarFields(token, new Set([slotId]));
+    await clearFreedHeadsSlot(token, slotId);
+    freedSlot = true;
+  }
+
+  await clearHeadsApplicationSlot(token, applicantEmail);
+
+  // The legacy applications sheet keeps its own copy of the slot in column O.
+  try {
+    const sheetName = await getSheetName(token);
+    const applicationResponse = await sheetsFetch(
+      token,
+      "GET",
+      `${sheetRange(sheetName, `A2:${columnLetter(HEADERS.length)}`)}`
+    );
+    const applicationRows = ((await applicationResponse.json()).values ?? []) as string[][];
+    const index = applicationRows.findIndex((entry) => normalize(entry[2]) === normalize(applicantEmail));
+    if (index !== -1) {
+      await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `O${index + 2}`)}?valueInputOption=RAW`, {
+        values: [[""]]
+      });
+    }
+  } catch (error) {
+    console.error(
+      `Application slot not cleared for ${applicantEmail}: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+
+  let emailSent = false;
+  try {
+    await sendInterviewCancelledEmail({ fullName, aucEmail: applicantEmail, slot: slotLabel });
+    emailSent = gmailConfigured();
+  } catch (error) {
+    console.error(`Cancellation email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { applicantEmail, slot: slotLabel, deletedEvent, freedSlot, emailSent };
+}
+
+/** Interview Slot (P), Slot ID (Q) and Interview Status (R) on the heads sheet. */
+async function clearHeadsApplicationSlot(token: string, aucEmail: string): Promise<boolean> {
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((row) => normalize(row[2]) === normalize(aucEmail));
+  if (index === -1) return false;
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `P${index + 2}:R${index + 2}`)}?valueInputOption=RAW`,
+    { values: [["", "", "Cancelled"]] }
+  );
+  return true;
+}
+
 /** Deterministic, so saving a second time updates the row instead of duplicating it. */
 function headsScoreId(applicantEmail: string, committee: string, interviewerEmail: string): string {
   return [normalize(applicantEmail), normalizeRole(committee), normalize(interviewerEmail)].join("::");
@@ -5183,6 +5347,102 @@ async function sendRescheduleEmail(payload: ApplicationPayload, reservation: Res
     const errorText = await response.text();
     throw new Error(`Gmail send failed: ${errorText}`);
   }
+}
+
+/**
+ * Sent when an interview is called off at the applicant's request. It does not
+ * close the door: a cancelled booking leaves the application standing, and the
+ * committee can put them on a new time.
+ */
+async function sendInterviewCancelledEmail(
+  { fullName, aucEmail, slot }: { fullName: string; aucEmail: string; slot: string }
+): Promise<void> {
+  if (!gmailConfigured()) return;
+
+  const subject = "Resala AUC: Your interview has been cancelled";
+  const body = [
+    `Hi ${fullName},`,
+    "",
+    slot
+      ? `Your Resala AUC interview on ${slot} has been cancelled, as requested.`
+      : "Your Resala AUC interview has been cancelled, as requested.",
+    "The calendar invitation has been removed and the time is back on the board.",
+    "",
+    "Your application itself is still with us. If you would like another time,",
+    "reply to this email and we will book you in.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = buildInterviewCancelledEmailHtml({ fullName, slot });
+  const accessToken = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: aucEmail,
+    subject,
+    text: body,
+    html,
+    attachments: []
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gmail send failed: ${await response.text()}`);
+  }
+}
+
+function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName: string; slot: string }): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Interview Cancelled</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">Your application is still with us.</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">
+                  ${slot
+                    ? `Your interview on <b>${escapeHtml(slot)}</b> has been cancelled, as requested.`
+                    : "Your interview has been cancelled, as requested."}
+                  The calendar invitation has been removed and the time is back on the board.
+                </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Want another time?</div>
+                      <div style="font-size:15px;line-height:1.55;color:#4b5563;">Reply to this email and we will book you in. You do not need to apply again.</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: string; slot: string; meetLink: string }): string {

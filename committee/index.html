@@ -94,6 +94,12 @@
   }
   .score-pill.partial { background: var(--gold); color: var(--ink); }
   .score-pill.none { background: var(--soft); color: var(--muted); }
+  /* Only committees that collect work before the interview show this. */
+  .task-pill {
+    display: inline-block; border-radius: 999px; padding: 2px 10px;
+    font-size: 12.5px; font-weight: 700; background: #e8f5ee; color: #14663d;
+  }
+  .task-pill.due { background: #fdecec; color: #8c1c1c; }
 
   .panel { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 22px 24px; }
   .panel h2 { margin: 0 0 2px; font-size: 22px; color: var(--blue); }
@@ -131,6 +137,8 @@
   .state.noshow{ background: #fdecec; color: #a3231b; }
   .state.notdone { background: var(--soft); color: var(--muted); }
   .state.pending { background: #fdf4e0; color: var(--warn); }
+  /* Cancelled is not "not done": nobody is waiting on this interview. */
+  .state.cancelled { background: #efe7f5; color: #5b3d78; }
   .row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
   .row2 > div { flex: 1 1 140px; }
   .row2 .go { flex: 0 0 auto; }
@@ -183,6 +191,7 @@
 
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
+import { getInterviewConfig } from "../interview-config.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
@@ -254,7 +263,7 @@ function rubricFor(applicant) {
 const STATES = ["Not Done", "Done", "No Show", "Pending"];
 const stateLabel = (a) => String(a.interviewStatus || "").trim() || "Not Done";
 const stateClass = (a) => ({
-  "done": "done", "no show": "noshow", "pending": "pending"
+  "done": "done", "no show": "noshow", "pending": "pending", "cancelled": "cancelled"
 }[norm(stateLabel(a))] ?? "notdone");
 
 /** This interviewer's own saved score for an applicant, if any. */
@@ -314,7 +323,10 @@ function renderList() {
         <div class="meta">${esc(a.headName || display(a.roleAppliedFor))}</div>
         <div class="meta">${esc(a.interviewSlot || "No slot booked")}</div>
         <div><span class="score-pill ${cls}">${label}</span>
-             <span class="state ${stateClass(a)}">${esc(stateLabel(a))}</span></div>
+             <span class="state ${stateClass(a)}">${esc(stateLabel(a))}</span>
+             ${expectsTask(a)
+               ? `<span class="task-pill ${submittedLink(a) ? "" : "due"}">${submittedLink(a) ? "Task in" : "Task due"}</span>`
+               : ""}</div>
       </button>`;
   }).join("");
 }
@@ -348,13 +360,26 @@ function renderCriterion(criterion, value, headId) {
     </div>`;
 }
 
+/* Whether this applicant's committee collects work before the interview, read
+   from the same config the booking flow and the emails use — so adding a task
+   to another committee lights this portal up without touching it. */
+function expectsTask(applicant) {
+  const task = getInterviewConfig(committeeIdOf(applicant))?.task;
+  return Boolean(task?.required && task.submissionUrl);
+}
+
+const submittedLink = (a) => {
+  const link = String(a.taskLink || "").trim();
+  return /^https?:\/\//.test(link) ? link : "";
+};
+
 /* Committees that collect a task before the interview: the work is the evidence
    the Skills section grades, so it belongs at the top of the panel, not buried.
    Applicants from every other committee simply have no link. */
 function taskBanner(applicant) {
-  const link = String(applicant.taskLink || "").trim();
-  if (!/^https?:\/\//.test(link)) {
-    return applicant.committeeId === "children-day-director"
+  const link = submittedLink(applicant);
+  if (!link) {
+    return expectsTask(applicant)
       ? `<div class="banner warn">No task submitted yet. It is due an hour before the interview and carries the
          Skills score — if the slot is close, chase it.</div>`
       : "";
@@ -430,19 +455,22 @@ function renderPanel() {
     </div>` : ""}
 
     <h3 class="sec">Interview</h3>
-    ${applicant.interviewSlot ? `
-      <div class="row2" style="margin-bottom:10px;">
-        <div>
-          <label for="state">Did it happen?</label>
-          <select id="state">
-            ${STATES.map((v) => `<option value="${v}"${norm(v) === norm(stateLabel(applicant)) ? " selected" : ""}>${v}</option>`).join("")}
-          </select>
+    ${applicant.interviewSlot || applicant.reservationRowIndex ? `
+      ${applicant.interviewSlot ? `
+        <div class="row2" style="margin-bottom:10px;">
+          <div>
+            <label for="state">Did it happen?</label>
+            <select id="state">
+              ${STATES.map((v) => `<option value="${v}"${norm(v) === norm(stateLabel(applicant)) ? " selected" : ""}>${v}</option>`).join("")}
+            </select>
+          </div>
+          <div class="go"><button class="btn btn-sm btn-ghost" id="set-state">Update</button></div>
         </div>
-        <div class="go"><button class="btn btn-sm btn-ghost" id="set-state">Update</button></div>
-      </div>
-      <div class="note" style="margin-bottom:14px;">
-        Mark <b>No Show</b> if they never joined. It is what the ranking and any follow-up read.
-      </div>
+        <div class="note" style="margin-bottom:14px;">
+          Mark <b>No Show</b> if they never joined. It is what the ranking and any follow-up read.
+        </div>
+      ` : `<div class="banner warn">This interview was cancelled and their slot went back on the board.
+           Their application still stands — put them on a new time below whenever they are ready.</div>`}
 
       <div class="row2">
         <div><label for="re-date">Move to date</label><input type="date" id="re-date" value="${esc(reDate)}"></div>
@@ -450,8 +478,15 @@ function renderPanel() {
         <div class="go"><button class="btn btn-sm btn-ghost" id="reschedule">Reschedule</button></div>
       </div>
       <div class="note" style="margin-top:6px;">Moves the calendar event and emails the applicant. Agree the new time with them first.</div>
+
+      ${applicant.interviewSlot ? `
+        <div class="row2" style="margin-top:14px;">
+          <div class="note">Applicant asked to cancel? This frees the slot and drops the calendar invite.
+            Their application stays, so you can book them a new time later.</div>
+          <div class="go"><button class="btn btn-sm btn-ghost" id="cancel-interview">Cancel interview</button></div>
+        </div>` : ""}
       <div class="msg" id="int-msg"></div>
-    ` : `<div class="note">No interview booked, so there is nothing to mark or move.</div>`}
+    ` : `<div class="note">They never booked an interview, so there is nothing to mark or move.</div>`}
 
     <h3 class="sec">Your scoring${rubric ? ` · ${esc(rubric.source || "")}` : ""}</h3>
     ${scoring}
@@ -459,8 +494,12 @@ function renderPanel() {
     <div class="crit">
       <label for="task-link">Task link</label>
       <input type="url" id="task-link" placeholder="https://…"
-             value="${esc(mine?.taskLink || "")}">
-      <div class="note" style="margin-top:6px;">Paste the work they sent or brought, so the panel can open it later.</div>
+             value="${esc(mine?.taskLink || submittedLink(applicant))}">
+      <div class="note" style="margin-top:6px;">${
+        !mine?.taskLink && submittedLink(applicant)
+          ? "Filled in from what they submitted before the interview. Replace it only if they sent something newer."
+          : "Paste the work they sent or brought, so the panel can open it later."
+      }</div>
     </div>
 
     <div class="crit">
@@ -581,7 +620,34 @@ document.getElementById("panel").addEventListener("click", (e) => {
   if (e.target.id === "save") save();
   if (e.target.id === "set-state") setState();
   if (e.target.id === "reschedule") reschedule();
+  if (e.target.id === "cancel-interview") cancelInterview();
 });
+
+async function cancelInterview() {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  const msg = document.getElementById("int-msg");
+  const btn = document.getElementById("cancel-interview");
+  if (!applicant) return;
+  if (!confirm(`Cancel ${applicant.fullName}'s interview on ${applicant.interviewSlot}?\n\n` +
+    "The slot goes back on the board, the calendar invite is deleted, and they are emailed.")) return;
+
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Cancelling…";
+  try {
+    const r = await api({
+      mode: "heads-cancel-interview",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee: applicant.committee || applicant.roleAppliedFor
+    });
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+    const m = document.getElementById("int-msg");
+    if (m) { m.className = "msg ok"; m.textContent = `Cancelled.${r.emailSent ? " Applicant emailed." : " Email not sent."}`; }
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+}
 
 async function setState() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
