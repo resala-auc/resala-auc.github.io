@@ -1,5 +1,21 @@
 import { roleGuide } from "./role-guide-data.mjs";
-import { cycleRoleGuides, displayName } from "./committee-display.mjs";
+import { cycleHeadCount, cycleRoleGuides, displayName } from "./committee-display.mjs";
+import { getInterviewConfig } from "./interview-config.mjs";
+
+/**
+ * What this committee actually asks of an applicant, read from the same config
+ * the booking flow and the confirmation email use. `role.taskPrompt` used to
+ * fill this panel, but it is the previous cycle's prompt and it exists for
+ * every committee — so six committees that ask for nothing were telling
+ * applicants to prepare a plan.
+ */
+function interviewTaskLine(role) {
+  const task = getInterviewConfig(role.id)?.task;
+  if (!task?.required) {
+    return "No task to prepare. The interview is this committee's own questions and a conversation about the answers you wrote.";
+  }
+  return `${task.summary}. ${task.detail}`;
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -42,8 +58,8 @@ function GuideShell({ title, description, stylesheetHref, logoHref, faviconHref,
           </span>
         </a>
         <div class="task-topbar-actions">
-          <a class="button button-secondary" href="${homeHref}apply/">Closed</a>
-          <a class="button button-primary" href="${homeHref}guides/">How to choose your role</a>
+          <a class="button button-primary" href="${homeHref}join/">Apply as a head</a>
+          <a class="button button-secondary" href="${homeHref}guides/">How to choose your role</a>
         </div>
       </header>
       ${body}
@@ -68,7 +84,7 @@ function RoleCard(role, basePath) {
       <ul class="guide-mini-list">${shortList(role.actualWork, 2)}</ul>
       <div class="guide-role-actions">
         <a class="role-guide-link" href="${basePath}guides/${role.id}/">View details</a>
-        <a class="role-apply-link role-apply-link--closed" href="${basePath}apply/">Closed</a>
+        <a class="role-apply-link" href="${basePath}join/">Apply</a>
       </div>
     </article>
   `;
@@ -111,11 +127,12 @@ export function renderRoleGuideIndexPage() {
         <div>
           <p class="eyebrow">${escapeHtml(roleGuide.subtitle)}</p>
           <h1>${escapeHtml(roleGuide.title)}</h1>
+          <p class="guide-status">Head applications are open — ${cycleHeadCount} positions across ${cycleRoleGuides.length} committees.</p>
           <p>${escapeHtml(roleGuide.opening[0])}</p>
           <p>${escapeHtml(roleGuide.opening[2])}</p>
           <div class="guide-hero-actions">
-            <a class="button button-primary" href="#roles">Explore roles</a>
-            <a class="button button-secondary" href="../apply/">Closed</a>
+            <a class="button button-primary" href="../join/">Apply as a head</a>
+            <a class="button button-secondary" href="#roles">Explore roles</a>
           </div>
         </div>
         <aside class="guide-contact-panel">
@@ -221,7 +238,7 @@ export function renderRoleGuidePage(role) {
           <h1>${escapeHtml(displayName(role))}</h1>
           <p>${escapeHtml(role.shortDescription)}</p>
           <div class="guide-hero-actions">
-            <a class="button button-primary" href="../../apply/">Closed</a>
+            <a class="button button-primary" href="../../join/">Apply as a head</a>
             <a class="button button-secondary" href="../">Compare all roles</a>
           </div>
         </div>
@@ -243,8 +260,8 @@ export function renderRoleGuidePage(role) {
             <p>${escapeHtml(role.guidingQuestion)}</p>
           </article>
           <article>
-            <span>Interview task direction</span>
-            <p>${escapeHtml(role.taskPrompt)}</p>
+            <span>Interview task</span>
+            <p>${escapeHtml(interviewTaskLine(role))}</p>
           </article>
         </div>
       </div>
@@ -303,7 +320,7 @@ export function renderRoleGuidePage(role) {
           ${role.actualWork.map((item, index) => `<li><span>${String(index + 1).padStart(2, "0")}</span><p>${escapeHtml(item)}</p></li>`).join("")}
         </ol>
         <div class="guide-next-actions">
-          <a class="button button-primary" href="../../apply/">Closed</a>
+          <a class="button button-primary" href="../../join/">Apply as a head</a>
           <a class="button button-secondary" href="../">Back to all roles</a>
         </div>
       </div>

@@ -160,7 +160,7 @@ export const faqs = [
   },
   {
     question: "Do I have to prepare a task?",
-    answer: "Only some committees ask for one, and the application tells you before you commit. If yours does, the brief is attached to your confirmation email."
+    answer: "Two committees do. Visits asks for a 1–2 page task for the head you picked, sent with your confirmation email. Children’s Day gives you a short trial task during the interview itself, with nothing to prepare. Every other committee is questions and conversation only."
   },
   {
     question: "How do interviews work?",

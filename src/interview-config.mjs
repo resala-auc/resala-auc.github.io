@@ -92,6 +92,7 @@ export const interviewConfig = {
      */
     durationMinutes: 30,
     interviewers: ["Marketing & Branding leads"],
+    task: NO_TASK,
     // 9-10 Aug are dropped: every other committee treats them as a rest gap,
     // and Visits marks them "Not Available" outright.
     days: [

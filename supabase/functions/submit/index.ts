@@ -650,16 +650,6 @@ type ApplicationPayload = {
   createdAt: string;
 };
 
-type TaskSubmissionPayload = {
-  mode: "task-submission";
-  aucEmail: string;
-  studentId: string;
-  firstPreferenceTaskLink: string;
-  secondPreferenceTaskLink: string;
-  taskNotes?: string;
-  submittedAt: string;
-};
-
 type AdminResetPayload = {
   mode: "admin-reset-test";
   aucEmail: string;
@@ -896,7 +886,6 @@ type BoardOnboardingSubmitPayload = {
 
 type SubmissionPayload =
   | ApplicationPayload
-  | TaskSubmissionPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -961,6 +950,9 @@ type InterviewSlotOption = {
   calendarEventId?: string;
   meetLink?: string;
   rowIndex?: number;
+  /* Which sheet `rowIndex` points into. The two slot sheets have different
+     columns, so writing to the wrong one silently corrupts a row. */
+  sheet?: "heads" | "director";
 };
 
 type ReservationDetails = {
@@ -1392,21 +1384,6 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
-    if (isTaskSubmissionPayload(payload)) {
-      validateTaskSubmission(payload);
-
-      if (!SHEET_ID) {
-        throw new Error("SHEET_ID is not configured.");
-      }
-
-      const token = await getGoogleAccessToken();
-      const sheetName = await getSheetName(token);
-      await ensureHeaders(token, sheetName);
-      await updateTaskSubmission(token, payload, sheetName);
-
-      return jsonResponse({ ok: true });
-    }
-
     validateApplication(payload);
 
     if (!SHEET_ID) {
@@ -1506,10 +1483,6 @@ function isHeadsAssignInterviewerPayload(
   payload: SubmissionPayload
 ): payload is HeadsAssignInterviewerPayload {
   return (payload as HeadsAssignInterviewerPayload).mode === "heads-assign-interviewer";
-}
-
-function isTaskSubmissionPayload(payload: SubmissionPayload): payload is TaskSubmissionPayload {
-  return (payload as TaskSubmissionPayload).mode === "task-submission";
 }
 
 function isAdminResetPayload(payload: SubmissionPayload): payload is AdminResetPayload {
@@ -1642,29 +1615,6 @@ function validateApplication(payload: ApplicationPayload): void {
 
   if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
     throw new Error("Second preference must be different from the first role preference.");
-  }
-}
-
-function validateTaskSubmission(payload: TaskSubmissionPayload): void {
-  const requiredFields: Array<keyof TaskSubmissionPayload> = [
-    "aucEmail",
-    "studentId",
-    "firstPreferenceTaskLink",
-    "secondPreferenceTaskLink",
-    "submittedAt"
-  ];
-  const missing = requiredFields.filter((field) => !String(payload[field] ?? "").trim());
-
-  if (missing.length) {
-    throw new Error(`Missing required fields: ${missing.join(", ")}.`);
-  }
-
-  if (!isValidAucEmail(payload.aucEmail)) {
-    throw new Error("Invalid AUC email.");
-  }
-
-  if (!isLikelyUrl(payload.firstPreferenceTaskLink) || !isLikelyUrl(payload.secondPreferenceTaskLink)) {
-    throw new Error("Both task submissions must be valid links.");
   }
 }
 
@@ -1830,35 +1780,6 @@ async function appendApplication(token: string, payload: ApplicationPayload, she
         "",
         "",
         "Not Submitted"
-      ]
-    ]
-  });
-}
-
-async function updateTaskSubmission(token: string, payload: TaskSubmissionPayload, sheetName: string): Promise<void> {
-  const response = await sheetsFetch(token, "GET", sheetRange(sheetName, `A2:${columnLetter(HEADERS.length)}`));
-  const rows = (await response.json()).values ?? [];
-  const submittedEmail = normalize(payload.aucEmail);
-  const submittedStudentId = normalize(payload.studentId);
-  const rowIndex = rows.findIndex((row: string[]) => {
-    const email = normalize(row[2]);
-    const studentId = normalize(row[3]);
-    return email === submittedEmail && studentId === submittedStudentId;
-  });
-
-  if (rowIndex === -1) {
-    throw new Error("Could not find an application with this AUC email and Student ID.");
-  }
-
-  const sheetRow = rowIndex + 2;
-  await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `S${sheetRow}:W${sheetRow}`)}?valueInputOption=RAW`, {
-    values: [
-      [
-        new Date().toISOString(),
-        payload.firstPreferenceTaskLink,
-        payload.secondPreferenceTaskLink,
-        payload.taskNotes ?? "",
-        "Submitted"
       ]
     ]
   });
@@ -4526,6 +4447,7 @@ async function rescheduleInterview(
 ): Promise<{
   updatedReservation: boolean;
   updatedApplication: boolean;
+  updatedHeadsApplication: boolean;
   deletedOldEvent: boolean;
   createdNewEvent: boolean;
   emailSent: boolean;
@@ -4590,6 +4512,7 @@ async function rescheduleInterview(
   };
 
   const newSlot = await resolveRescheduleSlot(token, {
+    committee: roleAppliedFor,
     date,
     startTime24: `${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}`,
     currentReservationRowIndex: reservationRowIndex,
@@ -4636,7 +4559,11 @@ async function rescheduleInterview(
   // applicant alone.
   const reschedulePanel = await getCommitteePanel(token, roleAppliedFor).catch(() => []);
   const newCalendarEvent = await createCalendarEvent(calendarToken, applicantPayload, newSlot, reschedulePanel);
-  await updateSlotCalendarFields(token, newSlot, newCalendarEvent);
+  if (newSlot.sheet === "heads") {
+    await updateHeadsSlotCalendarFields(token, newSlot, newCalendarEvent);
+  } else {
+    await updateSlotCalendarFields(token, newSlot, newCalendarEvent);
+  }
 
   const newReminderSendAt = subtractMinutesFromLocalDateTime(newSlot.startDateTime, INTERVIEW_REMINDER_MINUTES);
 
@@ -4651,7 +4578,10 @@ async function rescheduleInterview(
   });
 
   if (oldSlotId && oldSlotId !== newSlot.id) {
+    // Both sheets: the reservation row no longer names the old slot, so
+    // whichever sheet holds it should stop advertising a meeting there.
     await clearFreedSlotCalendarFields(token, new Set([oldSlotId]));
+    await clearFreedHeadsSlot(token, oldSlotId);
   }
 
   const sheetName = await getSheetName(token);
@@ -4669,6 +4599,18 @@ async function rescheduleInterview(
     updatedApplication = true;
   }
 
+  // The portals read the slot off the Heads Applications row, not off the
+  // reservation, so a reschedule that skipped this row showed the old time to
+  // every interviewer until someone re-read the reservations sheet by hand.
+  let updatedHeadsApplication = false;
+  try {
+    updatedHeadsApplication = await updateHeadsApplicationSlot(token, aucEmail, newSlot);
+  } catch (error) {
+    console.error(
+      `Heads application slot not updated for ${aucEmail}: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+
   let emailSent = false;
   try {
     await sendRescheduleEmail(applicantPayload, {
@@ -4681,23 +4623,162 @@ async function rescheduleInterview(
     console.error(`Reschedule email failed: ${error instanceof Error ? error.message : "unknown error"}`);
   }
 
-  return { updatedReservation: true, updatedApplication, deletedOldEvent, createdNewEvent: true, emailSent };
+  return {
+    updatedReservation: true,
+    updatedApplication,
+    updatedHeadsApplication,
+    deletedOldEvent,
+    createdNewEvent: true,
+    emailSent
+  };
+}
+
+/** Interview Slot (P) and Interview Slot ID (Q) on the heads-cycle sheet. */
+async function updateHeadsApplicationSlot(
+  token: string,
+  aucEmail: string,
+  slot: InterviewSlotOption
+): Promise<boolean> {
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((row) => normalize(row[2]) === normalize(aucEmail));
+  if (index === -1) return false;
+
+  const sheetRow = index + 2;
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `P${sheetRow}:Q${sheetRow}`)}?valueInputOption=RAW`,
+    { values: [[slot.label, slot.id]] }
+  );
+  return true;
+}
+
+/**
+ * The heads cycle keeps its slots in their own sheet, one row per committee per
+ * time. A reschedule that cannot find the new time here books a slot nobody
+ * counts: the applicant's reservation points at an id no slot owns, so the time
+ * still reads as free and two people can be given it.
+ */
+async function findHeadsSlotForReschedule(
+  token: string,
+  {
+    committee,
+    date,
+    startTime24,
+    currentReservationRowIndex
+  }: { committee: string; date: string; startTime24: string; currentReservationRowIndex: number }
+): Promise<InterviewSlotOption | null> {
+  if (!committee) return null;
+
+  const [slotResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:B")}`)
+  ]);
+  const slotRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const wanted = normalizeRole(committee);
+  const match = slotRows
+    .map((row, index) => ({ row, rowIndex: index + 2 }))
+    .find(
+      ({ row }) =>
+        normalizeRole(row[1]) === wanted &&
+        String(row[2] ?? "").trim() === date &&
+        normalizeTime24(row[3]) === startTime24
+    );
+
+  if (!match) return null;
+
+  const { row, rowIndex } = match;
+  const id = String(row[0] ?? "").trim();
+  const startTime = String(row[3] ?? "").trim();
+  const endTime = String(row[4] ?? "").trim();
+  const capacity = Number(row[7] ?? 1) || 1;
+  const active = String(row[8] ?? "TRUE").toLowerCase() !== "false";
+  // The applicant's own reservation is about to move onto this slot, so it must
+  // not count against the space it is moving into.
+  const reservedCount = reservationRows.reduce((count, reservationRow, index) => {
+    if (index + 2 === currentReservationRowIndex) return count;
+    return normalize(reservationRow[1]) === normalize(id) ? count + 1 : count;
+  }, 0);
+  const remaining = Math.max(capacity - reservedCount, 0);
+  const startDateTime = buildLocalDateTime(date, startTime);
+  const endDateTime = buildLocalDateTime(date, endTime);
+
+  return {
+    id,
+    label: String(row[5] ?? "").trim() || buildSlotLabel(date, startTime),
+    date,
+    startTime,
+    endTime,
+    startDateTime,
+    endDateTime,
+    capacity,
+    active,
+    reservedCount,
+    remaining,
+    full: !active || !startDateTime || !endDateTime || remaining <= 0,
+    calendarEventId: String(row[9] ?? "").trim(),
+    meetLink: String(row[10] ?? "").trim(),
+    rowIndex,
+    sheet: "heads"
+  };
+}
+
+/** Blank the calendar columns on a heads slot nobody holds any more. */
+async function clearFreedHeadsSlot(token: string, slotId: string): Promise<void> {
+  if (!slotId) return;
+
+  const [slotResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:A")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:B")}`)
+  ]);
+  const slotIds = ((await slotResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const stillHeld = reservationRows.some((row) => normalize(row[1]) === normalize(slotId));
+  if (stillHeld) return;
+
+  const index = slotIds.findIndex((row) => normalize(row[0]) === normalize(slotId));
+  if (index === -1) return;
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_SLOT_SHEET_NAME, `J${index + 2}:K${index + 2}`)}?valueInputOption=RAW`,
+    { values: [["", ""]] }
+  );
 }
 
 async function resolveRescheduleSlot(
   token: string,
   {
+    committee,
     date,
     startTime24,
     currentReservationRowIndex,
     fallbackSlot
   }: {
+    committee: string;
     date: string;
     startTime24: string;
     currentReservationRowIndex: number;
     fallbackSlot: InterviewSlotOption;
   }
 ): Promise<InterviewSlotOption> {
+  const headsSlot = await findHeadsSlotForReschedule(token, {
+    committee,
+    date,
+    startTime24,
+    currentReservationRowIndex
+  });
+  if (headsSlot) return headsSlot;
+
   const [slotResponse, reservationResponse] = await Promise.all([
     sheetsFetch(token, "GET", `${sheetRange(SLOT_SHEET_NAME, "A2:I")}`),
     sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:B")}`)
@@ -4745,7 +4826,8 @@ async function resolveRescheduleSlot(
     full: !active || !date || !startTime || !startDateTime || !endDateTime || past || remaining <= 0,
     calendarEventId: String(row[7] ?? "").trim(),
     meetLink: String(row[8] ?? "").trim(),
-    rowIndex: match.rowIndex
+    rowIndex: match.rowIndex,
+    sheet: "director"
   };
 }
 

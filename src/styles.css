@@ -2518,6 +2518,19 @@ h3 {
   color: rgba(255, 255, 255, 0.84);
 }
 
+/* The one line on a guide page that states where the cycle stands. */
+.guide-status {
+  margin-top: 14px;
+  display: inline-block;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(234, 194, 98, 0.55);
+  background: rgba(234, 194, 98, 0.14);
+  color: #f3d9a0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .guide-hero-actions {
   margin-top: 24px;
   display: flex;
