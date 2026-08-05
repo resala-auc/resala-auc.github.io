@@ -228,6 +228,11 @@ type CommitteeInterview = {
 
 const WEEKDAY_TIMES_OPERATIONS = ["11:00", "12:00", "16:00", "20:00", "21:00", "22:00"];
 const BRANDING_TIMES = ["13:00", "13:35", "14:10", "14:45", "15:20", "15:55"];
+/*
+ * The full run of interview days. Operations' brief prints only 5-8, 11 and 14
+ * August, but it interviews on the 12th and 13th as well — kept by decision,
+ * with an applicant already booked on the 12th.
+ */
 const CORE_DAYS = [
   "2026-08-05",
   "2026-08-06",

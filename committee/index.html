@@ -319,8 +319,11 @@ function renderList() {
   }).join("");
 }
 
-function renderCriterion(criterion, value) {
+function renderCriterion(criterion, value, headId) {
   const id = `crit-${criterion.name.replace(/\W+/g, "-")}`;
+  /* PR scores Skills against a list that differs per head — "6-4 skills" means
+     nothing without knowing which six. */
+  const skills = criterion.skillsByRole?.[headId];
   const anchors = criterion.bands
     // PR grades in three bands with their own point ranges.
     ? criterion.bands.map((band) => `
@@ -337,6 +340,7 @@ function renderCriterion(criterion, value) {
         <span class="w">out of ${criterion.weight}${criterion.lookFor ? " · look for " + esc(criterion.lookFor) : ""}</span>
       </div>
       ${anchors}
+      ${skills ? `<div class="anchor full"><span class="lbl">Skills for this head</span><br>${esc(skills)}</div>` : ""}
       <input type="number" id="${id}" data-criterion="${esc(criterion.name)}"
              min="0" max="${criterion.weight}" step="1"
              value="${value === undefined || value === null ? "" : esc(value)}"
@@ -380,7 +384,7 @@ function renderPanel() {
   }
 
   const scoring = rubric
-    ? rubric.criteria.map((c) => renderCriterion(c, mine?.scores?.[c.name])).join("")
+    ? rubric.criteria.map((c) => renderCriterion(c, mine?.scores?.[c.name], headIdOf(applicant))).join("")
     : `<div class="banner warn">${esc(display(applicant.committee || applicant.roleAppliedFor))} has no scoring rubric in its
        brief, so this interview is recorded as notes only. Add a rubric to score it.</div>`;
 

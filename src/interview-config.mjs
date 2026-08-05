@@ -67,6 +67,10 @@ export const interviewConfig = {
      * window and a count, so those start times are kept exactly as published —
      * the shorter interview simply leaves a gap after each one instead of
      * running back-to-back.
+     *
+     * The days run 5-8, 11-14 Aug. The brief's table skips 12 and 13, but
+     * Operations interviews on them too and an applicant is already booked on
+     * the 12th; kept by decision rather than trimmed back to the table.
      */
     durationMinutes: 30,
     interviewers: ["Operations leads"],
@@ -213,7 +217,9 @@ export const interviewConfig = {
     durationMinutes: 60,
     // Ezz and Amina interview together, so an hour where both are free is still
     // a single interview. Their schedules are merged into one pool of times and
-    // every slot takes exactly one applicant.
+    // every slot takes exactly one applicant. The pool is the union of the two,
+    // not the overlap: either of them can run an interview alone, and by
+    // decision applicants get the wider choice.
     //
     // Ezz's published table also lists an 11:00 PM-12:00 AM slot on every one of
     // his days. It is deliberately not offered here: it would schedule an

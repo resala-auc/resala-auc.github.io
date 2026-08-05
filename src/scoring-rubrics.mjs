@@ -134,12 +134,27 @@ export const rubrics = {
           { label: "Weak", range: [0, 8], text: "1-0 skills, doesn't know how to handle the scenario." }
         ],
         // Which skills count depends on the head the applicant applied to.
+        // Keyed by head id, so the portal can look them up with the same key it
+        // already uses everywhere else.
         skillsByRole: {
           sponsorship: "Negotiation, networking, persuasion, communication, determination, and sales & pitching.",
           events: "Planning, time management, problem solving, organization, creative, adaptable.",
-          partnership: "Communication, networking, collaborative, creative, presentation, planning skills."
+          partnerships: "Communication, networking, collaborative, creative, presentation, planning skills."
         }
       }
+    ]
+  },
+
+  "children-day-director": {
+    source: "childrenday recruitment.pdf §5",
+    // The trial task in §4 is not scored on its own: it is the evidence the
+    // Skills section is looking for, which is why Skills carries 40 here.
+    note: "The trial task carries high weight inside Skills — score what they produced, not the promise.",
+    criteria: [
+      { name: "Ownership", ...pair(15, "Gives a real example of putting the team above personal convenience — stayed late, covered a gap, gave up something to see it through.", "Speaks only in intentions or promises, with no concrete example.") },
+      { name: "Leadership", ...pair(30, "Describes one specific decision or conflict they handled, and owns the outcome, good or bad.", "Talks about leadership in the abstract, or credits every decision to someone else.") },
+      { name: "Self-awareness & commitment", ...pair(15, "Names a real limit and how they manage it, and is specific about the hours and weeks they can commit.", "Claims to have no weaknesses, or is vague about availability.") },
+      { name: "Skills", ...pair(40, "Shows concrete proof tied to what the role actually owns — a design sample, teaching experience, or event-ops experience.", "Shows general enthusiasm with nothing concrete behind it.") }
     ]
   },
 
@@ -180,13 +195,6 @@ export const rubrics = {
       }
     }
   }
-
-  /*
-   * Children's Day is deliberately absent. Its brief does not include a §4, so
-   * there is no rubric to quote and inventing one would put numbers on an
-   * applicant that no director agreed to. getRubric() returns null for it and
-   * the dashboard falls back to notes-only until a rubric is supplied.
-   */
 };
 
 /**
