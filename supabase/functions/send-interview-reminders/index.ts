@@ -11,11 +11,22 @@ const GMAIL_SENDER_EMAIL = Deno.env.get("GMAIL_SENDER_EMAIL") ?? "";
 const GMAIL_SENDER_NAME = Deno.env.get("GMAIL_SENDER_NAME") ?? "Resala AUC";
 const EMAIL_LOGO_URL =
   Deno.env.get("EMAIL_LOGO_URL") ?? "https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png";
-const TASK_SUBMISSION_URL = Deno.env.get("TASK_SUBMISSION_URL") ?? "";
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const REMINDER_STALE_MINUTES = Number(Deno.env.get("REMINDER_STALE_MINUTES") ?? 90);
-const HIERARCHY_SHEET_NAME = "Board Hierarchy";
 const REMINDER_JOB_SECRET = Deno.env.get("REMINDER_JOB_SECRET") ?? "";
+
+/* Cosmetic committee renames: the stored name still ends in "Director", which
+   is a position somebody holds, never the committee's name. */
+const COMMITTEE_DISPLAY_NAMES: Record<string, string> = {
+  "tech director": "Tech Team",
+  "initiatives director": "Initiatives",
+  "children day director": "Children’s Day"
+};
+
+function displayCommitteeName(name: unknown): string {
+  const raw = String(name ?? "").trim();
+  return COMMITTEE_DISPLAY_NAMES[normalizeRole(raw)] ?? raw;
+}
 
 const RESERVATION_HEADERS = [
   "Timestamp",
@@ -65,36 +76,6 @@ type ReservationRow = {
   secondPreference: string;
 };
 
-type TaskDocument = {
-  roleName: string;
-  title: string;
-  documentUrl: string;
-  pdfUrl: string;
-};
-
-type ApplicantTaskDocument = TaskDocument & {
-  preferenceLabel: string;
-};
-
-type PreviewEmailRequest = {
-  mode?: string;
-  to?: string;
-};
-
-const TASK_DOCUMENTS: Record<string, TaskDocument> = {
-  treasurer: taskDocument("Treasurer", "12cWr1oQfAuNmnLRUtR9ekHyE7uu716-VhAdcdYpffl4", "Final Task - Treasurer - Resala Board Recruitment"),
-  "tech director": taskDocument("Tech Director", "1jWXLeGeN4yIrq6q_Dutdm4Dqz3jtWgjIzpGHfuaXji0", "Final Task - Tech Director - Resala Board Recruitment"),
-  "branding media": taskDocument("Branding / Media", "1kflQQAValfaoEpOO1r-mEaPRVl3loUeYd3XofPQivwY", "Final Task - Branding Media - Resala Board Recruitment"),
-  "pr fundraising": taskDocument("PR / Fundraising", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  pr: taskDocument("PR", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  fundraising: taskDocument("Fundraising", "127fH4iEaKGpc7s5qiRI-5Z9-jdgqwXtQeGIVGvHvaHw", "Final Task - PR Fundraising - Resala Board Recruitment"),
-  hr: taskDocument("HR", "1rYAnr0lhVyHW0GIwjHMOaMWxiGxZI3AOp6t5qY8imus", "Final Task - HR - Resala Board Recruitment"),
-  operations: taskDocument("Operations", "1tvyaQDhCHnb9E4HiiVmB6ZNXpTVpunsti9ECwxw8f30", "Final Task - Operations - Resala Board Recruitment"),
-  visits: taskDocument("Visits", "1ELC6nP7FQN33enuHbUamCvNYTlP8i3DNnA2NCuhPDF0", "Final Task - Visits - Resala Board Recruitment"),
-  "children day director": taskDocument("Children Day Director", "1-6nfB5GaSSgE7gL046oIOA9R7caiCmuf04hdHtnHYjM", "Resala Task Children Day"),
-  "initiatives director": taskDocument("Initiatives Director", "1tW2YFctINtnKQalTywtI8ZHWyI5AyuvTRf5OIHgcOgA", "Final Task - Initiatives Director - Resala Board Recruitment")
-};
-
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -115,17 +96,6 @@ Deno.serve(async (request) => {
 
     if (!gmailConfigured()) {
       throw new Error("Gmail reminder sending is not configured.");
-    }
-
-    const previewRequest = await parsePreviewEmailRequest(request);
-    if (previewRequest?.mode === "preview-emails") {
-      const to = String(previewRequest.to ?? "").trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-        throw new Error("Preview email address is invalid.");
-      }
-
-      await sendPreviewEmails(to);
-      return jsonResponse({ ok: true, sentPreviewEmails: 2, to });
     }
 
     const token = await getGoogleAccessToken();
@@ -161,7 +131,7 @@ Deno.serve(async (request) => {
       }
 
       try {
-        await sendReminderEmail({ ...reservation, reminderSendAt }, token);
+        await sendReminderEmail({ ...reservation, reminderSendAt });
         await updateReminderState(token, reservation.rowIndex, reminderSendAt, now, "Sent");
         sent += 1;
       } catch (error) {
@@ -182,13 +152,6 @@ Deno.serve(async (request) => {
     );
   }
 });
-
-async function parsePreviewEmailRequest(request: Request): Promise<PreviewEmailRequest | null> {
-  const text = await request.text();
-  if (!text.trim()) return null;
-
-  return JSON.parse(text) as PreviewEmailRequest;
-}
 
 function shouldProcessReservation(reservation: ReservationRow): boolean {
   if (!reservation.aucEmail || !reservation.fullName) return false;
@@ -260,52 +223,20 @@ async function updateReminderState(
   });
 }
 
-/** Director and Vice-Director for a committee, so they get the reminder too. */
-async function loadPanelEmails(token: string, roleAppliedFor: string): Promise<string[]> {
-  try {
-    const response = await sheetsFetch(token, "GET", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}`);
-    const rows = ((await response.json()).values ?? []) as string[][];
-    const wanted = normalizeRole(roleAppliedFor);
-    return rows
-      .filter((row) => normalizeRole(String(row[1] ?? "")) === wanted)
-      .filter((row) => String(row[2] ?? "").toLowerCase().includes("director"))
-      .map((row) => String(row[4] ?? "").trim())
-      .filter((email) => /^[A-Za-z0-9._%+-]+@aucegypt\.edu$/i.test(email));
-  } catch (error) {
-    // A hierarchy problem must not stop the applicant being reminded.
-    console.error(`Could not load panel for reminder: ${error instanceof Error ? error.message : error}`);
-    return [];
-  }
-}
-
-async function sendReminderEmail(reservation: ReservationRow, token?: string): Promise<void> {
+/**
+ * Applicant only. The committee is on the calendar invite and gets reminded by
+ * their own calendar; copying them here would be a second reminder for an
+ * interview they already have booked.
+ */
+async function sendReminderEmail(reservation: ReservationRow): Promise<void> {
   const slot = reservation.slotLabel || reservation.reminderSendAt;
-  const taskDeadline = formatLocalDateTimeLabel(reservation.reminderSendAt);
   const template = buildReminderEmailTemplate(
     reservation.fullName,
     slot,
     reservation.meetLink,
-    reservation.roleAppliedFor,
-    reservation.secondPreference,
-    taskDeadline
+    reservation.roleAppliedFor
   );
-  const panel = token ? await loadPanelEmails(token, reservation.roleAppliedFor) : [];
-  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html, panel.join(", "));
-}
-
-async function sendPreviewEmails(to: string): Promise<void> {
-  const confirmation = buildPreviewConfirmationEmailTemplate();
-  const reminder = buildReminderEmailTemplate(
-    "Youssef",
-    "2026-06-22 at 7:30 PM",
-    "https://meet.google.com/resala-preview",
-    "Tech Director",
-    "HR",
-    "2026-06-22 at 7:00 PM"
-  );
-
-  await sendEmail(to, confirmation.subject, confirmation.body, confirmation.html);
-  await sendEmail(to, reminder.subject, reminder.body, reminder.html);
+  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html);
 }
 
 async function sendEmail(to: string, subject: string, text: string, html: string, cc = ""): Promise<void> {
@@ -336,83 +267,23 @@ async function sendEmail(to: string, subject: string, text: string, html: string
   }
 }
 
-function buildPreviewConfirmationEmailTemplate(): { subject: string; body: string; html: string } {
-  const fullName = "Youssef";
-  const roleAppliedFor = "Tech Director";
-  const secondPreference = "HR";
-  const slot = "2026-06-22 at 7:30 PM";
-  const meetLink = "https://meet.google.com/resala-preview";
-  const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
-  const taskDeadline = "2026-06-22 at 7:00 PM";
-  const submissionLine = getTaskSubmissionLine();
-  const subject = "Resala AUC Application Confirmation";
-  const body = [
-    `Hi ${fullName},`,
-    "",
-    `Thanks for applying to Resala AUC. Your first preference is ${roleAppliedFor}, and your second preference is ${secondPreference}.`,
-    "",
-    `Your interview slot is: ${slot}.`,
-    `Google Meet link: ${meetLink}`,
-    "You will also receive a Google Calendar reminder 1 hour before the interview.",
-    "",
-    "Please complete two pre-interview tasks, one for each preference:",
-    "",
-    ...formatTaskDocumentTextLines(tasks),
-    "",
-    `Task deadline: ${taskDeadline}.`,
-    submissionLine,
-    "If anything feels unclear, just reply to this email and we will help.",
-    "",
-    "Best,",
-    "Resala AUC"
-  ].join("\n");
-
-  const html = buildCenteredEmailHtml({
-    preheader: "Your Resala AUC interview slot is reserved.",
-    heroTitle: "Your Interview Slot Is Reserved",
-    heroSubtitle: "Thanks for applying. Here is everything you need before the interview.",
-    bodyHtml: `
-      <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(roleAppliedFor)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. We received your application and reserved your interview slot.</p>
-      ${infoCard("Your interview slot", escapeHtml(slot))}
-      ${linkCard("Google Meet", "Join the interview meeting", meetLink, "You will also receive a Google Calendar reminder 1 hour before the interview.")}
-      ${buildTaskDocumentsHtml(tasks)}
-      ${darkCallout("Task deadline", `Submit both tasks by ${escapeHtml(taskDeadline)}.${buildSubmissionActionHtml()}`)}
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything feels unclear, just reply to this email and we will help.</p>
-      <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
-      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
-    `
-  });
-
-  return { subject, body, html };
-}
-
 function buildReminderEmailTemplate(
   fullName: string,
   slot: string,
   meetLink: string,
-  roleAppliedFor: string,
-  secondPreference: string,
-  taskDeadline: string
+  roleAppliedFor: string
 ): { subject: string; body: string; html: string } {
-  const tasks = getApplicantTaskDocuments(roleAppliedFor, secondPreference);
-  const submissionLine = getTaskSubmissionLine();
+  const committee = displayCommitteeName(roleAppliedFor);
   const subject = "Resala AUC: your interview starts in 1 hour";
   const body = [
     `Hi ${fullName},`,
     "",
-    "This is a reminder that your Resala AUC interview starts in 1 hour.",
+    `This is a reminder that your Resala AUC interview${committee ? ` with ${committee}` : ""} starts in 1 hour.`,
     "",
     `Interview slot: ${slot}`,
     `Google Meet link: ${meetLink}`,
     "",
-    "If you have not submitted your two pre-interview tasks yet, submit them now:",
-    "",
-    ...formatTaskDocumentTextLines(tasks),
-    "",
-    `Task deadline: ${taskDeadline || "1 hour before your interview"}.`,
-    submissionLine,
-    "",
+    "If your committee asked you to prepare something, bring it with you.",
     "Please join from a quiet place if possible.",
     "If anything comes up, reply to this email.",
     "",
@@ -423,15 +294,13 @@ function buildReminderEmailTemplate(
   const html = buildCenteredEmailHtml({
     preheader: "Your Resala AUC interview starts in 1 hour.",
     heroTitle: "Your Interview Starts Soon",
-    heroSubtitle: "Join from a quiet place and submit your tasks if you have not yet.",
+    heroSubtitle: "Join from a quiet place, and bring anything your committee asked you to prepare.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview starts in <strong>1 hour</strong>.</p>
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview${committee ? ` with <strong>${escapeHtml(committee)}</strong>` : ""} starts in <strong>1 hour</strong>.</p>
       ${infoCard("Interview slot", escapeHtml(slot))}
       ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible.")}
-      ${buildTaskDocumentsHtml(tasks)}
-      ${darkCallout("Task deadline", `If you have not submitted both tasks yet, submit them now. Deadline: ${escapeHtml(taskDeadline || "1 hour before your interview")}.${buildSubmissionActionHtml()}`)}
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything comes up, reply to this email.</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If your committee asked you to prepare something, bring it with you. If anything comes up, reply to this email.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
     `
@@ -518,100 +387,6 @@ function darkCallout(label: string, value: string): string {
       </td>
     </tr>
   </table>`;
-}
-
-function taskDocument(roleName: string, documentId: string, title: string): TaskDocument {
-  return {
-    roleName,
-    title,
-    documentUrl: `https://docs.google.com/document/d/${documentId}/edit?usp=sharing`,
-    pdfUrl: `https://docs.google.com/document/d/${documentId}/export?format=pdf`
-  };
-}
-
-function getApplicantTaskDocuments(firstPreference: string, secondPreference: string): ApplicantTaskDocument[] {
-  const preferences = [
-    { preferenceLabel: "First preference", roleName: firstPreference },
-    { preferenceLabel: "Second preference", roleName: secondPreference }
-  ].filter((preference) => preference.roleName);
-
-  return preferences.map(({ preferenceLabel, roleName }) => {
-    const task = TASK_DOCUMENTS[normalizeRole(roleName)] ?? {
-      roleName,
-      title: `${roleName} pre-interview task`,
-      documentUrl: "",
-      pdfUrl: ""
-    };
-
-    return {
-      ...task,
-      roleName: task.roleName || roleName,
-      preferenceLabel
-    };
-  });
-}
-
-function formatTaskDocumentTextLines(tasks: ApplicantTaskDocument[]): string[] {
-  if (!tasks.length) {
-    return ["- Your task links are in your confirmation email."];
-  }
-
-  return tasks.flatMap((task) => [
-    `- ${task.preferenceLabel}: ${task.roleName}`,
-    `  Google Doc: ${task.documentUrl || "Task document link is in your confirmation email."}`
-  ]);
-}
-
-function buildTaskDocumentsHtml(tasks: ApplicantTaskDocument[]): string {
-  if (!tasks.length) {
-    return `<p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#4b5563;">Your task links are in your confirmation email.</p>`;
-  }
-
-  const rows = tasks
-    .map((task) => {
-      const docLink = task.documentUrl
-        ? `<a href="${escapeHtml(task.documentUrl)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:10px 14px;">Open Google Doc</a>`
-        : `<span style="color:#64748b;font-size:15px;">Google Doc link is in your confirmation email.</span>`;
-
-      return `<tr>
-        <td style="padding:14px 0;border-top:1px solid #e6edf2;">
-          <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;font-weight:bold;margin-bottom:5px;">${escapeHtml(task.preferenceLabel)}</div>
-          <div style="font-size:17px;line-height:1.35;color:#172033;font-weight:bold;margin-bottom:8px;">${escapeHtml(task.roleName)}</div>
-          <div>${docLink}</div>
-        </td>
-      </tr>`;
-    })
-    .join("");
-
-  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:0 16px;margin:0 0 20px;">
-    <tr>
-      <td style="padding:16px 0 2px;">
-        <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Pre-interview tasks</div>
-        <div style="font-size:15px;line-height:1.55;color:#4b5563;">Complete both tasks: one for your first preference and one for your second preference.</div>
-      </td>
-    </tr>
-    ${rows}
-  </table>`;
-}
-
-function getTaskSubmissionLine(): string {
-  const submissionUrl = TASK_SUBMISSION_URL.trim();
-  if (submissionUrl) {
-    return `Submit both completed tasks here: ${submissionUrl}`;
-  }
-
-  return "Submit both completed tasks by replying to this email with your files or links.";
-}
-
-function buildSubmissionActionHtml(): string {
-  const submissionUrl = TASK_SUBMISSION_URL.trim();
-  if (!submissionUrl) {
-    return `<div style="font-size:14px;line-height:1.55;color:#dbe7ef;margin-top:8px;">Submit both completed tasks by replying to this email with your files or links.</div>`;
-  }
-
-  return `<div style="margin-top:14px;">
-    <a href="${escapeHtml(submissionUrl)}" style="display:inline-block;background:#f5c46b;color:#0d2b45;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">Submit tasks</a>
-  </div>`;
 }
 
 function gmailConfigured(): boolean {

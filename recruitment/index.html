@@ -171,7 +171,14 @@ const DISPLAY_NAMES = {
   "children day director": "Children’s Day"
 };
 const norm = (v) => String(v ?? "").trim().toLowerCase();
-const display = (v) => DISPLAY_NAMES[norm(v)] ?? String(v ?? "");
+/* Second preferences arrive as "Committee — Head": rename the committee half,
+   pass the head through. A bare committee name works the same way. */
+const display = (v) => {
+  const [committee, ...rest] = String(v ?? "").trim().split("—");
+  const head = rest.join("—").trim();
+  const named = DISPLAY_NAMES[norm(committee)] ?? committee.trim();
+  return head ? `${named} — ${head}` : named;
+};
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 

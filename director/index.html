@@ -422,6 +422,16 @@
       document.getElementById('login-screen').style.display = 'flex';
     }
 
+    /* Stored department names still end in "Director" — a position, not a
+       committee. Renamed here for display only; every lookup keeps the raw
+       name. */
+    const DEPARTMENT_DISPLAY_NAMES = {
+      'Tech Director': 'Tech Team',
+      'Children Day Director': 'Children’s Day',
+      'Initiatives Director': 'Initiatives'
+    };
+    const deptLabel = (name) => DEPARTMENT_DISPLAY_NAMES[String(name ?? '').trim()] ?? String(name ?? '');
+
     function boot(data) {
       applicants = data.applicants || [];
       portalInfo = { department: data.department, positionType: data.positionType, directorName: data.directorName };
@@ -431,8 +441,8 @@
       document.getElementById('content-loading').style.display = 'none';
       document.getElementById('content').style.display = 'block';
 
-      document.getElementById('header-role').textContent = `${portalInfo.positionType} · ${portalInfo.department}`;
-      document.getElementById('summary-dept').textContent = `${portalInfo.department} applicants`;
+      document.getElementById('header-role').textContent = `${portalInfo.positionType} · ${deptLabel(portalInfo.department)}`;
+      document.getElementById('summary-dept').textContent = `${deptLabel(portalInfo.department)} applicants`;
       document.getElementById('summary-count').textContent =
         `${applicants.length} applicant${applicants.length === 1 ? '' : 's'} · interviewed + task submitted`;
 
@@ -505,8 +515,8 @@
 
         <div class="section-title">Application</div>
         <div class="ac-meta" style="margin-bottom:8px;">
-          <span>1st preference: <strong>${escHtml(a.roleAppliedFor)}</strong></span>
-          <span>2nd preference: <strong>${escHtml(a.secondPreference || '—')}</strong></span>
+          <span>1st preference: <strong>${escHtml(deptLabel(a.roleAppliedFor))}</strong></span>
+          <span>2nd preference: <strong>${escHtml(deptLabel(a.secondPreference || '—'))}</strong></span>
         </div>
         ${qa('Why this role?', a.whyThisRole)}
         ${qa('Why choose yourself?', a.whyChooseYourself)}

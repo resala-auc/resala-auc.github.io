@@ -691,14 +691,14 @@
             <select id="rank-role">
               <option value="">Select a role…</option>
               <option>Treasurer</option>
-              <option>Tech Director</option>
+              <option value="Tech Director">Tech Team</option>
               <option>Operations</option>
               <option>Branding / Media</option>
               <option>HR</option>
               <option>PR / Fundraising</option>
               <option>Visits</option>
-              <option>Children Day Director</option>
-              <option>Initiatives Director</option>
+              <option value="Children Day Director">Children’s Day</option>
+              <option value="Initiatives Director">Initiatives</option>
             </select>
             <select id="rank-pref">
               <option value="first">1st preference candidates</option>
@@ -725,14 +725,14 @@
             <select id="tc-role">
               <option value="">Select a role…</option>
               <option>Treasurer</option>
-              <option>Tech Director</option>
+              <option value="Tech Director">Tech Team</option>
               <option>Operations</option>
               <option>Branding / Media</option>
               <option>HR</option>
               <option>PR / Fundraising</option>
               <option>Visits</option>
-              <option>Children Day Director</option>
-              <option>Initiatives Director</option>
+              <option value="Children Day Director">Children’s Day</option>
+              <option value="Initiatives Director">Initiatives</option>
             </select>
             <button class="btn btn-primary btn-sm" onclick="renderTaskCompare()">Start comparison</button>
           </div>
@@ -893,6 +893,17 @@
     'Children Day Director',
     'Initiatives Director'
   ];
+  /* Stored department names still end in "Director" and every filter, lookup
+     and saved record keys off them, so they stay exactly as they are — the
+     rename happens only where a person reads the name. Director and
+     Vice-Director stay untouched: those are positions people hold, not
+     committees. */
+  const DEPARTMENT_DISPLAY_NAMES = {
+    'Tech Director': 'Tech Team',
+    'Children Day Director': 'Children’s Day',
+    'Initiatives Director': 'Initiatives'
+  };
+  const deptLabel = (name) => DEPARTMENT_DISPLAY_NAMES[String(name ?? '').trim()] ?? String(name ?? '');
   const SCORE_FIELDS = [
     { key: 'visionMotivationScore', label: 'Vision + Motivation', max: 10 },
     { key: 'leadershipScore', label: 'Leadership', max: 10 },
@@ -1007,7 +1018,7 @@
     const selected = String(selectedRole ?? '');
     return [
       '<option value="">Select role…</option>',
-      ...ROLE_OPTIONS.map(role => `<option value="${escHtml(role)}"${role === selected ? ' selected' : ''}>${escHtml(role)}</option>`)
+      ...ROLE_OPTIONS.map(role => `<option value="${escHtml(role)}"${role === selected ? ' selected' : ''}>${escHtml(deptLabel(role))}</option>`)
     ].join('');
   }
 
@@ -1876,7 +1887,7 @@
 
     return `
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
-        <h3>${escHtml(role)}</h3>
+        <h3>${escHtml(deptLabel(role))}</h3>
         <div class="dec-slots">${primaryRows}${assistantRows}</div>
         ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-vd" data-role="${escHtml(role)}">+ Add another Vice-Director</button></div>` : ''}
         <details class="dec-pool">
@@ -1941,7 +1952,7 @@
 
       return `
         <div class="hier-dept-card" data-dept="${escHtml(role)}">
-          <h3>${escHtml(role)} &nbsp;${statusHtml}</h3>
+          <h3>${escHtml(deptLabel(role))} &nbsp;${statusHtml}</h3>
           ${leads.length ? leads.map(rosterPersonRow).join('') : '<div class="dec-empty">No director/vice-director picked yet.</div>'}
           ${heads.length ? `
             <div style="margin-top:8px;">
@@ -2091,7 +2102,7 @@
       const primaryRows = cfg.primaryLabels.map(label => hierSlotRowHtml(role, label, false, '', '')).join('');
       return `
       <div class="hier-dept-card" data-dept="${escHtml(role)}">
-        <h3>${escHtml(role)}</h3>
+        <h3>${escHtml(deptLabel(role))}</h3>
         <div class="hier-director-row">${primaryRows}</div>
         <div class="hier-assistant-list"></div>
         ${cfg.allowAssistant ? `<div class="hier-add-row"><button type="button" class="btn btn-accent btn-sm" data-action="add-assistant">+ Add Vice-Director</button></div>` : ''}
@@ -2246,7 +2257,7 @@
     tbody.innerHTML = slots.map(slot => {
       const inSlot = records.filter(r => r.slotId === slot.id);
       const who = inSlot.length
-        ? inSlot.map(r => `${escHtml(r.fullName)} <span style="color:#94a3b8;">(${escHtml(r.department)})</span>`).join('<br>')
+        ? inSlot.map(r => `${escHtml(r.fullName)} <span style="color:#94a3b8;">(${escHtml(deptLabel(r.department))})</span>`).join('<br>')
         : '<span style="color:#94a3b8;">— open —</span>';
       const meetLink = inSlot[0]?.meetLink
         ? `<a href="${escHtml(inSlot[0].meetLink)}" target="_blank" rel="noopener" style="color:#2563eb;">Join</a>`
@@ -2295,9 +2306,11 @@
   function chip_label_dashboard(positionType, department) {
     if (positionType === department) return escHtml(positionType);
     if (department.endsWith('Director') && (positionType === 'Director' || positionType === 'Vice-Director')) {
-      return escHtml(positionType === 'Director' ? department : `Vice ${department}`);
+      // "Tech Team Director", not "Tech Director": the committee is Tech Team and
+      // Director is the position this person holds in it.
+      return `${escHtml(deptLabel(department))} ${escHtml(positionType)}`;
     }
-    return `${escHtml(positionType)} &middot; ${escHtml(department)}`;
+    return `${escHtml(positionType)} &middot; ${escHtml(deptLabel(department))}`;
   }
 
   async function loadOnboardingTab() {

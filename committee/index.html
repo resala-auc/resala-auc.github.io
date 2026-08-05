@@ -204,9 +204,18 @@ const DISPLAY_NAMES = {
   "initiatives director": "Initiatives",
   "children day director": "Children\u2019s Day"
 };
-const display = (v) => DISPLAY_NAMES[String(v ?? "").trim().toLowerCase()] ?? String(v ?? "");
-
 const norm = (v) => String(v ?? "").trim().toLowerCase();
+
+/* Applicant records carry the raw committee name, which still ends in
+   "Director" — a person's position, never a committee's name. Everything a
+   human reads goes through here. Second preferences arrive as
+   "Committee — Head", so the committee half is renamed and the head passed on. */
+const display = (v) => {
+  const [committee, ...rest] = String(v ?? "").trim().split("—");
+  const head = rest.join("—").trim();
+  const named = DISPLAY_NAMES[norm(committee)] ?? committee.trim();
+  return head ? `${named} — ${head}` : named;
+};
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 

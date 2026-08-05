@@ -36,6 +36,24 @@ if (/\bDirector\b/.test(html)) {
   failures.push("Landing page names a Director role; this cycle recruits heads only.");
 }
 
+/*
+ * Committee names are stored with "Director" on the end because every lookup
+ * keys off them, so each surface renames them on the way to the screen. A raw
+ * name showing up between tags means one of those surfaces forgot.
+ */
+const rawCommitteeNames = ["Tech Director", "Children Day Director", "Initiatives Director"];
+const pagesToCheck = ["committee/index.html", "recruitment/index.html", "admin/dashboard.html", "director/index.html"];
+
+for (const page of pagesToCheck) {
+  const markup = await readFile(page, "utf8");
+  for (const name of rawCommitteeNames) {
+    // Between tags, or interpolated straight into markup — both are rendered text.
+    if (new RegExp(`>\\s*${name}\\s*<`).test(markup)) {
+      failures.push(`${page} shows the raw committee name "${name}"; render it through its display map.`);
+    }
+  }
+}
+
 if (!css.includes("@media (prefers-reduced-motion: reduce)")) {
   failures.push("Missing reduced-motion support.");
 }
