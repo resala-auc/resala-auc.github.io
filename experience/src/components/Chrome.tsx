@@ -41,7 +41,7 @@ export function TopNav({ act }: { act: Act }) {
     >
       <a
         href="../"
-        className="hidden text-sm font-medium tracking-wide text-white/90 transition-colors hover:text-white sm:block"
+        className="hidden text-sm font-medium tracking-wide text-brand-ink transition-colors hover:text-brand-ink sm:block"
       >
         Resala AUC
       </a>
@@ -58,7 +58,7 @@ export function TopNav({ act }: { act: Act }) {
         <img src={asset("resala-logo.png")} alt="Resala AUC" className="h-full w-full object-contain" />
       </motion.div>
 
-      <div className="hidden h-5 overflow-hidden text-sm font-medium tracking-wide text-white/60 sm:block">
+      <div className="hidden h-5 overflow-hidden text-sm font-medium tracking-wide text-brand-muted sm:block">
         <AnimatePresence mode="wait">
           <motion.p
             key={label}
@@ -91,7 +91,7 @@ export function ProgressRail({ act }: { act: Act }) {
               x: position === index ? 0 : 8
             }}
             transition={{ duration: 0.4 }}
-            className="text-[11px] font-medium tracking-[0.2em] text-white/50 uppercase"
+            className="text-[11px] font-medium tracking-[0.2em] text-brand-muted uppercase"
           >
             {ACT_LABELS[step]}
           </motion.span>
@@ -99,12 +99,14 @@ export function ProgressRail({ act }: { act: Act }) {
             <motion.span
               initial={false}
               animate={{
+                /* Steps behind you, the step you are on, and the ones ahead.
+                   The "ahead" colour was white at 22% — invisible on ivory. */
                 backgroundColor:
                   position < index
-                    ? "rgba(234,194,98,0.55)"
+                    ? "rgba(12,44,128,0.45)"
                     : position === index
-                      ? "#eac262"
-                      : "rgba(255,255,255,0.22)",
+                      ? "#0c2c80"
+                      : "rgba(12,44,128,0.18)",
                 scale: position === index ? 1.6 : 1
               }}
               transition={{ duration: 0.5 }}
@@ -112,7 +114,7 @@ export function ProgressRail({ act }: { act: Act }) {
             />
             {position === index ? (
               <motion.span
-                className="absolute h-1.5 w-1.5 rounded-full bg-brand-orange"
+                className="absolute h-1.5 w-1.5 rounded-full bg-brand-blue"
                 animate={{ scale: [1, 3.4], opacity: [0.55, 0] }}
                 transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut" }}
               />

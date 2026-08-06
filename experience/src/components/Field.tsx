@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { TOUCH_SPRING, rise } from "../lib/motion";
 
 const shell =
-  "w-full rounded-2xl border bg-white/[0.04] px-5 py-4 text-white placeholder:text-white/35 outline-none transition-colors duration-300 backdrop-blur-sm focus:border-brand-orange focus:bg-white/[0.07]";
+  "w-full rounded-2xl border bg-white px-5 py-4 text-brand-ink placeholder:text-brand-muted/70 outline-none transition-colors duration-300 backdrop-blur-sm focus:border-brand-blue focus:bg-white";
 
 type BaseProps = {
   id: string;
@@ -17,16 +17,16 @@ type BaseProps = {
 function Frame({ id, label, helper, error, children }: BaseProps) {
   return (
     <motion.div variants={rise} className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-sm font-medium tracking-wide text-white/70">
+      <label htmlFor={id} className="text-sm font-medium tracking-wide text-brand-muted">
         {label}
       </label>
       {children}
-      {helper && !error ? <p className="text-xs text-white/40">{helper}</p> : null}
+      {helper && !error ? <p className="text-xs text-brand-muted">{helper}</p> : null}
       {error ? (
         <motion.p
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-xs font-medium text-brand-orange"
+          className="text-xs font-semibold text-brand-error"
           role="alert"
         >
           {error}
@@ -70,7 +70,7 @@ export function TextField({
         inputMode={inputMode}
         aria-invalid={Boolean(error)}
         onChange={(event) => onChange(event.target.value)}
-        className={`${shell} ${error ? "border-brand-orange/70" : "border-white/12"}`}
+        className={`${shell} ${error ? "border-brand-error" : "border-brand-line"}`}
       />
     </Frame>
   );
@@ -103,15 +103,15 @@ export function SelectField({
           value={value}
           aria-invalid={Boolean(error)}
           onChange={(event) => onChange(event.target.value)}
-          className={`${shell} cursor-pointer appearance-none pr-12 hover:border-white/30 hover:bg-white/[0.06] ${
-            value ? "text-white" : "text-white/45"
-          } ${error ? "border-brand-orange/70" : "border-white/12"}`}
+          className={`${shell} cursor-pointer appearance-none pr-12 hover:border-brand-blue/45 hover:bg-brand-pale ${
+            value ? "text-brand-ink" : "text-brand-muted"
+          } ${error ? "border-brand-error" : "border-brand-line"}`}
         >
-          <option value="" disabled className="bg-brand-ink text-white/60">
+          <option value="" disabled className="bg-white text-brand-muted">
             {placeholder}
           </option>
           {options.map((option) => (
-            <option key={option} value={option} className="bg-brand-ink text-white">
+            <option key={option} value={option} className="bg-white text-brand-ink">
               {option}
             </option>
           ))}
@@ -120,7 +120,7 @@ export function SelectField({
         <ChevronDown
           aria-hidden
           strokeWidth={1.75}
-          className="pointer-events-none absolute top-1/2 right-5 h-5 w-5 -translate-y-1/2 text-white/40 transition-colors duration-300 group-hover:text-white/70"
+          className="pointer-events-none absolute top-1/2 right-5 h-5 w-5 -translate-y-1/2 text-brand-muted transition-colors duration-300 group-hover:text-brand-blue"
         />
       </div>
     </Frame>
@@ -156,7 +156,7 @@ export function TextAreaField({
         aria-invalid={Boolean(error)}
         onChange={(event) => onChange(event.target.value)}
         className={`${shell} resize-none leading-relaxed ${
-          error ? "border-brand-orange/70" : "border-white/12"
+          error ? "border-brand-error" : "border-brand-line"
         }`}
       />
     </Frame>

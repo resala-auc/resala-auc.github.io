@@ -70,10 +70,10 @@ export function ActBackup({
 
           <AnimatedHeading
             text="If your first chapter fills, which one would you still say yes to?"
-            className="mb-4 max-w-3xl font-serif text-3xl leading-[1.15] font-normal text-white md:text-4xl"
+            className="mb-4 max-w-3xl font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
           />
 
-          <motion.p variants={rise} className="mb-8 max-w-xl text-sm leading-relaxed text-white/45">
+          <motion.p variants={rise} className="mb-8 max-w-xl text-sm leading-relaxed text-brand-muted">
             No written questions here — this only matters if your first chapter fills.
           </motion.p>
 

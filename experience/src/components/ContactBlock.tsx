@@ -37,9 +37,9 @@ export function ContactBlock({ committee, className = "" }: { committee: Committ
   return (
     <motion.div
       variants={rise}
-      className={`rounded-2xl border border-white/12 bg-white/[0.03] p-5 ${className}`}
+      className={`rounded-2xl border border-brand-line bg-white p-5 ${className}`}
     >
-      <p className="mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+      <p className="mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
         <Mail className="h-4 w-4" strokeWidth={1.8} />
         Questions about {committee.displayName}?
       </p>
@@ -48,11 +48,11 @@ export function ContactBlock({ committee, className = "" }: { committee: Committ
           <li key={contact.email} className="text-sm">
             <a
               href={`mailto:${contact.email}`}
-              className="inline-flex min-h-9 items-center font-medium text-white underline-offset-4 transition-colors hover:text-brand-orange hover:underline"
+              className="inline-flex min-h-9 items-center font-medium text-brand-ink underline-offset-4 transition-colors hover:text-brand-blue hover:underline"
             >
               {contact.name}
             </a>
-            {contact.title ? <span className="ml-2 text-white/45">{contact.title}</span> : null}
+            {contact.title ? <span className="ml-2 text-brand-muted">{contact.title}</span> : null}
           </li>
         ))}
       </ul>

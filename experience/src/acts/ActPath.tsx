@@ -61,7 +61,7 @@ export function ActPath({ onSelect, onBack }: ActPathProps) {
 
           <AnimatedHeading
             text="Two kinds of work build a better life. Which one is yours?"
-            className="mb-6 max-w-3xl font-serif text-3xl leading-[1.15] font-normal text-white md:text-4xl"
+            className="mb-6 max-w-3xl font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
           />
 
           <InkDivider icon={<Wrench className="h-5 w-5" strokeWidth={1.5} />} />
@@ -76,16 +76,16 @@ export function ActPath({ onSelect, onBack }: ActPathProps) {
                 whileTap={{ scale: 0.98 }}
                 transition={TOUCH_SPRING}
                 onClick={() => onSelect(group)}
-                className="group flex flex-col items-start gap-4 rounded-3xl border border-white/12 bg-white/[0.04] p-8 text-left backdrop-blur-sm transition-colors duration-300 hover:border-brand-orange hover:bg-brand-orange/10"
+                className="group flex flex-col items-start gap-4 rounded-3xl border border-brand-line bg-white p-8 text-left backdrop-blur-sm transition-colors duration-300 hover:border-brand-blue hover:bg-brand-pale"
               >
-                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-brand-orange/40 text-brand-orange transition-colors duration-300 group-hover:border-brand-orange group-hover:bg-brand-orange/10">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full border border-brand-glow text-brand-blue transition-colors duration-300 group-hover:border-brand-blue group-hover:bg-brand-pale">
                   <Icon className="h-6 w-6" strokeWidth={1.5} />
                 </span>
-                <span className="font-serif text-2xl text-white">{title}</span>
-                <span className="text-xs font-medium tracking-[0.18em] text-brand-orange uppercase">
+                <span className="font-serif text-2xl font-bold text-brand-blue">{title}</span>
+                <span className="text-xs font-medium tracking-[0.18em] text-brand-blue uppercase">
                   {subtitle}
                 </span>
-                <span className="text-sm leading-relaxed text-white/65">{body}</span>
+                <span className="text-sm leading-relaxed text-brand-muted">{body}</span>
               </motion.button>
             ))}
           </motion.div>

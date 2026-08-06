@@ -22,14 +22,14 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
 
             <AnimatedHeading
               text={"Every year, someone puts the pen down.\nThis year, it is handed to you."}
-              className="mb-8 font-serif text-3xl leading-[1.1] font-normal text-white md:text-4xl lg:text-5xl"
+              className="mb-8 font-serif text-3xl leading-[1.08] font-black tracking-tight text-brand-blue md:text-4xl lg:text-5xl"
             />
 
             <InkDivider icon={<Feather className="h-5 w-5" strokeWidth={1.5} />} />
 
             <motion.p
               variants={rise}
-              className="mb-10 max-w-lg text-lg leading-relaxed font-light text-white/80 md:text-xl"
+              className="mb-10 max-w-lg text-lg leading-relaxed font-light text-brand-ink md:text-xl"
             >
               Ten honest minutes: who you are, the work you want to carry, and when you can sit
               with us.
@@ -40,7 +40,7 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
               <GhostButton href="../guides/">Read the chapter guides</GhostButton>
             </motion.div>
 
-            <motion.p variants={rise} className="mt-10 text-sm text-white/40">
+            <motion.p variants={rise} className="mt-10 text-sm text-brand-muted">
               Have your AUC email and student ID ready.
             </motion.p>
           </div>

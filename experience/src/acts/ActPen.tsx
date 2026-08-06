@@ -104,7 +104,7 @@ export function ActPen({
           <motion.path
             d={SIGNATURE}
             fill="none"
-            stroke="#eac262"
+            stroke="#0c2c80"
             strokeWidth={3}
             strokeLinecap="round"
             initial={{ pathLength: 0, opacity: 0.9 }}
@@ -114,7 +114,7 @@ export function ActPen({
           <motion.path
             d={SIGNATURE}
             fill="none"
-            stroke="#eac262"
+            stroke="#0c2c80"
             strokeWidth={10}
             strokeLinecap="round"
             className="blur-md"
@@ -136,7 +136,7 @@ export function ActPen({
           animate={{ offsetDistance: "100%", opacity: [0, 1, 1, 0] }}
           transition={{ duration: WRITE_DURATION, ease: "easeInOut", delay: 0.6 }}
         >
-          <PenTool className="h-8 w-8 -translate-y-6 text-brand-orange drop-shadow-[0_0_18px_rgba(234,194,98,0.8)]" />
+          <PenTool className="h-8 w-8 -translate-y-6 text-brand-blue drop-shadow-[0_2px_6px_rgba(12,44,128,0.35)]" />
         </motion.div>
       </div>
 
@@ -150,8 +150,8 @@ export function ActPen({
                 transition={{ duration: 1, ease: CHAPTER_EASE }}
                 className={
                   index === 0
-                    ? "font-serif text-3xl text-white md:text-4xl"
-                    : "max-w-xl text-lg leading-relaxed font-light text-white/75"
+                    ? "font-serif text-3xl text-brand-ink md:text-4xl"
+                    : "max-w-xl text-lg leading-relaxed font-light text-brand-ink"
                 }
               >
                 {line}
@@ -167,7 +167,7 @@ export function ActPen({
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 1.2, ease: CHAPTER_EASE, delay: 0.35 }}
-              className="mt-2 font-serif text-2xl text-brand-orange md:text-3xl"
+              className="mt-2 font-serif text-2xl text-brand-blue md:text-3xl"
             >
               Build the first step.
             </motion.p>
@@ -192,7 +192,7 @@ export function ActPen({
             type="button"
             exit={{ opacity: 0 }}
             onClick={() => setRevealed(lines.length)}
-            className="mt-12 inline-flex min-h-11 items-center py-3 text-sm font-medium text-white/40 transition-colors hover:text-white"
+            className="mt-12 inline-flex min-h-11 items-center py-3 text-sm font-medium text-brand-muted transition-colors hover:text-brand-ink"
           >
             Skip the handover →
           </motion.button>
@@ -208,7 +208,7 @@ export function ActPen({
           type="button"
           onClick={toggleMute}
           aria-label={muted ? "Unmute the recorded message" : "Mute the recorded message"}
-          className="fixed right-6 bottom-6 flex h-12 w-12 items-center justify-center rounded-full border border-white/25 text-white/70 transition-colors hover:border-white hover:text-white"
+          className="fixed right-6 bottom-6 flex h-12 w-12 items-center justify-center rounded-full border border-brand-line text-brand-muted transition-colors hover:border-brand-blue hover:text-brand-ink"
         >
           {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
         </button>

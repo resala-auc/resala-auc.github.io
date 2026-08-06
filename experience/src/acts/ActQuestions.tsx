@@ -55,13 +55,13 @@ export function ActQuestions({
           <div className="w-full max-w-3xl">
             <motion.p
               variants={rise}
-              className="mb-8 flex flex-wrap items-center gap-3 text-sm text-white/45"
+              className="mb-8 flex flex-wrap items-center gap-3 text-sm text-brand-muted"
             >
-              <span className="rounded-full border border-brand-orange/40 px-3 py-1 text-brand-orange">
+              <span className="rounded-full border border-brand-glow px-3 py-1 text-brand-blue">
                 {committee.displayName}
               </span>
               <span>{role ? role.name : committee.stepTitle}</span>
-              <span className="text-white/25">· {questions.length} questions, one page</span>
+              <span className="text-brand-muted">· {questions.length} questions, one page</span>
             </motion.p>
 
             <div className="flex flex-col gap-14">
@@ -76,14 +76,14 @@ export function ActQuestions({
                 >
                   <motion.p
                     variants={rise}
-                    className="mb-4 text-sm font-medium tracking-[0.22em] text-brand-orange uppercase"
+                    className="mb-4 text-sm font-medium tracking-[0.22em] text-brand-blue uppercase"
                   >
                     {question.eyebrow}
                   </motion.p>
 
                   <motion.div variants={rise} className="mb-6 flex gap-4">
-                    <Quote className="mt-1 h-5 w-5 shrink-0 text-brand-orange/50" strokeWidth={1.5} />
-                    <h2 className="font-serif text-2xl leading-[1.3] font-normal text-white md:text-3xl">
+                    <Quote className="mt-1 h-5 w-5 shrink-0 text-brand-blue/60" strokeWidth={1.5} />
+                    <h2 className="font-serif text-2xl leading-[1.3] font-bold text-brand-blue md:text-3xl">
                       {question.prompt}
                     </h2>
                   </motion.div>

@@ -78,7 +78,12 @@ export function Backdrop({ intensity = 1 }: BackdropProps) {
         />
       ) : null}
 
-      {/* Aurora: brand-coloured pools that drift on their own and lean with the cursor. */}
+      {/*
+        Sky wash: the same drifting pools, but at tint strength on a light
+        ground. Alphas are an order of magnitude lower than the dark theme
+        used — anything stronger turns the page into a coloured haze and
+        eats the contrast the text depends on.
+      */}
       <motion.div
         className="absolute inset-0"
         animate={{ opacity: 1 - intensity * 0.2 }}
@@ -89,7 +94,7 @@ export function Backdrop({ intensity = 1 }: BackdropProps) {
           style={{
             x: blueX,
             y: blueY,
-            background: "radial-gradient(circle, rgba(35,80,200,0.95) 0%, rgba(12,44,128,0) 70%)",
+            background: "radial-gradient(circle, rgba(167,212,242,0.55) 0%, rgba(167,212,242,0) 70%)",
             animation: "drift-a 15s ease-in-out infinite"
           }}
         />
@@ -98,7 +103,7 @@ export function Backdrop({ intensity = 1 }: BackdropProps) {
           style={{
             x: warmX,
             y: warmY,
-            background: "radial-gradient(circle, rgba(234,194,98,0.55) 0%, rgba(234,194,98,0) 70%)",
+            background: "radial-gradient(circle, rgba(234,194,98,0.20) 0%, rgba(234,194,98,0) 70%)",
             animation: "drift-b 19s ease-in-out infinite"
           }}
         />
@@ -106,18 +111,19 @@ export function Backdrop({ intensity = 1 }: BackdropProps) {
           className="absolute top-[20%] right-[10%] h-[60vh] w-[55vw] rounded-full blur-[130px]"
           style={{
             x: mauveX,
-            background: "radial-gradient(circle, rgba(167,212,242,0.5) 0%, rgba(167,212,242,0) 70%)",
+            background: "radial-gradient(circle, rgba(224,240,250,0.85) 0%, rgba(224,240,250,0) 70%)",
             animation: "drift-a 23s ease-in-out infinite reverse"
           }}
         />
       </motion.div>
 
-      {/* Ink dust: slow rising specks that keep the frame alive between acts. */}
+      {/* Motes: the rising specks, now Royal Blue at low alpha so they read as
+          light catching dust rather than white pinpricks on black. */}
       <div className="absolute inset-0">
         {dust.map((speck, index) => (
           <span
             key={index}
-            className="absolute rounded-full bg-white"
+            className="absolute rounded-full bg-brand-blue/20"
             style={{
               left: speck.left,
               top: speck.top,
@@ -129,15 +135,17 @@ export function Backdrop({ intensity = 1 }: BackdropProps) {
         ))}
       </div>
 
-      {/* Legibility stack — dark enough for AAA text contrast, light enough to
-          keep the aurora readable behind it. */}
-      <div className="absolute inset-0 bg-black/20" />
-      <div className="absolute inset-0 bg-gradient-to-r from-brand-night/85 via-brand-night/40 to-transparent" />
-      <div className="absolute inset-0 bg-gradient-to-t from-brand-night/70 via-transparent to-transparent" />
+      {/* Legibility stack — the mirror of the dark theme's: ivory washing back
+          in from the left and bottom, so text always sits on near-solid paper
+          while the wash stays visible at the edges. */}
+      <div className="absolute inset-0 bg-gradient-to-r from-brand-cream/95 via-brand-cream/55 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-t from-brand-cream/80 via-transparent to-transparent" />
 
-      {/* Paper grain keeps the flat gradients from banding on wide screens. */}
+      {/* Paper grain keeps the flat gradients from banding on wide screens.
+          Multiply, not overlay: on a light ground overlay lifts the grain into
+          a visible white sparkle instead of settling into the paper. */}
       <div
-        className="absolute inset-0 opacity-[0.05] mix-blend-overlay"
+        className="absolute inset-0 opacity-[0.035] mix-blend-multiply"
         style={{
           backgroundImage:
             "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E\")"

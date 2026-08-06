@@ -1,9 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-  --font-serif: "Bebas Neue", "Montserrat", system-ui, sans-serif;
-  --font-display: "Bebas Neue", "Montserrat", system-ui, sans-serif;
+  /*
+   * Source Sans 3 everywhere, including headings. Montserrat is geometric —
+   * narrow apertures and a small x-height, which is what made body copy hard
+   * work at 15–16px — and Bebas Neue is condensed all-caps, the least legible
+   * thing on the page for anyone reading a paragraph rather than a poster.
+   * Source Sans 3 is a humanist screen face: tall x-height, open apertures,
+   * distinct l/I/1. Weight and size carry hierarchy now, not a second family.
+   */
+  --font-sans: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --font-serif: "Source Sans 3", system-ui, sans-serif;
+  --font-display: "Source Sans 3", system-ui, sans-serif;
   --font-arabic: "Noto Sans Arabic", "Noto Sans", system-ui, sans-serif;
 
   /*
@@ -14,19 +22,24 @@
    * hunting down every usage. Only the values changed.
    */
   /*
-   * brand-ink and brand-night are *dark surface* roles, not hues: modal sheets,
-   * select dropdowns, the page backdrop, and text sitting on a yellow button.
-   * They must stay near-black or white text on them drops below AA contrast —
-   * Charity Royal Blue is a mid-tone and is far too light for either job.
+   * This app used to run on a near-black ground. It now runs on Warm Ivory,
+   * so the roles inverted: brand-night and brand-cream are both *light*
+   * surfaces, and brand-ink is the text that sits on them. Contrast on ivory:
+   * ink 15.1:1, blue 12.4:1, muted 5.1:1 — all clear of AA at body sizes.
    */
-  --color-brand-ink: #1b1f23; /* Charcoal — sheets, dropdowns, text on yellow */
-  --color-brand-night: #101317; /* deepest charcoal — page backdrop, sits under ink */
-  --color-brand-blue: #0c2c80; /* Charity Royal Blue — accent only, never a text bg */
-  --color-brand-glow: #a7d4f2; /* Sky Blue */
-  --color-brand-pale: #e0f0fa; /* pale Sky Blue tint */
-  --color-brand-orange: #eac262; /* Sunshine Yellow — primary accent/CTA */
+  --color-brand-ink: #1b1f23; /* Charcoal — body text */
+  --color-brand-night: #f2f6fb; /* coolest light surface — page backdrop */
+  --color-brand-blue: #0c2c80; /* Charity Royal Blue — headings, links, emphasis */
+  --color-brand-glow: #a7d4f2; /* Sky Blue — rules, chips, focus rings */
+  --color-brand-pale: #e0f0fa; /* pale Sky Blue tint — panels, hovers */
+  --color-brand-orange: #eac262; /* Sunshine Yellow — primary CTA only */
   --color-brand-mauve: #a7d4f2; /* Sky Blue */
-  --color-brand-cream: #fdf9f3; /* Warm Ivory */
+  --color-brand-cream: #fdf9f3; /* Warm Ivory — cards, sheets */
+  --color-brand-muted: #55606e; /* secondary text — 5.1:1 on ivory */
+  --color-brand-line: #d7e3f0; /* hairlines and card borders */
+  /* Validation errors used Sunshine Yellow, which on ivory is ~1.7:1 and
+     reads as decoration rather than a problem. Red carries 6.4:1. */
+  --color-brand-error: #b3261e;
 
   --ease-chapter: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -36,10 +49,10 @@ html {
 }
 
 /* The colour lives on <html> only. An opaque background on <body> would paint
-   over the fixed -z-10 backdrop and hide the aurora entirely. */
+   over the fixed -z-10 backdrop and hide the wash behind it. */
 body {
   margin: 0;
-  color: #ffffff;
+  color: var(--color-brand-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -69,13 +82,13 @@ body {
 
 input:-webkit-autofill,
 textarea:-webkit-autofill {
-  -webkit-text-fill-color: #ffffff;
+  -webkit-text-fill-color: var(--color-brand-ink);
   transition: background-color 100000s ease-in-out 0s;
 }
 
 ::selection {
-  background: var(--color-brand-orange);
-  color: var(--color-brand-ink);
+  background: var(--color-brand-pale);
+  color: var(--color-brand-blue);
 }
 
 /* Thin scrollbar inside scrollable act panels. */
@@ -83,8 +96,20 @@ textarea:-webkit-autofill {
   width: 6px;
 }
 .scroll-quiet::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(12, 44, 128, 0.22);
   border-radius: 999px;
+}
+
+/*
+ * Keyboard focus has to survive on a light ground. The dark theme relied on a
+ * white glow that is invisible here, so focus gets a Royal Blue ring instead.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand-blue);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 /* The pen writes its stroke; used by the chapter-handover act. */

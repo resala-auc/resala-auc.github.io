@@ -40,8 +40,8 @@ export function CommitteeCard({
       transition={TOUCH_SPRING}
       className={`group relative flex flex-col items-start gap-3 overflow-hidden rounded-3xl border p-6 text-left backdrop-blur-sm transition-colors duration-300 ${
         active
-          ? "border-brand-orange bg-brand-orange/10"
-          : "border-white/12 bg-white/[0.04] hover:border-white/35 hover:bg-white/[0.07]"
+          ? "border-brand-blue bg-brand-pale"
+          : "border-brand-line bg-white hover:border-brand-blue/45 hover:bg-brand-pale"
       }`}
     >
       <button
@@ -52,17 +52,17 @@ export function CommitteeCard({
         className="absolute inset-0 z-0 cursor-pointer rounded-3xl"
       />
 
-      <span className="pointer-events-none text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+      <span className="pointer-events-none text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
         {committee.stepTitle}
       </span>
-      <span className="pointer-events-none font-serif text-xl text-white">{committee.displayName}</span>
+      <span className="pointer-events-none font-serif text-xl font-bold text-brand-blue">{committee.displayName}</span>
       {compact ? null : (
-        <span className="pointer-events-none text-sm leading-relaxed text-white/60">{committee.vow}</span>
+        <span className="pointer-events-none text-sm leading-relaxed text-brand-muted">{committee.vow}</span>
       )}
 
       {hasRoles ? (
         <div className="relative z-10 flex w-full flex-col gap-2">
-          <span className="text-xs font-medium text-white/45">Tap the head you want:</span>
+          <span className="text-xs font-medium text-brand-muted">Tap the head you want:</span>
           <div className="flex flex-wrap gap-1.5">
             {committee.roles.map((role) => {
               const roleActive = active && activeRoleId === role.id;
@@ -77,8 +77,8 @@ export function CommitteeCard({
                   aria-pressed={roleActive}
                   className={`inline-flex min-h-9 items-center rounded-full border px-3.5 py-2 text-xs font-medium transition-colors duration-300 ${
                     roleActive
-                      ? "border-brand-orange bg-brand-orange text-brand-ink"
-                      : "border-white/20 text-white/70 hover:border-white/50 hover:text-white"
+                      ? "border-brand-blue bg-brand-orange text-brand-ink"
+                      : "border-brand-line text-brand-muted hover:border-brand-blue/45 hover:text-brand-ink"
                   }`}
                 >
                   {role.name}
@@ -95,9 +95,9 @@ export function CommitteeCard({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="rounded-xl border border-brand-orange/25 bg-brand-orange/[0.06] px-3 py-2 text-xs leading-relaxed text-white/70"
+                className="rounded-xl border border-brand-glow bg-brand-pale px-3 py-2 text-xs leading-relaxed text-brand-muted"
               >
-                <span className="font-medium text-brand-orange">{pickedRole.name}.</span>{" "}
+                <span className="font-medium text-brand-blue">{pickedRole.name}.</span>{" "}
                 {pickedRole.description}
               </motion.p>
             ) : null}
@@ -108,7 +108,7 @@ export function CommitteeCard({
       <button
         type="button"
         onClick={() => onOpenDetail(committee)}
-        className="relative z-10 -my-1 inline-flex min-h-9 items-center py-2 text-xs font-medium text-white/45 underline-offset-4 transition-colors hover:text-white hover:underline"
+        className="relative z-10 -my-1 inline-flex min-h-9 items-center py-2 text-xs font-medium text-brand-muted underline-offset-4 transition-colors hover:text-brand-ink hover:underline"
       >
         What this chapter really asks
       </button>

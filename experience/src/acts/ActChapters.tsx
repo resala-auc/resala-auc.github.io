@@ -97,7 +97,7 @@ export function ActChapters({
 
           <AnimatedHeading
             text={heading}
-            className="mb-6 max-w-3xl font-serif text-3xl leading-[1.15] font-normal text-white md:text-4xl"
+            className="mb-6 max-w-3xl font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
           />
 
           <InkDivider icon={<BookOpen className="h-5 w-5" strokeWidth={1.5} />} />

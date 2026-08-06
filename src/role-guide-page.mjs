@@ -51,7 +51,7 @@ function GuideShell({ title, description, stylesheetHref, logoHref, faviconHref,
     <link rel="apple-touch-icon" href="${faviconHref}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:ital,wght@0,400;0,600;0,700;0,900;1,400&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="${stylesheetHref}">
   </head>
   <body class="guide-page-body">

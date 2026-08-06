@@ -18,9 +18,13 @@
   --radius-large: 8px;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
-  --font-display: "Bebas Neue", "Montserrat", system-ui, sans-serif;
-  --font-serif: "Bebas Neue", "Montserrat", system-ui, sans-serif;
-  --font-sans: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  /* One family, weight for hierarchy. Bebas Neue is condensed all-caps and
+     Montserrat is geometric with a small x-height — both are poster faces
+     that made long reading tiring at body sizes. Source Sans 3 is a humanist
+     screen face: tall x-height, open apertures, unambiguous l/I/1. */
+  --font-display: "Source Sans 3", system-ui, sans-serif;
+  --font-serif: "Source Sans 3", system-ui, sans-serif;
+  --font-sans: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
 }
 
 * {
@@ -92,10 +96,11 @@ button {
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 18px;
-  border: 1px solid rgba(167, 212, 242, 0.7);
+  border: 1px solid rgba(167, 212, 242, 0.9);
   border-radius: var(--radius);
-  background: rgba(27, 31, 35, 0.34);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+  /* Frosted paper over the hero photograph, not smoked glass over black. */
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 40px rgba(12, 44, 128, 0.1);
   backdrop-filter: blur(16px);
 }
 
@@ -144,7 +149,7 @@ button {
 .nav-link {
   padding: 10px 12px;
   border-radius: 999px;
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--color-primary);
   font-size: 0.94rem;
   font-weight: 700;
   text-decoration: none;
@@ -152,8 +157,8 @@ button {
 }
 
 .nav-link:hover {
-  color: var(--color-white);
-  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-primary);
+  background: var(--color-primary-pale);
 }
 
 .button {
@@ -1409,9 +1414,9 @@ h3 {
 
 .applications {
   background:
-    linear-gradient(rgba(12, 44, 128, 0.93), rgba(12, 44, 128, 0.93)),
+    linear-gradient(rgba(253, 249, 243, 0.93), rgba(224, 240, 250, 0.93)),
     url("The brand System/assets/Puzzle Graphic - source.png") center / min(720px, 86%) no-repeat;
-  color: var(--color-white);
+  color: var(--color-ink);
 }
 
 .applications-panel {
@@ -1425,12 +1430,12 @@ h3 {
 
 .applications h2,
 .applications .eyebrow {
-  color: var(--color-white);
+  color: var(--color-ink);
 }
 
 .applications p:not(.eyebrow) {
   max-width: 650px;
-  color: rgba(255, 255, 255, 0.86);
+  color: var(--color-muted);
 }
 
 .applications .button {
@@ -1445,9 +1450,9 @@ h3 {
 }
 
 .applications .button-secondary {
-  border-color: rgba(255, 255, 255, 0.34);
+  border-color: var(--color-muted);
   background: rgba(255, 255, 255, 0.08);
-  color: var(--color-white);
+  color: var(--color-ink);
 }
 
 .faq {
@@ -1528,14 +1533,20 @@ h3 {
   min-height: 100svh;
 }
 
+/*
+ * This hero used to be near-black with white type — the single darkest thing
+ * an applicant met, and the reason the site read as heavy. It is now the
+ * campaign's paper: Warm Ivory with a Sky Blue wash, Royal Blue type.
+ */
 .apply-hero {
   position: relative;
   overflow: hidden;
   padding: 18px 0 64px;
   background:
-    radial-gradient(circle at 80% 14%, rgba(234, 194, 98, 0.14), transparent 28%),
-    linear-gradient(180deg, rgba(27, 31, 35, 0.98), #080b2b);
-  color: var(--color-white);
+    radial-gradient(circle at 82% 8%, rgba(167, 212, 242, 0.55), transparent 42%),
+    radial-gradient(circle at 12% 92%, rgba(234, 194, 98, 0.16), transparent 40%),
+    linear-gradient(180deg, #ffffff 0%, var(--color-surface) 100%);
+  color: var(--color-ink);
 }
 
 .apply-hero::before {
@@ -1544,7 +1555,7 @@ h3 {
   inset: auto -14vw -18vh auto;
   width: min(72vw, 760px);
   aspect-ratio: 1;
-  border: 1px solid rgba(234, 194, 98, 0.18);
+  border: 1px solid rgba(12, 44, 128, 0.14);
   transform: rotate(45deg);
   opacity: 0.58;
 }
@@ -1569,10 +1580,10 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid rgba(167, 212, 242, 0.64);
+  border: 1px solid rgba(167, 212, 242, 0.9);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 14px 40px rgba(12, 44, 128, 0.08);
   backdrop-filter: blur(16px);
   position: relative;
   z-index: 2;
@@ -1611,31 +1622,36 @@ h3 {
 }
 
 .apply-hero-copy .eyebrow {
-  color: rgba(255, 255, 255, 0.68);
+  color: var(--color-label);
 }
 
 .apply-hero h1 {
   max-width: 680px;
   margin-bottom: 18px;
-  color: var(--color-white);
+  color: var(--color-primary);
   font-family: var(--font-display);
-  font-size: clamp(3.4rem, 8vw, 7.2rem);
-  line-height: 0.92;
+  /* Bebas Neue was a single condensed weight carrying this at 0.92 leading.
+     Source Sans 3 is wider, so the top of the clamp comes down and the
+     weight goes up to keep the same poster presence. */
+  font-size: clamp(2.9rem, 6.4vw, 5.4rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
 }
 
 .apply-hero-copy > p:not(.eyebrow) {
   max-width: 620px;
   margin: 0;
-  color: rgba(255, 255, 255, 0.84);
-  font-size: clamp(1.12rem, 2vw, 1.38rem);
+  color: var(--color-ink);
+  font-size: clamp(1.12rem, 2vw, 1.32rem);
 }
 
 .apply-hero-note {
   padding: 22px;
-  border: 1px solid rgba(167, 212, 242, 0.35);
+  border: 1px solid rgba(167, 212, 242, 0.9);
   border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 18px 44px rgba(12, 44, 128, 0.1);
   backdrop-filter: blur(14px);
 }
 
@@ -1651,11 +1667,11 @@ h3 {
   text-transform: uppercase;
 }
 
-/* Same label inside the translucent note on the dark hero — it needs the light
-   accent instead, or the dark label colour lands at ~1.2:1. */
+/* The note is a white card now, so its label takes the same Royal Blue as
+   every other label rather than the Sky Blue it needed on the dark hero. */
 .apply-hero-note span {
   display: block;
-  color: var(--color-primary-light);
+  color: var(--color-label);
   font-size: 0.7rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -1664,7 +1680,7 @@ h3 {
 .apply-hero-note strong {
   display: block;
   margin-top: 8px;
-  color: var(--color-white);
+  color: var(--color-ink);
   font-family: var(--font-serif);
   font-size: 1.18rem;
   line-height: 1.35;
@@ -1928,7 +1944,7 @@ h3 {
 .slot-calendar-kicker,
 .slot-time-heading span {
   display: block;
-  color: var(--color-accent-orange);
+  color: var(--color-label);
   font-size: 0.72rem;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -2171,10 +2187,11 @@ h3 {
 
 .role-description-card {
   padding: 22px 24px;
+  border: 1px solid rgba(167, 212, 242, 0.9);
   background:
-    linear-gradient(135deg, rgba(12, 44, 128, 0.94), rgba(27, 31, 35, 0.96)),
-    radial-gradient(circle at 92% 12%, rgba(234, 194, 98, 0.2), transparent 28%);
-  color: var(--color-white);
+    linear-gradient(135deg, #ffffff, rgba(224, 240, 250, 0.85)),
+    radial-gradient(circle at 92% 12%, rgba(234, 194, 98, 0.16), transparent 28%);
+  color: var(--color-ink);
   overflow: hidden;
   position: relative;
 }
@@ -2198,12 +2215,12 @@ h3 {
 }
 
 .role-description-card h3 {
-  color: var(--color-white);
+  color: var(--color-ink);
 }
 
 .role-description-card p {
   max-width: 68ch;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--color-muted);
 }
 
 .role-description-action {
@@ -2260,17 +2277,18 @@ h3 {
 
 .role-details-header {
   padding: clamp(24px, 5vw, 42px);
+  border-bottom: 1px solid rgba(167, 212, 242, 0.9);
   background:
-    linear-gradient(135deg, rgba(12, 44, 128, 0.95), rgba(27, 31, 35, 0.98)),
-    radial-gradient(circle at 92% 12%, rgba(234, 194, 98, 0.22), transparent 30%);
-  color: #ffffff;
+    linear-gradient(135deg, #ffffff, rgba(224, 240, 250, 0.9)),
+    radial-gradient(circle at 92% 12%, rgba(234, 194, 98, 0.16), transparent 30%);
+  color: var(--color-ink);
 }
 
 .role-details-header span,
 .role-details-question span,
 .role-details-task span {
   display: block;
-  color: var(--color-accent-orange);
+  color: var(--color-label);
   font-size: 0.76rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -2278,14 +2296,14 @@ h3 {
 
 .role-details-header h2 {
   margin: 10px 0 12px;
-  color: #ffffff;
+  color: var(--color-ink);
   font-size: clamp(2rem, 5vw, 3.2rem);
 }
 
 .role-details-header p {
   max-width: 72ch;
   margin: 0;
-  color: rgba(255, 255, 255, 0.84);
+  color: var(--color-muted);
 }
 
 .role-details-body {
@@ -2474,10 +2492,11 @@ h3 {
 
 .guide-hero {
   padding: 54px 0 64px;
+  border-bottom: 1px solid rgba(167, 212, 242, 0.75);
   background:
-    linear-gradient(135deg, rgba(12, 44, 128, 0.96), rgba(27, 31, 35, 0.98)),
-    radial-gradient(circle at 88% 10%, rgba(234, 194, 98, 0.22), transparent 32%);
-  color: #ffffff;
+    linear-gradient(135deg, #ffffff, rgba(224, 240, 250, 0.92)),
+    radial-gradient(circle at 88% 10%, rgba(234, 194, 98, 0.16), transparent 32%);
+  color: var(--color-ink);
 }
 
 .guide-hero-grid {
@@ -2488,14 +2507,17 @@ h3 {
 }
 
 .guide-hero h1 {
-  color: #ffffff;
+  color: var(--color-primary);
   margin-bottom: 16px;
-  font-size: clamp(2.8rem, 6.4vw, 5.4rem);
+  font-size: clamp(2.4rem, 5.2vw, 4.4rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.04;
 }
 
 .guide-hero p {
   max-width: 66ch;
-  color: rgba(255, 255, 255, 0.84);
+  color: var(--color-muted);
 }
 
 /* The one line on a guide page that states where the cycle stands. */
@@ -2504,9 +2526,10 @@ h3 {
   display: inline-block;
   padding: 7px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(234, 194, 98, 0.55);
-  background: rgba(234, 194, 98, 0.14);
-  color: #f3d9a0;
+  border: 1px solid rgba(234, 194, 98, 0.75);
+  background: rgba(234, 194, 98, 0.22);
+  /* Was a pale gold that only worked on the dark hero — 1.4:1 on paper. */
+  color: #6b4c05;
   font-size: 0.95rem;
   font-weight: 600;
 }
@@ -2526,10 +2549,10 @@ h3 {
   box-shadow: 0 22px 54px rgba(0, 0, 0, 0.16);
 }
 
-/* Sits on the dark hero, so Sunshine Yellow reads well here. */
+/* The panel is paper now, so this label matches every other one. */
 .guide-contact-panel span {
   display: block;
-  color: var(--color-accent-orange);
+  color: var(--color-label);
   font-size: 0.76rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -2547,7 +2570,7 @@ h3 {
 .guide-contact-panel strong {
   display: block;
   margin-top: 8px;
-  color: #ffffff;
+  color: var(--color-ink);
   font-family: var(--font-serif);
   font-size: 1.35rem;
   line-height: 1.25;
@@ -2712,7 +2735,7 @@ h3 {
 .guide-checklist {
   margin: 16px 0 0;
   padding-left: 20px;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--color-muted);
   font-weight: 800;
 }
 
@@ -2923,8 +2946,8 @@ h3 {
   min-height: min(100svh, 980px);
   padding: 0;
   overflow: hidden;
-  background: var(--color-ink);
-  color: var(--color-white);
+  background: var(--color-surface);
+  color: var(--color-ink);
 }
 
 .issue-hero::before,
@@ -2938,8 +2961,8 @@ h3 {
 .issue-hero::before {
   z-index: 0;
   background:
-    linear-gradient(90deg, rgba(8, 10, 33, 0.9) 0%, rgba(8, 10, 33, 0.66) 43%, rgba(8, 10, 33, 0.42) 100%),
-    linear-gradient(0deg, rgba(8, 10, 33, 0.95) 0%, rgba(8, 10, 33, 0.1) 44%, rgba(8, 10, 33, 0.38) 100%),
+    linear-gradient(90deg, rgba(253, 249, 243, 0.97) 0%, rgba(253, 249, 243, 0.9) 46%, rgba(253, 249, 243, 0.62) 100%),
+    linear-gradient(0deg, rgba(253, 249, 243, 0.96) 0%, rgba(224, 240, 250, 0.5) 46%, rgba(224, 240, 250, 0.66) 100%),
     var(--hero-photo);
   background-size: cover;
   background-position: center;
@@ -2949,19 +2972,19 @@ h3 {
 
 .issue-hero-fallback::before {
   background:
-    linear-gradient(90deg, rgba(8, 10, 33, 0.92) 0%, rgba(8, 10, 33, 0.7) 45%, rgba(8, 10, 33, 0.5) 100%),
-    linear-gradient(0deg, rgba(8, 10, 33, 0.98) 0%, rgba(8, 10, 33, 0.24) 48%, rgba(8, 10, 33, 0.38) 100%),
-    var(--color-primary);
+    linear-gradient(90deg, rgba(253, 249, 243, 0.98) 0%, rgba(253, 249, 243, 0.92) 45%, rgba(253, 249, 243, 0.7) 100%),
+    linear-gradient(0deg, rgba(253, 249, 243, 0.98) 0%, rgba(224, 240, 250, 0.55) 48%, rgba(224, 240, 250, 0.7) 100%),
+    var(--color-primary-pale);
 }
 
 .issue-hero::after {
   z-index: 1;
-  opacity: 0.24;
+  opacity: 0.5;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(12, 44, 128, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(12, 44, 128, 0.04) 1px, transparent 1px);
   background-size: 56px 56px;
-  mix-blend-mode: soft-light;
+  mix-blend-mode: multiply;
   animation: none;
 }
 
@@ -2986,8 +3009,8 @@ h3 {
   bottom: 7vh;
   width: min(68vw, 940px);
   height: min(61vh, 560px);
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(12, 44, 128, 0.152);
+  border-bottom: 1px solid rgba(12, 44, 128, 0.152);
   opacity: 0.72;
 }
 
@@ -3027,14 +3050,14 @@ h3 {
 }
 
 .stair-guide-base {
-  background: linear-gradient(90deg, rgba(234, 194, 98, 0.08), rgba(234, 194, 98, 0.46), rgba(255, 255, 255, 0.2), transparent);
+  background: linear-gradient(90deg, rgba(234, 194, 98, 0.08), rgba(234, 194, 98, 0.46), rgba(12, 44, 128, 0.38), transparent);
   opacity: 0;
   animation: stair-guide-build 1100ms var(--ease-out) 320ms both;
 }
 
 .stair-guide-shimmer {
   overflow: hidden;
-  background: linear-gradient(90deg, transparent, rgba(234, 194, 98, 0.2), rgba(255, 255, 255, 0.14), transparent);
+  background: linear-gradient(90deg, transparent, rgba(234, 194, 98, 0.2), rgba(12, 44, 128, 0.266), transparent);
   opacity: 0.72;
   clip-path: inset(0 100% 0 0);
   animation: stair-line-shimmer 6.8s var(--ease-in-out) 1400ms infinite;
@@ -3055,10 +3078,10 @@ h3 {
   position: absolute;
   width: clamp(82px, 8.4vw, 150px);
   height: clamp(42px, 4.2vw, 72px);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(12, 44, 128, 0.266);
   border-radius: 10px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.11), transparent 46%),
+    linear-gradient(135deg, rgba(12, 44, 128, 0.209), transparent 46%),
     linear-gradient(135deg, rgba(167, 212, 242, 0.22), rgba(12, 44, 128, 0.28));
   box-shadow: 0 22px 52px rgba(0, 0, 0, 0.18);
   opacity: 0;
@@ -3073,7 +3096,7 @@ h3 {
   position: absolute;
   inset: 8px 10px auto;
   height: 1px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.26), transparent);
+  background: linear-gradient(90deg, rgba(12, 44, 128, 0.494), transparent);
 }
 
 .stair-step::after {
@@ -3081,7 +3104,7 @@ h3 {
   position: absolute;
   left: 12px;
   bottom: 10px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(12, 44, 128, 0.6);
   font-size: clamp(0.58rem, 0.9vw, 0.72rem);
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -3092,7 +3115,7 @@ h3 {
   right: 48vw;
   bottom: 12vh;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 48%),
+    linear-gradient(135deg, rgba(12, 44, 128, 0.38), transparent 48%),
     linear-gradient(135deg, rgba(234, 194, 98, 0.78), rgba(255, 190, 110, 0.34));
   box-shadow: 0 0 0 1px rgba(234, 194, 98, 0.1), 0 18px 44px rgba(234, 194, 98, 0.16), 0 0 46px rgba(234, 194, 98, 0.22);
   animation: stair-step-build 760ms var(--ease-out) 180ms both, first-step-glow 5.4s ease-in-out 1800ms infinite;
@@ -3133,7 +3156,7 @@ h3 {
   right: 6vw;
   bottom: 42vh;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 44%),
+    linear-gradient(135deg, rgba(12, 44, 128, 0.228), transparent 44%),
     linear-gradient(135deg, rgba(234, 194, 98, 0.32), rgba(167, 212, 242, 0.2));
   animation-delay: 1140ms, 3400ms;
 }
@@ -3143,7 +3166,7 @@ h3 {
   bottom: 48vh;
   width: clamp(116px, 12vw, 220px);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.14), transparent 45%),
+    linear-gradient(135deg, rgba(12, 44, 128, 0.266), transparent 45%),
     linear-gradient(135deg, rgba(234, 194, 98, 0.22), rgba(12, 44, 128, 0.24));
   animation-delay: 1300ms, 3600ms;
 }
@@ -3154,9 +3177,9 @@ h3 {
   place-items: center;
   width: clamp(48px, 5vw, 76px);
   height: clamp(48px, 5vw, 76px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(12, 44, 128, 0.19);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.045);
+  background: rgba(12, 44, 128, 0.085);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(8px);
   opacity: 0;
@@ -3200,7 +3223,7 @@ h3 {
   display: flex;
   justify-content: space-between;
   gap: 20px;
-  color: rgba(255, 255, 255, 0.68);
+  color: rgba(12, 44, 128, 0.6);
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -3267,36 +3290,43 @@ h3 {
 }
 
 .issue-hero .eyebrow {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--color-label);
   letter-spacing: 0.24em;
 }
 
+/* The headline was white on near-black. On paper it is Royal Blue, and the
+   weight goes up to hold the same presence the condensed face used to. */
 .issue-hero h1 {
   max-width: 880px;
-  color: var(--color-white);
-  font-size: clamp(3.1rem, 6.2vw, 6rem);
-  line-height: 0.94;
+  color: var(--color-primary);
+  /* Source Sans 3 sets wider than the condensed face this replaced, so the
+     size comes down and the weight goes up to keep the same poster presence
+     without pushing the headline onto a fourth line. */
+  font-size: clamp(2.7rem, 5.2vw, 4.8rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.02;
   text-wrap: balance;
 }
 
 .issue-hero .arabic-line {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--color-white);
+  border-color: rgba(12, 44, 128, 0.22);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-primary);
   backdrop-filter: blur(10px);
 }
 
 .issue-hero .hero-subtitle {
   max-width: 650px;
-  color: rgba(255, 255, 255, 0.82);
+  color: var(--color-ink);
   font-family: var(--font-serif);
   font-size: clamp(1.04rem, 1.7vw, 1.34rem);
 }
 
 .issue-hero .button-secondary {
-  border-color: rgba(255, 255, 255, 0.36);
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-white);
+  border-color: rgba(12, 44, 128, 0.35);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--color-primary);
   backdrop-filter: blur(10px);
 }
 
@@ -3476,7 +3506,7 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
   /* 0.72 landed at ~2.3:1 against the charcoal hero at this size. */
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(12, 44, 128, 0.6);
   font-size: 0.82rem;
   font-weight: 800;
 }
@@ -3501,13 +3531,13 @@ h3 {
 
 .hero-proof-strip span {
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  border-top: 1px solid rgba(12, 44, 128, 0.418);
 }
 
 .hero-proof-strip strong {
   display: block;
   margin-bottom: 4px;
-  color: var(--color-white);
+  color: var(--color-primary);
   font-family: var(--font-serif);
   font-size: clamp(1.05rem, 2vw, 1.45rem);
   line-height: 1;

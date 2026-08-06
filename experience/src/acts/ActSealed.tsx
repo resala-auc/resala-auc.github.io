@@ -35,7 +35,7 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
               {[0, 1].map((ring) => (
                 <motion.span
                   key={ring}
-                  className="absolute inset-0 rounded-full border border-brand-orange"
+                  className="absolute inset-0 rounded-full border border-brand-blue"
                   initial={{ scale: 1, opacity: 0 }}
                   animate={{ scale: [1, 2.4], opacity: [0.6, 0] }}
                   transition={{
@@ -51,7 +51,7 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
                 initial={{ scale: 2.2, opacity: 0, rotate: -25 }}
                 animate={{ scale: 1, opacity: 1, rotate: 0 }}
                 transition={{ duration: 1, ease: CHAPTER_EASE, delay: 0.2 }}
-                className="relative flex h-20 w-20 items-center justify-center rounded-full bg-brand-orange shadow-[0_0_60px_rgba(234,194,98,0.45)]"
+                className="relative flex h-20 w-20 items-center justify-center rounded-full bg-brand-blue shadow-[0_10px_36px_-10px_rgba(12,44,128,0.5)]"
               >
                 <motion.span
                   initial={{ pathLength: 0 }}
@@ -65,12 +65,12 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
 
             <AnimatedHeading
               text={`It is signed, ${firstName || "friend"}.`}
-              className="mb-6 font-serif text-3xl leading-[1.15] font-normal text-white md:text-4xl lg:text-5xl"
+              className="mb-6 font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl lg:text-5xl"
             />
 
             <motion.p
               variants={rise}
-              className="mb-10 max-w-lg text-lg leading-relaxed font-light text-white/80"
+              className="mb-10 max-w-lg text-lg leading-relaxed font-light text-brand-ink"
             >
               Your chapter is reserved and your application is with the board. A confirmation email
               is on its way to your AUC inbox.
@@ -78,25 +78,25 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
 
             <motion.dl
               variants={rise}
-              className="mb-10 grid gap-px overflow-hidden rounded-3xl border border-white/12 bg-white/10 sm:grid-cols-2"
+              className="mb-10 grid gap-px overflow-hidden rounded-3xl border border-brand-line bg-brand-line sm:grid-cols-2"
             >
               <div className="bg-brand-night/80 p-6">
-                <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+                <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
                   Your chapter
                 </dt>
-                <dd className="font-serif text-xl text-white">{committee?.displayName ?? "—"}</dd>
-                <dd className="mt-1 text-sm text-white/50">
+                <dd className="font-serif text-xl font-bold text-brand-blue">{committee?.displayName ?? "—"}</dd>
+                <dd className="mt-1 text-sm text-brand-muted">
                   {role ? role.name : committee?.stepTitle}
                 </dd>
               </div>
               <div className="bg-brand-night/80 p-6">
-                <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+                <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
                   Your interview
                 </dt>
-                <dd className="font-serif text-xl text-white">
+                <dd className="font-serif text-xl font-bold text-brand-blue">
                   {slot ? `${slot.startTime} – ${slot.endTime}` : "To be scheduled"}
                 </dd>
-                <dd className="mt-1 text-sm text-white/50">
+                <dd className="mt-1 text-sm text-brand-muted">
                   {slot ? slot.label || slot.date : "The team will contact you with a time."}
                 </dd>
               </div>
@@ -105,25 +105,25 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
             {task?.required ? (
               <motion.div
                 variants={rise}
-                className="mb-10 rounded-3xl border border-brand-orange/30 bg-brand-orange/[0.07] p-6"
+                className="mb-10 rounded-3xl border border-brand-glow bg-brand-pale p-6"
               >
-                <p className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-orange uppercase">
+                <p className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
                   {task.atInterview ? "At your interview" : "Before your interview"} ·{" "}
                   {task.title ?? task.summary}
                 </p>
-                <p className="leading-relaxed text-white/80">{task.detail}</p>
+                <p className="leading-relaxed text-brand-ink">{task.detail}</p>
               </motion.div>
             ) : null}
 
             {committee ? <ContactBlock committee={committee} className="mb-10" /> : null}
 
             {alsoAsked.length ? (
-              <motion.div variants={rise} className="mb-10 border-l-2 border-white/10 pl-5">
-                <p className="mb-2 text-sm text-white/50">At the interview, also expect:</p>
+              <motion.div variants={rise} className="mb-10 border-l-2 border-brand-line pl-5">
+                <p className="mb-2 text-sm text-brand-muted">At the interview, also expect:</p>
                 <ul className="flex flex-col gap-1.5">
                   {alsoAsked.map((item) => (
-                    <li key={item} className="flex gap-2 text-sm leading-relaxed text-white/60">
-                      <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-white/30" />
+                    <li key={item} className="flex gap-2 text-sm leading-relaxed text-brand-muted">
+                      <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-brand-blue/40" />
                       {item}
                     </li>
                   ))}

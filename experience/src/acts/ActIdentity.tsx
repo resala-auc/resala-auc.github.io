@@ -52,12 +52,12 @@ export function ActIdentity({ identity, onChange, onContinue, onBack }: ActIdent
 
             <AnimatedHeading
               text="Who is holding the pen?"
-              className="mb-6 font-serif text-3xl leading-[1.15] font-normal text-white md:text-4xl"
+              className="mb-6 font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
             />
 
             <InkDivider icon={<PenLine className="h-5 w-5" strokeWidth={1.5} />} />
 
-            <motion.p variants={rise} className="mb-10 max-w-lg leading-relaxed text-white/70">
+            <motion.p variants={rise} className="mb-10 max-w-lg leading-relaxed text-brand-muted">
               Only used to reach you about the interview.
             </motion.p>
 
