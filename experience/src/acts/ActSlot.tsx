@@ -199,6 +199,12 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               </motion.p>
             ) : (
               <>
+                {/* Says why today's remaining hours are missing from the board,
+                    rather than leaving a gap the applicant has to guess at. */}
+                <motion.p variants={rise} className="mb-5 text-sm text-brand-muted">
+                  Times open at least six hours from now — your committee reads your application
+                  before they meet you.
+                </motion.p>
                 <motion.div variants={rise} className="mb-6 flex flex-wrap gap-2">
                   {dates.map((date) => {
                     const active = date === activeDate;

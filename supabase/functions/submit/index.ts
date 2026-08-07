@@ -28,6 +28,13 @@ const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
 const INTERVIEW_SLOT_DURATION_MINUTES = 60;
 const INTERVIEW_REMINDER_MINUTES = 60;
+/*
+ * How far ahead an applicant must book. The people interviewing need time to
+ * read an application — and, where the committee sets one, the task — before
+ * they sit down, so a slot stops being offered once it is closer than this.
+ * A slot inside the window is treated exactly like one already past.
+ */
+const INTERVIEW_BOOKING_LEAD_MINUTES = Number(Deno.env.get("INTERVIEW_BOOKING_LEAD_MINUTES") ?? "360");
 /** Where interviewers review this cycle's applicants. */
 /** An applicant must move a slot at least this far ahead of it. */
 const RESCHEDULE_NOTICE_MINUTES = 60;
@@ -1052,6 +1059,8 @@ type InterviewSlotOption = {
   reservedCount: number;
   remaining: number;
   full: boolean;
+  /** Starts too soon to be booked — inside the lead time, or already gone. */
+  tooSoon?: boolean;
   calendarEventId?: string;
   meetLink?: string;
   rowIndex?: number;
@@ -1171,10 +1180,17 @@ Deno.serve(async (request) => {
       const committee = url.searchParams.get("committee");
       // A committee query means the heads cycle; without one, fall back to the
       // original pool so nothing that already depends on this endpoint breaks.
-      const slots = committee
+      const allSlots = committee
         ? await getHeadsInterviewSlots(token, committee)
         : await getInterviewSlots(token);
-      return jsonResponse({ ok: true, slots });
+      /*
+       * A time that has passed, or that starts sooner than the lead time, is
+       * not a choice — showing it struck through only invites the question of
+       * why it cannot be picked. Full slots stay: those are real times that
+       * someone else took, which is worth seeing.
+       */
+      const slots = allSlots.filter((slot) => !slot.tooSoon);
+      return jsonResponse({ ok: true, slots, leadMinutes: INTERVIEW_BOOKING_LEAD_MINUTES });
     } catch (error) {
       return jsonResponse(
         {
@@ -2618,7 +2634,9 @@ async function getHeadsInterviewSlots(token: string, committee?: string): Promis
       const remaining = Math.max(capacity - reservedCount, 0);
       const startDateTime = buildLocalDateTime(date, startTime);
       const endDateTime = buildLocalDateTime(date, endTime);
-      const past = isPastLocalDateTime(startDateTime, CALENDAR_TIME_ZONE);
+      // Past and "too close to prepare for" are the same answer to an
+      // applicant, so one flag covers both.
+      const tooSoon = isWithinBookingLeadTime(startDateTime, CALENDAR_TIME_ZONE);
 
       return {
         id,
@@ -2632,7 +2650,8 @@ async function getHeadsInterviewSlots(token: string, committee?: string): Promis
         active,
         reservedCount,
         remaining,
-        full: !active || !date || !startTime || !startDateTime || !endDateTime || past || remaining <= 0,
+        tooSoon,
+        full: !active || !date || !startTime || !startDateTime || !endDateTime || tooSoon || remaining <= 0,
         calendarEventId,
         meetLink,
         rowIndex: index + 2,
@@ -5978,7 +5997,9 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
       const remaining = Math.max(capacity - reservedCount, 0);
       const startDateTime = buildLocalDateTime(date, startTime);
       const endDateTime = buildLocalDateTime(date, endTime);
-      const past = isPastLocalDateTime(startDateTime, CALENDAR_TIME_ZONE);
+      // Same lead time as the heads pool: the panel reads the application
+      // before the interview, not during it.
+      const tooSoon = isWithinBookingLeadTime(startDateTime, CALENDAR_TIME_ZONE);
       const sameDayCutoffReached = isSameDaySlotCutoffReached(date, CALENDAR_TIME_ZONE);
 
       return {
@@ -5993,7 +6014,8 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
         active,
         reservedCount,
         remaining,
-        full: !active || !date || !startTime || !startDateTime || !endDateTime || past || sameDayCutoffReached || remaining <= 0,
+        tooSoon,
+        full: !active || !date || !startTime || !startDateTime || !endDateTime || tooSoon || sameDayCutoffReached || remaining <= 0,
         calendarEventId,
         meetLink,
         rowIndex: index + 2
@@ -6021,6 +6043,20 @@ async function reserveInterviewSlot(token: string, payload: ApplicationPayload):
 
   if (!selected) {
     throw new Error("Selected interview slot is not available.");
+  }
+
+  /*
+   * Checked before `full`, and separately from it: a slot inside the lead time
+   * is not taken, it is simply too close, and "already full" would send the
+   * applicant looking for a different day when the real answer is that this
+   * one closed while they were filling the form in.
+   */
+  if (selected.tooSoon) {
+    const hours = Math.round(INTERVIEW_BOOKING_LEAD_MINUTES / 60);
+    throw new Error(
+      `That time is no longer open — interviews have to be booked at least ${hours} hours ahead, ` +
+        "so the people interviewing you can read your application first. Please choose a later slot."
+    );
   }
 
   if (selected.full) {
@@ -6671,6 +6707,22 @@ function normalizeTime24(value: unknown): string {
 function isPastLocalDateTime(value: string, timeZone: string): boolean {
   if (!value) return false;
   return value <= getCurrentLocalDateTime(timeZone);
+}
+
+/**
+ * True when a slot is past, or so close that nobody could prepare for it.
+ * Both cases mean the same thing to an applicant looking at the board — the
+ * time is not on offer — so they are answered by one function.
+ */
+function isWithinBookingLeadTime(
+  startDateTime: string,
+  timeZone: string,
+  leadMinutes = INTERVIEW_BOOKING_LEAD_MINUTES
+): boolean {
+  if (!startDateTime) return false;
+  // Negative subtraction adds: the earliest start we will still offer.
+  const earliest = subtractMinutesFromLocalDateTime(getCurrentLocalDateTime(timeZone), -leadMinutes);
+  return startDateTime <= earliest;
 }
 
 function isSameDaySlotCutoffReached(date: string, timeZone: string): boolean {
