@@ -2059,7 +2059,9 @@ export function buildConfirmationEmailTemplate(
     // time and close it; the task and the thread rules are further down.
     "Please read this to the end — your time, your task, and the thread to use are all below.",
     "",
-    `You applied for ${firstPreferenceLabel(payload)}, with ${secondPreferenceLabel(payload)} as your second preference.`,
+    "You applied for:",
+    `- First choice: ${firstPreferenceLabel(payload)}`,
+    `- Second choice: ${secondPreferenceLabel(payload)}`,
     "",
   ];
 
@@ -2176,7 +2178,18 @@ function buildConfirmationEmailHtml({
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this to the end</strong> — your time, your task, and the thread to use are all below.</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">You applied for <strong>${escapeHtml(firstPreference)}</strong>, with <strong>${escapeHtml(secondPreference)}</strong> as your second preference.${hasSlot ? "" : " We will be in touch to schedule your interview."}</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You applied for</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:16px;line-height:1.6;color:#172033;">
+                      <span style="color:#64748b;">First choice</span> · <strong>${escapeHtml(firstPreference)}</strong><br>
+                      <span style="color:#64748b;">Second choice</span> · <strong>${escapeHtml(secondPreference)}</strong>
+                    </td>
+                  </tr>
+                </table>${hasSlot ? "" : `
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">We will be in touch to schedule your interview.</p>`}
                 ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
