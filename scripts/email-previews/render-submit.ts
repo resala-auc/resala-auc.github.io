@@ -148,9 +148,10 @@ written.push({
  * with, and without, an interview already booked.
  */
 await Deno.mkdir(`${OUT}/preference-swap`, { recursive: true });
-for (const [file, booking] of [
-  ["applicant-notice-booked.html", { slotLabel: SLOT, meetLink: MEET }],
-  ["applicant-notice-no-booking.html", null]
+for (const [file, booking, movedBooking] of [
+  ["applicant-notice-booked.html", { slotLabel: SLOT, meetLink: MEET }, false],
+  ["applicant-notice-no-booking.html", null, false],
+  ["applicant-notice-moved.html", { slotLabel: "2026-08-09 at 3:00 PM", meetLink: MEET }, true]
 ] as const) {
   await Deno.writeTextFile(
     `${OUT}/preference-swap/${file}`,
@@ -158,35 +159,46 @@ for (const [file, booking] of [
       fullName: "Nour Hassan",
       firstLabel: "PR / Fundraising — Partnerships Head",
       secondLabel: "Children\u2019s Day — Creative Logistics & Visual Identity Lead",
-      booking
+      booking,
+      movedBooking
     })
   );
   written.push({
     committee: "",
     dir: "preference-swap",
     file,
-    title: `Applicant notice · preferences swapped (${booking ? "interview already booked" : "no booking yet"})`,
+    title: `Applicant notice · preferences swapped (${
+      movedBooking ? "interview moved to the new committee" : booking ? "interview already booked, untouched" : "no booking yet"
+    })`,
     subject: "Resala AUC: your preferences have been updated"
   });
 }
 
-await Deno.writeTextFile(
-  `${OUT}/preference-swap/committee-notice.html`,
-  buildPreferenceSwapCommitteeNoticeHtml({
-    committeeName: "Children\u2019s Day",
-    applicantName: "Nour Hassan",
-    applicantEmail: "nour.hassan@aucegypt.edu",
-    newFirstLabel: "PR / Fundraising — Partnerships Head",
-    booking: { slotLabel: SLOT, meetLink: MEET }
-  })
-);
-written.push({
-  committee: "",
-  dir: "preference-swap",
-  file: "committee-notice.html",
-  title: "Committee notice · sent to whichever committee just lost first preference",
-  subject: "Resala AUC: Nour Hassan is now your second preference"
-});
+for (const [file, booking, movedAway] of [
+  ["committee-notice.html", { slotLabel: SLOT, meetLink: MEET }, false],
+  ["committee-notice-moved-away.html", null, true]
+] as const) {
+  await Deno.writeTextFile(
+    `${OUT}/preference-swap/${file}`,
+    buildPreferenceSwapCommitteeNoticeHtml({
+      committeeName: "Children\u2019s Day",
+      applicantName: "Nour Hassan",
+      applicantEmail: "nour.hassan@aucegypt.edu",
+      newFirstLabel: "PR / Fundraising — Partnerships Head",
+      booking,
+      movedAway
+    })
+  );
+  written.push({
+    committee: "",
+    dir: "preference-swap",
+    file,
+    title: `Committee notice · sent to whichever committee just lost first preference (${
+      movedAway ? "their interview left with the applicant" : "interview untouched, still theirs to run"
+    })`,
+    subject: "Resala AUC: Nour Hassan is now your second preference"
+  });
+}
 
 await Deno.writeTextFile(`${OUT}/.submit-manifest.json`, JSON.stringify(written, null, 2));
 console.log(`submit: ${written.length} previews across ${COMMITTEES.length} committees`);

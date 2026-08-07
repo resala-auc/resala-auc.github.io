@@ -472,9 +472,20 @@ function renderDialog(a) {
 
     <div class="facts">${facts.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join("")}</div>
     ${a.secondPreference ? `
+      <div class="note" style="margin-bottom:8px;">
+        Applied in the wrong order? This exchanges their first and second choice — committee and head both.
+        ${a.interviewSlot
+          ? "Leave the time below blank to keep their interview exactly where it is, or set a new one to move it — either way, one email covers the whole change."
+          : "They have no interview booked yet, so there is nothing to move."}
+      </div>
+      ${a.interviewSlot ? `
+        <div class="note" style="margin-bottom:6px;">Currently booked: <b>${esc(a.interviewSlot)}</b></div>
+        <div class="row2" style="margin-bottom:10px;">
+          <div><label for="swap-date">Also move to date (optional)</label><input type="date" id="swap-date"></div>
+          <div><label for="swap-time">Start</label><input type="time" id="swap-time"></div>
+        </div>
+      ` : ""}
       <div class="row2" style="margin-bottom:14px;">
-        <div class="note">Applied in the wrong order? This exchanges their first and second choice —
-          committee and head both. It does not move anything already booked; use Reschedule for that.</div>
         <div style="flex:0 0 auto;"><button class="btn btn-sm btn-ghost" id="swap-preferences">Swap first / second</button></div>
       </div>
       <div class="msg" id="swap-msg"></div>
@@ -620,13 +631,28 @@ function renderDialog(a) {
   if (swapBtn) swapBtn.onclick = async (e) => {
     const btn = e.currentTarget;
     const msg = document.getElementById("swap-msg");
+    const swapDate = document.getElementById("swap-date")?.value || "";
+    const swapTime = document.getElementById("swap-time")?.value || "";
+    if ((swapDate && !swapTime) || (!swapDate && swapTime)) {
+      msg.className = "msg bad"; msg.textContent = "Set both the date and the time, or leave both blank.";
+      return;
+    }
+    const moving = Boolean(swapDate && swapTime);
     if (!confirm(`Swap ${a.fullName}'s first and second preference?\n\n` +
       `${display(a.roleAppliedFor)} · ${a.headName || "—"} becomes their second choice, and ` +
-      `${display(a.secondPreference)} becomes their first. Nothing already booked moves. ` +
-      "The applicant, the new first-preference committee, and HR are emailed; the committee they just left is notified too.")) return;
+      `${display(a.secondPreference)} becomes their first.` +
+      (moving
+        ? ` Their interview moves to ${swapDate} at ${swapTime}, with the new first-preference committee.`
+        : " Nothing already booked moves.") +
+      " One email covers the applicant, cc the new first-preference committee and HR; the committee they just left is notified separately.")) return;
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Swapping…";
     try {
-      const r = await api({ mode: "heads-swap-preferences", email: state.admin.email, applicantEmail: a.email });
+      const r = await api({
+        mode: "heads-swap-preferences",
+        email: state.admin.email,
+        applicantEmail: a.email,
+        ...(moving ? { date: swapDate, startTime: swapTime } : {})
+      });
       msg.className = "msg ok";
       msg.textContent = `Swapped.${r.applicantEmailSent ? " Applicant emailed." : " Applicant email not sent."}` +
         `${r.committeeNotified ? " Old committee notified." : " Old committee not notified."}`;

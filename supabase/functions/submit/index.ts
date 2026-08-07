@@ -1000,6 +1000,14 @@ type HeadsSwapPreferencesPayload = {
   mode: "heads-swap-preferences";
   email: string;
   applicantEmail: string;
+  /*
+   * Both optional, both required together: a new time for an interview this
+   * applicant already has booked, now that it may belong to a different
+   * committee than the one that first booked it. Omit both to swap without
+   * touching any booking, same as before.
+   */
+  date?: string;
+  startTime?: string;
 };
 
 type AdminCreateHeadsMeetingPayload = {
@@ -3611,9 +3619,13 @@ async function extendReservedInterviewDurations(token: string): Promise<{
   };
 }
 
+// sendUpdates=none everywhere in this file: the applicant, the panel, and HR
+// already get one of our own emails for whatever changed. Letting Google
+// Calendar send its own native notification on top is the second copy of the
+// same news, from a different sender, in different words.
 async function updateCalendarEventEnd(token: string, eventId: string, endDateTime: string): Promise<void> {
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
     {
       method: "PATCH",
       headers: {
@@ -5100,17 +5112,60 @@ async function swapHeadsPreferences(
   );
 
   const fullName = String(row[HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
-  const booking = await findLiveBooking(token, applicantEmail);
-
   const firstLabel = newFirst.headName ? `${newFirst.committee} — ${newFirst.headName}` : newFirst.committee;
   const secondLabel = newSecondCombined;
+
+  /*
+   * Changing the time is part of the same action, not a second one, so it
+   * shares the one email below rather than triggering the ordinary reschedule
+   * mail on top of it — that would be two emails about one decision.
+   */
+  const wantsTimeChange = Boolean(payload.date && payload.startTime);
+  let movedBooking = false;
+
+  if (wantsTimeChange) {
+    const reservationRowIndex = await findReservationRow(token, applicantEmail);
+    if (!reservationRowIndex) {
+      throw new Error("This applicant has no interview booked yet, so there is no time to change.");
+    }
+
+    // The reservation still names whichever committee first booked it. Point
+    // it at the new first preference before moving the time, or the move
+    // would resolve slots and invite the panel of the committee this
+    // applicant just left instead of the one they are now applying to first.
+    const roleColumn = RESERVATION_HEADERS.indexOf("Role Applied For");
+    const secondColumn = RESERVATION_HEADERS.indexOf("Second Preference");
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        RESERVATION_SHEET_NAME,
+        `${columnLetter(roleColumn + 1)}${reservationRowIndex}:${columnLetter(secondColumn + 1)}${reservationRowIndex}`
+      )}?valueInputOption=RAW`,
+      { values: [[newFirst.committee, newSecondCombined]] }
+    );
+
+    await rescheduleInterview(
+      token,
+      {
+        mode: "admin-reschedule",
+        reservationRowIndex,
+        date: String(payload.date),
+        startTime: String(payload.startTime)
+      },
+      false
+    );
+    movedBooking = true;
+  }
+
+  const booking = await findLiveBooking(token, applicantEmail);
 
   // Neither send blocks the swap already written above — the sheet is the
   // record of what changed; these are best-effort notice of it.
   let applicantEmailSent = false;
   try {
     const cc = await buildApplicantCc(token, newFirst.committee, applicantEmail);
-    await sendPreferenceSwapEmail({ fullName, aucEmail: applicantEmail, firstLabel, secondLabel, booking, cc });
+    await sendPreferenceSwapEmail({ fullName, aucEmail: applicantEmail, firstLabel, secondLabel, booking, cc, movedBooking });
     applicantEmailSent = gmailConfigured();
   } catch (error) {
     console.error(`Preference-swap applicant email failed: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -5124,7 +5179,11 @@ async function swapHeadsPreferences(
       applicantName: fullName,
       applicantEmail,
       newFirstLabel: firstLabel,
-      booking
+      // What the old committee needs to hear differs by exactly this: did
+      // their booked interview just leave with the applicant, or is it still
+      // theirs to run.
+      booking: movedBooking ? null : booking,
+      movedAway: movedBooking
     });
   } catch (error) {
     console.error(`Preference-swap committee notice failed: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -5161,6 +5220,7 @@ async function sendPreferenceSwapEmail({
   firstLabel,
   secondLabel,
   booking,
+  movedBooking = false,
   cc
 }: {
   fullName: string;
@@ -5168,11 +5228,18 @@ async function sendPreferenceSwapEmail({
   firstLabel: string;
   secondLabel: string;
   booking: { slotLabel: string; meetLink: string } | null;
+  /** True when the interview itself was moved as part of this same change. */
+  movedBooking?: boolean;
   cc: string;
 }): Promise<void> {
   if (!gmailConfigured()) return;
 
   const subject = "Resala AUC: your preferences have been updated";
+  const bookingLine = booking
+    ? movedBooking
+      ? `Your interview has been moved to match: ${booking.slotLabel}. The Google Meet link is the same as always — join at the new time.`
+      : `Your interview on ${booking.slotLabel} stands exactly as booked — the time and the Google Meet link do not change.`
+    : "You do not have an interview booked yet.";
   const body = [
     `Hi ${fullName},`,
     "",
@@ -5180,9 +5247,7 @@ async function sendPreferenceSwapEmail({
     `- First choice: ${firstLabel}`,
     `- Second choice: ${secondLabel}`,
     "",
-    booking
-      ? `Your interview on ${booking.slotLabel} stands exactly as booked — the time and the Google Meet link do not change.`
-      : "You do not have an interview booked yet.",
+    bookingLine,
     "",
     "If this was not what you meant, reply to this email and we will sort it out.",
     "",
@@ -5190,7 +5255,7 @@ async function sendPreferenceSwapEmail({
     "Resala AUC"
   ].join("\n");
 
-  const html = buildPreferenceSwapEmailHtml({ fullName, firstLabel, secondLabel, booking });
+  const html = buildPreferenceSwapEmailHtml({ fullName, firstLabel, secondLabel, booking, movedBooking });
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -5217,12 +5282,14 @@ export function buildPreferenceSwapEmailHtml({
   fullName,
   firstLabel,
   secondLabel,
-  booking
+  booking,
+  movedBooking = false
 }: {
   fullName: string;
   firstLabel: string;
   secondLabel: string;
   booking: { slotLabel: string; meetLink: string } | null;
+  movedBooking?: boolean;
 }): string {
   return `<!doctype html>
 <html>
@@ -5256,7 +5323,9 @@ export function buildPreferenceSwapEmailHtml({
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:15px;line-height:1.55;color:#4b5563;">${
                         booking
-                          ? `Your interview on <strong>${escapeHtml(booking.slotLabel)}</strong> stands exactly as booked — the time and the Google Meet link do not change.`
+                          ? movedBooking
+                            ? `Your interview has been moved to match: <strong>${escapeHtml(booking.slotLabel)}</strong>. The Google Meet link is the same as always — join at the new time.`
+                            : `Your interview on <strong>${escapeHtml(booking.slotLabel)}</strong> stands exactly as booked — the time and the Google Meet link do not change.`
                           : "You do not have an interview booked yet."
                       }</div>
                     </td>
@@ -5293,14 +5362,18 @@ async function sendPreferenceSwapCommitteeNotice({
   applicantName,
   applicantEmail,
   newFirstLabel,
-  booking
+  booking,
+  movedAway = false
 }: {
   token: string;
   committee: string;
   applicantName: string;
   applicantEmail: string;
   newFirstLabel: string;
+  /** Null when there is nothing left to report — either never booked, or moved away (see movedAway). */
   booking: { slotLabel: string; meetLink: string } | null;
+  /** True when their interview left with them, rather than never having existed. */
+  movedAway?: boolean;
 }): Promise<boolean> {
   if (!gmailConfigured()) return false;
 
@@ -5311,7 +5384,9 @@ async function sendPreferenceSwapCommitteeNotice({
   const subject = `Resala AUC: ${applicantName} is now your second preference`;
   const bookingLine = booking
     ? `Their interview with you on ${booking.slotLabel} is unaffected — it is still yours to run as scheduled. Only their preference order changed, not the booking.`
-    : "They have no interview booked yet.";
+    : movedAway
+      ? `Their interview has moved with them to ${newFirstLabel} — it is no longer on your board.`
+      : "They have no interview booked yet.";
 
   const body = [
     `Hi ${committeeName},`,
@@ -5324,7 +5399,7 @@ async function sendPreferenceSwapCommitteeNotice({
     "Resala AUC"
   ].join("\n");
 
-  const html = buildPreferenceSwapCommitteeNoticeHtml({ committeeName, applicantName, applicantEmail, newFirstLabel, booking });
+  const html = buildPreferenceSwapCommitteeNoticeHtml({ committeeName, applicantName, applicantEmail, newFirstLabel, booking, movedAway });
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -5352,13 +5427,15 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
   applicantName,
   applicantEmail,
   newFirstLabel,
-  booking
+  booking,
+  movedAway = false
 }: {
   committeeName: string;
   applicantName: string;
   applicantEmail: string;
   newFirstLabel: string;
   booking: { slotLabel: string; meetLink: string } | null;
+  movedAway?: boolean;
 }): string {
   return `<!doctype html>
 <html>
@@ -5387,7 +5464,9 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
                       <div style="font-size:15px;line-height:1.6;color:#172033;">${
                         booking
                           ? `Their interview with you on <strong>${escapeHtml(booking.slotLabel)}</strong> is unaffected — it is still yours to run as scheduled. Only their preference order changed, not the booking.`
-                          : "They have no interview booked yet."
+                          : movedAway
+                            ? `Their interview has moved with them to <strong>${escapeHtml(newFirstLabel)}</strong> — it is no longer on your board.`
+                            : "They have no interview booked yet."
                       }</div>
                     </td>
                   </tr>
@@ -5648,7 +5727,14 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
 
 async function rescheduleInterview(
   token: string,
-  payload: AdminReschedulePayload
+  payload: AdminReschedulePayload,
+  /*
+   * False only when this move is one part of a larger action that sends its
+   * own single email covering everything that changed — a preference swap
+   * that also moves the time, so far. Every existing caller moves a slot on
+   * its own and still needs its own email, so they all keep the default.
+   */
+  notifyApplicant = true
 ): Promise<{
   updatedReservation: boolean;
   updatedApplication: boolean;
@@ -5690,7 +5776,17 @@ async function rescheduleInterview(
   const [sh, sm] = rawStartTime.split(":").map(Number);
   const startDateTime = `${date}T${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}:00`;
 
-  const endMinutesTotal = sh * 60 + sm + INTERVIEW_SLOT_DURATION_MINUTES;
+  /*
+   * Committees run interviews at different lengths — Operations and Branding
+   * are 30 minutes, everyone else 60 — so a reschedule with no explicit end
+   * time has to ask which committee it is for, not assume the global default.
+   * This matters more now than it used to: a preference swap can move this
+   * same reservation to a different committee than the one that first booked
+   * it, and that committee's own length is the only correct one to use.
+   */
+  const committeeDuration =
+    COMMITTEE_INTERVIEWS[normalizeRole(roleAppliedFor)]?.durationMinutes ?? INTERVIEW_SLOT_DURATION_MINUTES;
+  const endMinutesTotal = sh * 60 + sm + committeeDuration;
   const eh = Math.floor(endMinutesTotal / 60) % 24;
   const em = endMinutesTotal % 60;
   const resolvedEndTime = rawEndTime || `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
@@ -5822,19 +5918,21 @@ async function rescheduleInterview(
   }
 
   let emailSent = false;
-  try {
-    await sendRescheduleEmail(
-      applicantPayload,
-      {
-        slot: newSlot,
-        calendarEventId: newCalendarEvent.calendarEventId,
-        meetLink: newCalendarEvent.meetLink
-      },
-      await buildApplicantCc(token, roleAppliedFor, aucEmail, reschedulePanel)
-    );
-    emailSent = gmailConfigured();
-  } catch (error) {
-    console.error(`Reschedule email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  if (notifyApplicant) {
+    try {
+      await sendRescheduleEmail(
+        applicantPayload,
+        {
+          slot: newSlot,
+          calendarEventId: newCalendarEvent.calendarEventId,
+          meetLink: newCalendarEvent.meetLink
+        },
+        await buildApplicantCc(token, roleAppliedFor, aucEmail, reschedulePanel)
+      );
+      emailSent = gmailConfigured();
+    } catch (error) {
+      console.error(`Reschedule email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
   }
 
   return {
@@ -6383,7 +6481,7 @@ async function deleteCalendarEvent(eventId: string): Promise<boolean> {
 
   const token = await getGmailAccessToken();
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
     {
       method: "DELETE",
       headers: {
@@ -6669,7 +6767,7 @@ async function addCalendarEventAttendee(
   }
 
   const patchResponse = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(calendarEventId)}?sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(calendarEventId)}?sendUpdates=none`,
     {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -6766,7 +6864,7 @@ async function createCalendarEvent(
 
   const requestId = `resala-${payload.studentId}-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 100);
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=all`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`,
     {
       method: "POST",
       headers: {
