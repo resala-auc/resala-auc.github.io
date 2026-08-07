@@ -3841,11 +3841,34 @@ async function authorizeApplicantAccess(
   return access;
 }
 
+/**
+ * The applicant's own row in a sheet keyed by email in `column` — the LAST
+ * one, not the first.
+ *
+ * Withdrawing and reapplying is a supported flow: a withdrawal clears a row
+ * rather than deleting it, specifically so someone can be rebooked later
+ * without reapplying. That means more than one row can exist under the same
+ * email, an old dead one and a new live one. Every dashboard read here already
+ * treats the newest as current — they join reservation data through a Map
+ * keyed by email, where a later `.set()` silently overwrites an earlier one.
+ * A first-match `findIndex` disagreed with that, so an action taken on someone
+ * who had withdrawn and rebooked landed on their old, already-cleared row
+ * instead of their live one — which is exactly what made a fresh booking
+ * report itself as "already withdrawn".
+ */
+function findCurrentRowIndex(rows: string[][], column: number, email: string): number {
+  const target = normalize(email);
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (normalize(String(rows[i][column] ?? "")) === target) return i;
+  }
+  return -1;
+}
+
 /** The applicant's row in the reservations sheet, or 0 when they never booked. */
 async function findReservationRow(token: string, applicantEmail: string): Promise<number> {
   const response = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`);
   const rows = ((await response.json()).values ?? []) as string[][];
-  const index = rows.findIndex((row) => normalize(String(row[4] ?? "")) === normalize(applicantEmail));
+  const index = findCurrentRowIndex(rows, 4, applicantEmail);
   return index >= 0 ? index + 2 : 0;
 }
 
@@ -4036,7 +4059,7 @@ async function cancelHeadsInterview(
 async function clearHeadsApplicationSlot(token: string, aucEmail: string): Promise<boolean> {
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`);
   const rows = ((await response.json()).values ?? []) as string[][];
-  const index = rows.findIndex((row) => normalize(row[2]) === normalize(aucEmail));
+  const index = findCurrentRowIndex(rows, 2, aucEmail);
   if (index === -1) return false;
 
   await sheetsFetch(
@@ -4080,7 +4103,7 @@ async function confirmSecondPreferenceAvailability(
 
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`);
   const rows = ((await response.json()).values ?? []) as string[][];
-  const index = rows.findIndex((row) => normalize(row[2]) === normalize(applicantEmail));
+  const index = findCurrentRowIndex(rows, 2, applicantEmail);
   if (index === -1) throw new Error("No application found for that applicant.");
 
   // This applicant must actually have named this committee as their second
@@ -4238,7 +4261,7 @@ async function submitHeadsTask(
   const rows = ((await response.json()).values ?? []) as string[][];
   const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
 
-  const index = rows.findIndex((row) => normalize(String(row[2] ?? "")) === normalize(email));
+  const index = findCurrentRowIndex(rows, 2, email);
   if (index < 0) {
     throw new Error("We could not find an application under that email. Use the address you applied with.");
   }
@@ -5415,7 +5438,7 @@ async function updateHeadsApplicationSlot(
     `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`
   );
   const rows = ((await response.json()).values ?? []) as string[][];
-  const index = rows.findIndex((row) => normalize(row[2]) === normalize(aucEmail));
+  const index = findCurrentRowIndex(rows, 2, aucEmail);
   if (index === -1) return false;
 
   const sheetRow = index + 2;
