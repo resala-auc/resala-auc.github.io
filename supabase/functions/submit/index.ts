@@ -5628,6 +5628,10 @@ async function sendInterviewCancelledEmail(
     "",
     "Thank you for the time you put into applying — it was read, and it was appreciated.",
     "",
+    "This closes one application, not the door. Resala is still yours to be part of:",
+    "come to the visits, the packing nights and the days out, and apply again whenever",
+    "you are ready. We would be glad to have you with us.",
+    "",
     "If this was not what you meant, or you change your mind, reply to this email and we will sort it out.",
     "",
     "Best,",
@@ -5668,7 +5672,7 @@ export function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName:
               <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
                 <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
                 <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Application Withdrawn</div>
-                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">There is nothing left for you to do.</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">The door stays open.</div>
               </td>
             </tr>
             <tr>
@@ -5683,6 +5687,18 @@ export function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName:
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">
                   Thank you for the time you put into applying — it was read, and it was appreciated.
                 </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">You are still one of us</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        This closes one application, not the door. Come to the visits, the packing nights and
+                        the days out, and apply again whenever you are ready — we would be glad to have you
+                        with us.
+                      </div>
+                    </td>
+                  </tr>
+                </table>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
