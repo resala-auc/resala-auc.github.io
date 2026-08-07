@@ -150,9 +150,30 @@
   .msg { font-size: 13.5px; margin-top: 9px; }
   .msg.ok { color: var(--good); }
   .msg.bad { color: #a3231b; }
+
+  /* In-page confirm, replacing window.confirm(): on mobile, a browser can
+     silently start refusing to show native confirm/alert dialogs after a
+     couple of them fire in quick succession — no popup, no error, confirm()
+     just returns false, so the action it guards quietly does nothing. This
+     dialog is a normal page element instead, so it always renders. */
+  dialog#confirm-dialog { border: 0; border-radius: 16px; padding: 0; max-width: 420px; width: calc(100% - 40px); box-shadow: 0 24px 60px rgba(0,0,0,.24); }
+  dialog#confirm-dialog::backdrop { background: rgba(12,26,50,.5); }
+  .confirm-body { padding: 22px 24px; }
+  .confirm-body p { margin: 0 0 20px; font-size: 14.5px; line-height: 1.55; white-space: pre-wrap; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
 </style>
 </head>
 <body>
+
+<dialog id="confirm-dialog">
+  <div class="confirm-body">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
 
 <!-- login ─────────────────────────────────────────────────────────────────── -->
 <div class="login" id="login">
@@ -230,6 +251,35 @@ const display = (v) => {
 };
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/*
+ * Replaces window.confirm(): on mobile, a browser can quietly stop showing
+ * native confirm/alert dialogs after a couple fire in quick succession — no
+ * popup, no error, confirm() just returns false. Whatever it guarded then
+ * does nothing, with no sign of why. A dialog built from page elements always
+ * renders, because it is not that native chrome.
+ */
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirm-dialog");
+    document.getElementById("confirm-message").textContent = message;
+    const okBtn = document.getElementById("confirm-ok");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const finish = (result) => {
+      dlg.close();
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel); // Esc key
+    dlg.showModal();
+  });
+}
 
 let state = { access: null, tab: "firstPreference", data: null, selected: null, busy: false };
 
@@ -687,10 +737,10 @@ document.getElementById("panel").addEventListener("click", (e) => {
 async function setSecondPreferenceAvailability(available) {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
   if (!applicant) return;
-  if (!available && !confirm(
+  if (!available && !(await confirmDialog(
     `Tell HR your committee can't cover ${applicant.fullName}'s interview on ${applicant.interviewSlot}? ` +
     "They will need to find a third interviewer."
-  )) return;
+  ))) return;
 
   const yesBtn = document.getElementById("avail-yes");
   const noBtn = document.getElementById("avail-no");
@@ -716,13 +766,13 @@ async function setSecondPreferenceAvailability(available) {
 
 async function cancelInterview() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) return;
   if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("cancel-interview");
-  if (!applicant) return;
-  if (!confirm(`Withdraw ${applicant.fullName}'s application?\n\n` +
+  if (!(await confirmDialog(`Withdraw ${applicant.fullName}'s application?\n\n` +
     `Their interview on ${applicant.interviewSlot} is cancelled, the slot goes back on the board, ` +
-    "and they are emailed to say the application is withdrawn. Use Reschedule instead if they only want another time.")) return;
+    "and they are emailed to say the application is withdrawn. Use Reschedule instead if they only want another time."))) return;
 
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Cancelling…";
   try {
@@ -744,10 +794,10 @@ async function cancelInterview() {
 
 async function setState() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) return;
   if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("set-state");
-  if (!applicant) return;
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
   try {
     await api({
@@ -767,14 +817,14 @@ async function setState() {
 
 async function reschedule() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) return;
   if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("reschedule");
-  if (!applicant) return;
   const date = document.getElementById("re-date").value;
   const startTime = document.getElementById("re-time").value;
   if (!date || !startTime) { msg.className = "msg bad"; msg.textContent = "Pick a date and time."; return; }
-  if (!confirm(`Move ${applicant.fullName}'s interview to ${date} at ${startTime}? This emails them.`)) return;
+  if (!(await confirmDialog(`Move ${applicant.fullName}'s interview to ${date} at ${startTime}? This emails them.`))) return;
 
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Rescheduling…";
   try {

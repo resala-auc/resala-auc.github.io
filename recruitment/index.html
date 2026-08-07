@@ -159,6 +159,21 @@
 
 <dialog id="dlg"><div class="dlg" id="dlg-body"></div></dialog>
 
+<!-- Replaces window.confirm(): on mobile, a browser can quietly stop showing
+     native confirm/alert dialogs after a couple fire in quick succession — no
+     popup, no error, confirm() just returns false, and whatever it guarded
+     does nothing with no sign of why. A dialog built from page elements
+     always renders, because it is not that native chrome. -->
+<dialog id="confirm-dialog" style="max-width:420px;">
+  <div class="dlg" style="padding:22px 24px;">
+    <p id="confirm-message" style="margin:0 0 20px;font-size:14.5px;line-height:1.55;white-space:pre-wrap;"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
+
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
@@ -186,6 +201,28 @@ const display = (v) => {
 };
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirm-dialog");
+    document.getElementById("confirm-message").textContent = message;
+    const okBtn = document.getElementById("confirm-ok");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const finish = (result) => {
+      dlg.close();
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel); // Esc key
+    dlg.showModal();
+  });
+}
 
 let state = { admin: null, data: null, selected: null };
 
@@ -589,7 +626,7 @@ function renderDialog(a) {
     const date = document.getElementById("re-date").value;
     const startTime = document.getElementById("re-time").value;
     if (!date || !startTime) { msg.className = "msg bad"; msg.textContent = "Pick a date and time."; return; }
-    if (!confirm(`Move ${a.fullName}'s interview to ${date} at ${startTime}? This emails them.`)) return;
+    if (!(await confirmDialog(`Move ${a.fullName}'s interview to ${date} at ${startTime}? This emails them.`))) return;
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Rescheduling…";
     try {
       const r = await api({
@@ -608,9 +645,9 @@ function renderDialog(a) {
   if (cancelBtn) cancelBtn.onclick = async (e) => {
     const btn = e.currentTarget;
     const msg = document.getElementById("re-msg");
-    if (!confirm(`Withdraw ${a.fullName}'s application?\n\n` +
+    if (!(await confirmDialog(`Withdraw ${a.fullName}'s application?\n\n` +
       `Their interview on ${a.interviewSlot || "their booked slot"} is cancelled, the slot goes back on the board, ` +
-      "and they are emailed to say the application is withdrawn.")) return;
+      "and they are emailed to say the application is withdrawn."))) return;
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Withdrawing…";
     try {
       const r = await api({
@@ -638,13 +675,13 @@ function renderDialog(a) {
       return;
     }
     const moving = Boolean(swapDate && swapTime);
-    if (!confirm(`Swap ${a.fullName}'s first and second preference?\n\n` +
+    if (!(await confirmDialog(`Swap ${a.fullName}'s first and second preference?\n\n` +
       `${display(a.roleAppliedFor)} · ${a.headName || "—"} becomes their second choice, and ` +
       `${display(a.secondPreference)} becomes their first.` +
       (moving
         ? ` Their interview moves to ${swapDate} at ${swapTime}, with the new first-preference committee.`
         : " Nothing already booked moves.") +
-      " One email covers the applicant, cc the new first-preference committee and HR; the committee they just left is notified separately.")) return;
+      " One email covers the applicant, cc the new first-preference committee and HR; the committee they just left is notified separately."))) return;
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Swapping…";
     try {
       const r = await api({
