@@ -524,20 +524,25 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
    * link. Where a sheet is attached this stays a pointer; only a committee
    * with no sheet to attach still spells the task out in full.
    */
-  const lines = [`${task.atInterview ? "At your interview" : "Before your interview"}: ${task.summary}`, ""];
+  const lines: string[] = [];
 
   if (forHead?.file) {
+    // The attachment first, in its own line, because that is the instruction —
+    // the title is just what the file is called.
     lines.push(
-      `Your task — ${forHead.title} — is the PDF attached to this email. Read it there; it has everything you need.`,
+      "YOUR TASK IS THE PDF ATTACHED TO THIS EMAIL.",
+      `Open "${forHead.title}". The scenario, what to hand in, and how long it should be are all in there.`,
       ""
     );
   } else {
+    lines.push(`${task.atInterview ? "At your interview" : "Before your interview"}: ${task.summary}`, "");
     if (task.scenario) lines.push(task.scenario, "");
     lines.push(task.detail, "");
     if (forHead) {
       lines.push(`${forHead.title} — ${task.atInterview ? "your task will be" : "cover"}:`, ...forHead.points.map((p) => `- ${p}`), "");
     }
   }
+
 
   if (task.submissionUrl) {
     lines.push(`Hand it in here: ${task.submissionUrl}`, taskDeadlineSentence(task), "");
@@ -2052,7 +2057,7 @@ export function buildConfirmationEmailTemplate(
     "",
     // Says up front what this email is for. People skim a confirmation for the
     // time and close it; the task and the thread rules are further down.
-    "Please read this email to the end. It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.",
+    "Please read this to the end — your time, your task, and the thread to use are all below.",
     "",
     `You applied for ${firstPreferenceLabel(payload)}, with ${secondPreferenceLabel(payload)} as your second preference.`,
     "",
@@ -2111,12 +2116,7 @@ export function buildConfirmationEmailTemplate(
     );
   }
 
-  bodyLines.push(
-    "If anything feels unclear, reply here and we will help.",
-    "",
-    "Best,",
-    "Resala AUC"
-  );
+  bodyLines.push("Best,", "Resala AUC");
 
   return {
     subject,
@@ -2169,13 +2169,13 @@ function buildConfirmationEmailHtml({
                 <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
                 <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
                 <div style="font-size:28px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:22px;">${hasSlot ? "Your Interview Slot Is Reserved" : "Application Received"}</div>
-                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${hasSlot ? "Thanks for applying. Here is everything you need before the interview." : "Thanks for applying. We will contact you soon to schedule your interview."}</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${hasSlot ? "Everything you need before the interview." : "We will contact you soon to schedule your interview."}</div>
               </td>
             </tr>
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this email to the end.</strong> It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this to the end</strong> — your time, your task, and the thread to use are all below.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">You applied for <strong>${escapeHtml(firstPreference)}</strong>, with <strong>${escapeHtml(secondPreference)}</strong> as your second preference.${hasSlot ? "" : " We will be in touch to schedule your interview."}</p>
                 ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
@@ -2298,13 +2298,17 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
     <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
-      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">${task.atInterview ? "At your interview" : "Before your interview"}</div>
-      <div style="font-size:17px;line-height:1.4;font-weight:bold;color:#0d2b45;margin-bottom:8px;">${escapeHtml(forHead ? forHead.title : task.summary)}</div>
+      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">${forHead?.file ? "Your task is attached" : task.atInterview ? "At your interview" : "Before your interview"}</div>
+      <div style="font-size:17px;line-height:1.4;font-weight:bold;color:#0d2b45;margin-bottom:8px;">${
+        forHead?.file
+          ? `Open the PDF attached to this email — ${escapeHtml(forHead.title)}`
+          : escapeHtml(forHead ? forHead.title : task.summary)
+      }</div>
       ${
         /* Attached as a PDF, so the email points at it instead of reprinting
            it. Without an attachment there is nowhere else to read it. */
         forHead?.file
-          ? `<div style="font-size:15px;line-height:1.6;color:#172033;">Your task is the PDF attached to this email. It has the scenario, what to hand in, and how long it should be.</div>`
+          ? `<div style="font-size:15px;line-height:1.6;color:#4b5563;">The scenario, what to hand in, and how long it should be are all in there.</div>`
           : `${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
              <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
              ${forHead ? `<ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">${forHead.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}`
