@@ -986,6 +986,22 @@ type HeadsAssignInterviewerPayload = {
   note?: string;
 };
 
+/**
+ * Exchange what an applicant put first and second. Recruitment admin only —
+ * same authority as assigning a third interviewer, for the same reason: it
+ * changes how a committee sees an applicant, not just a note on their row.
+ *
+ * Deliberately narrow: it swaps the two committees/heads they already named,
+ * nothing else. It never touches a booking — if one exists, it keeps running
+ * under whichever committee it was actually scheduled with, and moving it is
+ * what the reschedule feature is for.
+ */
+type HeadsSwapPreferencesPayload = {
+  mode: "heads-swap-preferences";
+  email: string;
+  applicantEmail: string;
+};
+
 type AdminCreateHeadsMeetingPayload = {
   mode: "admin-create-heads-meeting";
 };
@@ -1049,6 +1065,7 @@ type SubmissionPayload =
   | HeadsCancelInterviewPayload
   | HeadsConfirmSecondAvailabilityPayload
   | HeadsAssignInterviewerPayload
+  | HeadsSwapPreferencesPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
@@ -1520,6 +1537,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await assignHeadsInterviewer(token, payload)) });
     }
 
+    if (isHeadsSwapPreferencesPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await swapHeadsPreferences(token, payload)) });
+    }
+
     if (isAdminCreateHeadsMeetingPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -1688,6 +1711,12 @@ function isHeadsAssignInterviewerPayload(
   payload: SubmissionPayload
 ): payload is HeadsAssignInterviewerPayload {
   return (payload as HeadsAssignInterviewerPayload).mode === "heads-assign-interviewer";
+}
+
+function isHeadsSwapPreferencesPayload(
+  payload: SubmissionPayload
+): payload is HeadsSwapPreferencesPayload {
+  return (payload as HeadsSwapPreferencesPayload).mode === "heads-swap-preferences";
 }
 
 function isAdminResetPayload(payload: SubmissionPayload): payload is AdminResetPayload {
@@ -4986,6 +5015,90 @@ async function assignHeadsInterviewer(
   return { assignmentId, updated: false };
 }
 
+/**
+ * Exchange first and second preference. Both are stored differently — first
+ * as four plain columns, second as one "Committee — Head" string plus two id
+ * columns, because the applicant chooses it in a single free-text step — so
+ * swapping means reading both shapes and writing each back in the other's.
+ *
+ * Deliberately does not touch the reservation: if this applicant already has
+ * an interview booked, it keeps running with whichever committee actually
+ * booked it. A swap can leave that committee no longer this applicant's first
+ * preference — the reschedule and cancel actions are what move a booking, and
+ * they still work exactly as before, just now possibly across the new split.
+ */
+async function swapHeadsPreferences(
+  token: string,
+  payload: HeadsSwapPreferencesPayload
+): Promise<{ applicantEmail: string; firstPreference: string; secondPreference: string }> {
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Which applicant?");
+
+  const firstCol = HEADS_APPLICATION_HEADERS.indexOf("Committee");
+  const firstIdCol = HEADS_APPLICATION_HEADERS.indexOf("Committee ID");
+  const headCol = HEADS_APPLICATION_HEADERS.indexOf("Head Applied For");
+  const headIdCol = HEADS_APPLICATION_HEADERS.indexOf("Head ID");
+  const secondCol = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Committee");
+  const secondIdCol = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Committee ID");
+  const secondHeadIdCol = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Head ID");
+  // The eight columns above are contiguous (Committee through Second
+  // Preference Head ID), so one range covers all of them.
+  const lastCol = Math.max(firstCol, firstIdCol, headCol, headIdCol, secondCol, secondIdCol, secondHeadIdCol);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  const row = rows[index];
+  const oldFirst = {
+    committee: String(row[firstCol] ?? "").trim(),
+    committeeId: String(row[firstIdCol] ?? "").trim(),
+    headName: String(row[headCol] ?? "").trim(),
+    headId: String(row[headIdCol] ?? "").trim()
+  };
+  const oldSecondCombined = String(row[secondCol] ?? "").trim();
+  const oldSecondCommitteeId = String(row[secondIdCol] ?? "").trim();
+  const oldSecondHeadId = String(row[secondHeadIdCol] ?? "").trim();
+
+  if (!oldSecondCombined) {
+    throw new Error("This applicant has no second preference to swap with.");
+  }
+
+  const oldSecond = splitSecondPreference(oldSecondCombined);
+  const newFirst = {
+    committee: oldSecond.committee,
+    committeeId: oldSecondCommitteeId,
+    headName: oldSecond.head,
+    headId: oldSecondHeadId
+  };
+  const newSecondCombined = oldFirst.headName ? `${oldFirst.committee} — ${oldFirst.headName}` : oldFirst.committee;
+
+  const newRow = [...row];
+  newRow[firstCol] = newFirst.committee;
+  newRow[firstIdCol] = newFirst.committeeId;
+  newRow[headCol] = newFirst.headName;
+  newRow[headIdCol] = newFirst.headId;
+  newRow[secondCol] = newSecondCombined;
+  newRow[secondIdCol] = oldFirst.committeeId;
+  newRow[secondHeadIdCol] = oldFirst.headId;
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${columnLetter(firstCol + 1)}${index + 2}:${columnLetter(lastCol + 1)}${index + 2}`)}?valueInputOption=RAW`,
+    { values: [newRow.slice(firstCol, lastCol + 1)] }
+  );
+
+  return {
+    applicantEmail,
+    firstPreference: newFirst.headName ? `${newFirst.committee} — ${newFirst.headName}` : newFirst.committee,
+    secondPreference: newSecondCombined
+  };
+}
 
 async function loadDirectorApplicants(
   token: string,

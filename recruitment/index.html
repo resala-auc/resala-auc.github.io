@@ -471,6 +471,14 @@ function renderDialog(a) {
     <div class="sub">${esc(display(a.roleAppliedFor))} · ${esc(a.headName || "—")}</div>
 
     <div class="facts">${facts.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v)}</div>`).join("")}</div>
+    ${a.secondPreference ? `
+      <div class="row2" style="margin-bottom:14px;">
+        <div class="note">Applied in the wrong order? This exchanges their first and second choice —
+          committee and head both. It does not move anything already booked; use Reschedule for that.</div>
+        <div style="flex:0 0 auto;"><button class="btn btn-sm btn-ghost" id="swap-preferences">Swap first / second</button></div>
+      </div>
+      <div class="msg" id="swap-msg"></div>
+    ` : ""}
     ${/^https?:\/\//.test(a.meetLink || "") ? `<div class="note">Meet: <a href="${esc(a.meetLink)}" target="_blank" rel="noopener">${esc(a.meetLink)}</a></div>` : ""}
     ${taskLine(a)}
 
@@ -602,6 +610,23 @@ function renderDialog(a) {
       });
       msg.className = "msg ok";
       msg.textContent = `Withdrawn.${r.emailSent ? " Applicant emailed." : " Email not sent."}`;
+      await load(state.admin.email, true);
+    } catch (err) {
+      msg.className = "msg bad"; msg.textContent = err.message;
+    } finally { btn.disabled = false; }
+  };
+
+  const swapBtn = document.getElementById("swap-preferences");
+  if (swapBtn) swapBtn.onclick = async (e) => {
+    const btn = e.currentTarget;
+    const msg = document.getElementById("swap-msg");
+    if (!confirm(`Swap ${a.fullName}'s first and second preference?\n\n` +
+      `${display(a.roleAppliedFor)} · ${a.headName || "—"} becomes their second choice, and ` +
+      `${display(a.secondPreference)} becomes their first. Nothing already booked moves.`)) return;
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Swapping…";
+    try {
+      await api({ mode: "heads-swap-preferences", email: state.admin.email, applicantEmail: a.email });
+      msg.className = "msg ok"; msg.textContent = "Swapped.";
       await load(state.admin.email, true);
     } catch (err) {
       msg.className = "msg bad"; msg.textContent = err.message;
