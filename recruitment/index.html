@@ -421,7 +421,9 @@ function renderDialog(a) {
       ? (String(a.secondPreferenceAvailability || "").trim() || "Awaiting reply")
       : ""],
     ["Interview", a.interviewSlot || "Not booked"],
-    ["Interview status", a.interviewStatus || a.status]
+    ["Interview status", a.interviewStatus || a.status],
+    // Only for committees that collect work before the interview.
+    ["Task", expectsTask(a) ? (submittedLink(a) ? "Submitted" : "Not submitted") : ""]
   ].filter(([, v]) => String(v ?? "").trim());
 
   const answers = (a.answers || []).map((qa) =>

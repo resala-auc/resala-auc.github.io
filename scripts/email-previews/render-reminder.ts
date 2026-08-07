@@ -7,29 +7,33 @@ import { buildReminderEmailTemplate } from "../../supabase/functions/send-interv
 
 const OUT = Deno.args[0] ?? "email-previews";
 
-const template = buildReminderEmailTemplate(
-  "Nour Hassan",
-  "2026-08-07 at 4:00 PM",
-  "https://meet.google.com/abc-defg-hij",
-  "Operations"
-);
+/*
+ * One per committee: the only thing that changes is the committee's own name,
+ * but that is the line an applicant checks to be sure the mail is about the
+ * interview they are waiting for, so it is worth seeing rendered.
+ */
+const committees = [
+  { role: "Operations", file: "reminder-1-hour-before.html", label: "Operations" },
+  { role: "Visits", file: "reminder-1-hour-before-visits.html", label: "Visits" }
+];
 
-await Deno.writeTextFile(`${OUT}/reminder-1-hour-before.html`, template.html);
-await Deno.writeTextFile(`${OUT}/reminder-1-hour-before.txt`, template.body);
-await Deno.writeTextFile(
-  `${OUT}/.reminder-manifest.json`,
-  JSON.stringify(
-    [
-      {
-        file: "reminder-1-hour-before.html",
-        title: "Reminder · one hour before the interview",
-        subject: template.subject
-      }
-    ],
-    null,
-    2
-  )
-);
+const written = [];
+for (const entry of committees) {
+  const template = buildReminderEmailTemplate(
+    "Nour Hassan",
+    "2026-08-08 at 1:00 PM",
+    "https://meet.google.com/abc-defg-hij",
+    entry.role
+  );
+  await Deno.writeTextFile(`${OUT}/${entry.file}`, template.html);
+  await Deno.writeTextFile(`${OUT}/${entry.file.replace(/\.html$/, ".txt")}`, template.body);
+  written.push({
+    file: entry.file,
+    title: `Reminder · one hour before the interview (${entry.label})`,
+    subject: template.subject
+  });
+}
 
-console.log("reminder: 1 preview");
+await Deno.writeTextFile(`${OUT}/.reminder-manifest.json`, JSON.stringify(written, null, 2));
+console.log(`reminder: ${written.length} previews`);
 Deno.exit(0);

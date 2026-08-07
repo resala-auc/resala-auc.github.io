@@ -84,8 +84,8 @@ const cases = [
     })
   },
   {
-    file: "confirmation-03-task-brought-to-interview.html",
-    title: "Confirmation · task brought to the interview (Visits · Discovery)",
+    file: "confirmation-03-task-submitted-visits.html",
+    title: "Confirmation · task submitted before the interview (Visits · Discovery)",
     payload: applicant({
       roleAppliedFor: "Visits",
       roleStepTitle: "The Step of Presence · Discovery Head",

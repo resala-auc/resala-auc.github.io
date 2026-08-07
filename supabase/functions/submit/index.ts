@@ -432,6 +432,9 @@ const HEADS_TASKS: Record<string, HeadsTask> = {
     summary: "Prepare a 1-2 page task for the head you applied to",
     detail:
       "One to two pages. Bullet points, tables, diagrams or sketches are fine.",
+    // Mirrors src/interview-config.mjs — handed in online, an hour ahead.
+    dueBeforeInterviewMinutes: 60,
+    submissionUrl: TASK_SUBMISSION_URL,
     scenario:
       "Resala Visits is organizing a Fixing Visit for a low-income family. The house needs wall repairs, repainting, a replacement wooden door and several electrical repairs. The visit is two weeks away with 25 volunteers, the materials are not secured yet, and all planning must be done before the visit date.",
     byRole: {

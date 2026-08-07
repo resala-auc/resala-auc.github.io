@@ -252,6 +252,14 @@ export const interviewConfig = {
       detail:
         "Complete the practical task for the head you picked, based on the Fixing Visit scenario. One to two pages — bullet points, tables, diagrams or sketches are fine.",
       pageLimit: "One to two pages maximum.",
+      /*
+       * Handed in online rather than carried into the room, same as Children's
+       * Day: the interviewers read it before they sit down, and the portal can
+       * show whether it arrived. One hour is the same deadline the applicant
+       * already sees on the guides and in the booking step.
+       */
+      dueBeforeInterviewMinutes: 60,
+      submissionUrl: "https://resala-auc.github.io/tasks/",
       byRole: {
         discovery: {
           title: "Discovery Report · 1–2 pages",

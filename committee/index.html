@@ -447,7 +447,13 @@ function renderPanel() {
     ["Major", applicant.major],
     ["Year", applicant.yearLevel],
     ["Interview", applicant.interviewSlot || "Not booked"],
-    ["Status", applicant.interviewStatus || applicant.status]
+    ["Status", applicant.interviewStatus || applicant.status],
+    /* Only where the committee collects work beforehand. Stated as a fact
+       rather than left to the banner, so "did this one hand it in?" is
+       answered in the same place as their slot and their phone number. */
+    ["Task", expectsTask(applicant)
+      ? (submittedLink(applicant) ? "Submitted" : "Not submitted")
+      : ""]
   ].filter(([, v]) => String(v ?? "").trim());
 
   const answers = (applicant.answers || []).map((qa) => `
