@@ -510,12 +510,8 @@ function getHeadsTask(payload: ApplicationPayload): {
 /** The task lines for this applicant, or an empty list when none is required. */
 function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
   const { task, forHead } = getHeadsTask(payload);
-  if (!task) {
-    return [
-      `${firstPreferenceLabel(payload)} does not ask for a task before the interview. Come ready to talk through your answers.`,
-      ""
-    ];
-  }
+  // Committees with no task say nothing about tasks.
+  if (!task) return [];
 
   /*
    * The brief itself lives in the attached PDF. Repeating the scenario and
@@ -2067,7 +2063,9 @@ export function buildConfirmationEmailTemplate(
     "",
     // Says up front what this email is for. People skim a confirmation for the
     // time and close it; the task and the thread rules are further down.
-    "Please read this to the end — your time, your task, and the thread to use are all below.",
+    getHeadsTask(payload).task
+      ? "Please read this to the end — your time, your task, and the thread to use are all below."
+      : "Please read this to the end — your interview time and the thread to use are both below.",
     "",
     "You applied for:",
     `- First choice: ${firstPreferenceLabel(payload)}`,
@@ -2187,7 +2185,7 @@ function buildConfirmationEmailHtml({
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this to the end</strong> — your time, your task, and the thread to use are all below.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this to the end</strong> — ${getHeadsTask(payload).task ? "your time, your task, and the thread to use are all below." : "your interview time and the thread to use are both below."}</p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You applied for</td>
@@ -2311,13 +2309,7 @@ function getRoleGuideUrl(roleName: string): string {
 
 function buildHeadsTaskHtml(payload: ApplicationPayload): string {
   const { task, forHead } = getHeadsTask(payload);
-  if (!task) {
-    return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
-      <tr><td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
-        <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">No task required</div>
-        <div style="font-size:15px;line-height:1.6;color:#4b5563;">${escapeHtml(firstPreferenceLabel(payload))} does not ask for anything before the interview. Come ready to talk through your answers.</div>
-      </td></tr></table>`;
-  }
+  if (!task) return "";
 
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
     <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
@@ -2693,7 +2685,7 @@ async function getHeadsInterviewSlots(token: string, committee?: string): Promis
       const reservedCount = reservedCounts.get(normalize(id)) ?? 0;
       const remaining = Math.max(capacity - reservedCount, 0);
       const startDateTime = buildLocalDateTime(date, startTime);
-      const endDateTime = buildLocalDateTime(date, endTime);
+      const endDateTime = resolveEndDateTime(startDateTime, buildLocalDateTime(date, endTime));
       // Past and "too close to prepare for" are the same answer to an
       // applicant, so one flag covers both.
       const tooSoon = isWithinBookingLeadTime(startDateTime, CALENDAR_TIME_ZONE);
@@ -3062,7 +3054,12 @@ async function scheduleInterviewForApplicant(
   const em = endMinutesTotal % 60;
   const resolvedEndTime = rawEndTime || `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
   const [reh, rem] = resolvedEndTime.split(":").map(Number);
-  const endDateTime = `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`;
+  // Same midnight wrap as the sheet-derived slots: an admin moving somebody to
+  // 23:00 for an hour ends them at 00:00 the following day.
+  const endDateTime = resolveEndDateTime(
+    startDateTime,
+    `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`
+  );
 
   const displayHour = sh % 12 || 12;
   const meridiem = sh >= 12 ? "PM" : "AM";
@@ -3552,7 +3549,7 @@ async function extendReservedInterviewDurations(token: string): Promise<{
     const startTime = String(row[2] ?? "").trim();
     const endTime = addMinutesToTime(startTime, INTERVIEW_SLOT_DURATION_MINUTES);
     const startDateTime = buildLocalDateTime(date, startTime);
-    const endDateTime = buildLocalDateTime(date, endTime);
+    const endDateTime = resolveEndDateTime(startDateTime, buildLocalDateTime(date, endTime));
 
     if (id && startDateTime && endDateTime) {
       slotById.set(normalize(id), { startDateTime, endDateTime });
@@ -5254,7 +5251,12 @@ async function rescheduleInterview(
   const em = endMinutesTotal % 60;
   const resolvedEndTime = rawEndTime || `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
   const [reh, rem] = resolvedEndTime.split(":").map(Number);
-  const endDateTime = `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`;
+  // Same midnight wrap as the sheet-derived slots: an admin moving somebody to
+  // 23:00 for an hour ends them at 00:00 the following day.
+  const endDateTime = resolveEndDateTime(
+    startDateTime,
+    `${date}T${String(reh).padStart(2, "0")}:${String(rem).padStart(2, "0")}:00`
+  );
 
   const displayHour = sh % 12 || 12;
   const meridiem = sh >= 12 ? "PM" : "AM";
@@ -5476,7 +5478,7 @@ async function findHeadsSlotForReschedule(
   }, 0);
   const remaining = Math.max(capacity - reservedCount, 0);
   const startDateTime = buildLocalDateTime(date, startTime);
-  const endDateTime = buildLocalDateTime(date, endTime);
+  const endDateTime = resolveEndDateTime(startDateTime, buildLocalDateTime(date, endTime));
 
   return {
     id,
@@ -5576,7 +5578,7 @@ async function resolveRescheduleSlot(
   }, 0);
   const remaining = Math.max(capacity - reservedCount, 0);
   const startDateTime = buildLocalDateTime(date, startTime);
-  const endDateTime = buildLocalDateTime(date, endTime);
+  const endDateTime = resolveEndDateTime(startDateTime, buildLocalDateTime(date, endTime));
   const past = isPastLocalDateTime(startDateTime, CALENDAR_TIME_ZONE);
 
   return {
@@ -6095,7 +6097,7 @@ async function getInterviewSlots(token: string): Promise<InterviewSlotOption[]> 
       const reservedCount = reservedCounts.get(normalize(id)) ?? 0;
       const remaining = Math.max(capacity - reservedCount, 0);
       const startDateTime = buildLocalDateTime(date, startTime);
-      const endDateTime = buildLocalDateTime(date, endTime);
+      const endDateTime = resolveEndDateTime(startDateTime, buildLocalDateTime(date, endTime));
       // Same lead time as the heads pool: the panel reads the application
       // before the interview, not during it.
       const tooSoon = isWithinBookingLeadTime(startDateTime, CALENDAR_TIME_ZONE);
@@ -6802,6 +6804,26 @@ function formatDateOnly(value: Date): string {
     String(value.getUTCMonth() + 1).padStart(2, "0"),
     String(value.getUTCDate()).padStart(2, "0")
   ].join("-");
+}
+
+/**
+ * An interview that starts at 23:00 and runs an hour ends at 00:00 — the next
+ * day. The sheet stores a date and two clock times, so pairing the end time
+ * with the start's date puts the end 23 hours *before* the start, and Google
+ * rejects the event with "The specified time range is empty".
+ *
+ * Anywhere an end is built from a date and a wall-clock time, it goes through
+ * here: if it does not sit after the start, it belongs to the following day.
+ */
+function resolveEndDateTime(startDateTime: string, endDateTime: string): string {
+  if (!startDateTime || !endDateTime || endDateTime > startDateTime) return endDateTime;
+
+  const match = endDateTime.match(/^(\d{4})-(\d{2})-(\d{2})T(.+)$/);
+  if (!match) return endDateTime;
+
+  const [, year, month, day, clock] = match;
+  const nextDay = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + 1));
+  return `${nextDay.toISOString().slice(0, 10)}T${clock}`;
 }
 
 function buildLocalDateTime(date: string, time: string): string {

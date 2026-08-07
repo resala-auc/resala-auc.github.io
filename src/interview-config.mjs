@@ -363,6 +363,12 @@ function pad(n) {
   return String(n).padStart(2, "0");
 }
 
+/** The calendar day after the given YYYY-MM-DD. */
+function nextDay(date) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
 function addMinutes(time, minutes) {
   const [h, m] = time.split(":").map(Number);
   const total = h * 60 + m + minutes;
@@ -414,6 +420,12 @@ export function buildCommitteeSlots(committeeId, now = new Date()) {
       const endTime = addMinutes(time, config.durationMinutes);
       // Past, or closer than the lead time — either way it is not on offer.
       if (new Date(`${day.date}T${time}:00+03:00`) <= earliest) continue;
+      /*
+       * An interview starting at 23:00 and running an hour ends at 00:00 the
+       * next day. addMinutes wraps the clock, so the end date has to move with
+       * it — otherwise the slot reads as ending 23 hours before it begins.
+       */
+      const endDate = endTime <= time ? nextDay(day.date) : day.date;
       slots.push({
         id: `${committeeId}-${day.date}-${time.replace(":", "")}`,
         date: day.date,
@@ -421,7 +433,7 @@ export function buildCommitteeSlots(committeeId, now = new Date()) {
         endTime: display(endTime),
         label: `${day.date} at ${display(time)}`,
         startDateTime: `${day.date}T${time}:00`,
-        endDateTime: `${day.date}T${endTime}:00`,
+        endDateTime: `${endDate}T${endTime}:00`,
         capacity,
         active: true,
         reservedCount: 0,
