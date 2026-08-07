@@ -14,6 +14,18 @@
  * scheduler, so the two can never disagree about when a committee is free.
  */
 
+/**
+ * How far ahead an applicant must book. The people interviewing need time to
+ * read an application — and, where the committee sets one, the task — before
+ * they sit down.
+ *
+ * The Supabase function keeps its own copy in INTERVIEW_BOOKING_LEAD_MINUTES,
+ * because it cannot import this file and because it can be overridden per
+ * deployment. The two must say the same thing: this one decides what the
+ * booking page offers, that one decides what a booking is allowed to be.
+ */
+export const BOOKING_LEAD_MINUTES = 360;
+
 /** Committees whose applicants must prepare something before the interview. */
 const NO_TASK = { required: false };
 
@@ -367,9 +379,28 @@ function display(time) {
  * Expand a committee's config into concrete bookable slots, shaped to match the
  * InterviewSlot contract the booking UI already speaks.
  */
-export function buildCommitteeSlots(committeeId) {
+/**
+ * The published schedule, minus anything an applicant can no longer book.
+ *
+ * The booking page paints this list directly — it asks the server which slots
+ * are taken, not which exist — so a time filtered out of the API response was
+ * still being offered here. Cutting it at the source is what actually removes
+ * it from the page, and keeps every other reader of this schedule honest too.
+ *
+ * `now` is injectable so the guides and the tests can ask what the board looked
+ * like at a given moment.
+ */
+export function buildCommitteeSlots(committeeId, now = new Date()) {
   const config = interviewConfig[committeeId];
   if (!config) return [];
+
+  /*
+   * Cairo is UTC+3 all year — Egypt's DST was reintroduced in 2023 with the
+   * clocks going forward in April, but the recruitment cycle runs inside a
+   * single offset, so a fixed one is honest here and avoids pulling a timezone
+   * library into the browser bundle.
+   */
+  const earliest = new Date(now.getTime() + BOOKING_LEAD_MINUTES * 60 * 1000);
 
   const slots = [];
   for (const day of config.days) {
@@ -381,6 +412,8 @@ export function buildCommitteeSlots(committeeId) {
 
     for (const [time, capacity] of all) {
       const endTime = addMinutes(time, config.durationMinutes);
+      // Past, or closer than the lead time — either way it is not on offer.
+      if (new Date(`${day.date}T${time}:00+03:00`) <= earliest) continue;
       slots.push({
         id: `${committeeId}-${day.date}-${time.replace(":", "")}`,
         date: day.date,
