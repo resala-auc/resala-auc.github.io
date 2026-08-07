@@ -517,12 +517,28 @@ function buildHeadsTaskLines(payload: ApplicationPayload): string[] {
     ];
   }
 
+  /*
+   * The brief itself lives in the attached PDF. Repeating the scenario and
+   * every bullet point here made the confirmation a wall of text that buried
+   * the two things an applicant needs from it — their slot and their Meet
+   * link. Where a sheet is attached this stays a pointer; only a committee
+   * with no sheet to attach still spells the task out in full.
+   */
   const lines = [`${task.atInterview ? "At your interview" : "Before your interview"}: ${task.summary}`, ""];
-  if (task.scenario) lines.push(task.scenario, "");
-  lines.push(task.detail, "");
-  if (forHead) {
-    lines.push(`${forHead.title} — ${task.atInterview ? "your task will be" : "cover"}:`, ...forHead.points.map((p) => `- ${p}`), "");
+
+  if (forHead?.file) {
+    lines.push(
+      `Your task — ${forHead.title} — is the PDF attached to this email. Read it there; it has everything you need.`,
+      ""
+    );
+  } else {
+    if (task.scenario) lines.push(task.scenario, "");
+    lines.push(task.detail, "");
+    if (forHead) {
+      lines.push(`${forHead.title} — ${task.atInterview ? "your task will be" : "cover"}:`, ...forHead.points.map((p) => `- ${p}`), "");
+    }
   }
+
   if (task.submissionUrl) {
     lines.push(`Hand it in here: ${task.submissionUrl}`, taskDeadlineSentence(task), "");
   }
@@ -2062,15 +2078,17 @@ export function buildConfirmationEmailTemplate(
     "",
   );
 
+  /*
+   * The task block above already names the attached sheet, the deadline and
+   * the hand-in link. Repeating them here is what made this email read as
+   * three different sets of instructions for one task, so only the committees
+   * that hand their task over in the room still get a line — that is the one
+   * case the block above cannot state on its own.
+   */
   const { task: emailTask, forHead: emailHead } = getHeadsTask(payload);
-  if (emailTask && !emailTask.atInterview) {
+  if (emailTask && !emailTask.atInterview && !emailTask.submissionUrl) {
     const sheetLine = emailHead?.file ? "Your task sheet is attached to this email." : "";
-    bodyLines.push(
-      emailTask.submissionUrl
-        ? `${sheetLine} ${taskDeadlineSentence(emailTask)} Hand it in at ${emailTask.submissionUrl}`.trim()
-        : `${sheetLine} Bring your work with you to the interview.`.trim(),
-      ""
-    );
+    bodyLines.push(`${sheetLine} Bring your work with you to the interview.`.trim(), "");
   }
 
   if (panel.length) {
@@ -2178,7 +2196,7 @@ function buildConfirmationEmailHtml({
                 `}
                 ${buildHeadsTaskHtml(payload)}
                 ${buildRoleGuideHtml(roleGuideLinks)}
-                ${!getHeadsTask(payload).task || getHeadsTask(payload).task!.atInterview ? "" : `
+                ${!getHeadsTask(payload).task || getHeadsTask(payload).task!.atInterview || getHeadsTask(payload).task!.submissionUrl ? "" : `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
                     <td style="background:#0d2b45;border-radius:14px;padding:16px 18px;color:#ffffff;">
@@ -2276,9 +2294,15 @@ function buildHeadsTaskHtml(payload: ApplicationPayload): string {
     <tr><td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
       <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">${task.atInterview ? "At your interview" : "Before your interview"}</div>
       <div style="font-size:17px;line-height:1.4;font-weight:bold;color:#0d2b45;margin-bottom:8px;">${escapeHtml(forHead ? forHead.title : task.summary)}</div>
-      ${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
-      <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
-      ${forHead ? `<ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">${forHead.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
+      ${
+        /* Attached as a PDF, so the email points at it instead of reprinting
+           it. Without an attachment there is nowhere else to read it. */
+        forHead?.file
+          ? `<div style="font-size:15px;line-height:1.6;color:#172033;">Your task is the PDF attached to this email. It has the scenario, what to hand in, and how long it should be.</div>`
+          : `${task.scenario ? `<div style="font-size:14px;line-height:1.6;color:#4b5563;margin-bottom:8px;">${escapeHtml(task.scenario)}</div>` : ""}
+             <div style="font-size:15px;line-height:1.6;color:#172033;">${escapeHtml(task.detail)}</div>
+             ${forHead ? `<ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7;color:#4b5563;">${forHead.points.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}`
+      }
       ${
         task.submissionUrl
           ? `<div style="font-size:14px;line-height:1.6;color:#8a4706;margin-top:12px;font-weight:bold;">${escapeHtml(taskDeadlineSentence(task))}</div>

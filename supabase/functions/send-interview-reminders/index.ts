@@ -45,6 +45,26 @@ const RESERVATION_HEADERS = [
   "Second Preference"
 ];
 
+const HEADS_APPLICATION_SHEET_NAME =
+  Deno.env.get("HEADS_APPLICATION_SHEET_NAME") ?? "Heads Applications";
+const TASK_SUBMISSION_URL = (
+  Deno.env.get("TASK_SUBMISSION_URL") ?? "https://resala-auc.github.io/tasks/"
+).replace(/\/*$/, "/");
+
+/*
+ * Committees that collect work through the submission page before the
+ * interview. Mirrors `task.submissionUrl` in src/interview-config.mjs — this
+ * function cannot import it, so the two move together by hand, the same way
+ * HEADS_TASKS does in the submit function.
+ *
+ * The reminder lands at the deadline itself, which makes it the last useful
+ * moment to tell somebody their task is still missing.
+ */
+const TASK_SUBMISSION_COMMITTEES = new Set(["children day director", "visits"]);
+
+/** Task Link is the second-to-last column on the heads applications sheet. */
+type TaskState = { expected: boolean; submitted: boolean };
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-reminder-secret",
@@ -103,6 +123,7 @@ Deno.serve(async (request) => {
 
     const slots = await getSlotMap(token);
     const reservations = await getReservations(token);
+    const taskStates = await getTaskStates(token);
     const now = getCurrentLocalDateTime(CALENDAR_TIME_ZONE);
     let sent = 0;
     let skipped = 0;
@@ -131,7 +152,10 @@ Deno.serve(async (request) => {
       }
 
       try {
-        await sendReminderEmail({ ...reservation, reminderSendAt });
+        await sendReminderEmail(
+          { ...reservation, reminderSendAt },
+          taskStates.get(normalize(reservation.aucEmail))
+        );
         await updateReminderState(token, reservation.rowIndex, reminderSendAt, now, "Sent");
         sent += 1;
       } catch (error) {
@@ -211,6 +235,46 @@ async function getReservations(token: string): Promise<ReservationRow[]> {
   }));
 }
 
+/**
+ * Who still owes a task, keyed by AUC email. Read once per run rather than per
+ * reminder: the sheet is small and the job walks every reservation.
+ *
+ * A committee not in TASK_SUBMISSION_COMMITTEES gets `expected: false`, and
+ * the reminder says nothing about tasks at all.
+ */
+async function getTaskStates(token: string): Promise<Map<string, TaskState>> {
+  const states = new Map<string, TaskState>();
+  try {
+    // Headers included: the columns are found by name, because an applicant's
+    // written answer can contain a URL and a fixed offset would eventually
+    // read one of those as somebody's submission.
+    const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A1:AZ")}`);
+    const rows = ((await response.json()).values ?? []) as string[][];
+    const headers = (rows[0] ?? []).map((h) => String(h ?? "").trim().toLowerCase());
+    const emailColumn = headers.indexOf("auc email");
+    const committeeColumn = headers.indexOf("committee");
+    const linkColumn = headers.indexOf("task link");
+    if (emailColumn === -1 || committeeColumn === -1 || linkColumn === -1) {
+      throw new Error("Heads applications sheet is missing a column the reminder needs.");
+    }
+
+    for (const row of rows.slice(1)) {
+      const email = normalize(String(row[emailColumn] ?? ""));
+      if (!email) continue;
+      states.set(email, {
+        expected: TASK_SUBMISSION_COMMITTEES.has(normalizeRole(String(row[committeeColumn] ?? ""))),
+        submitted: /^https?:\/\//i.test(String(row[linkColumn] ?? "").trim())
+      });
+    }
+  } catch (error) {
+    // A reminder without its task line is still worth sending.
+    console.error(
+      `Task state lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  return states;
+}
+
 async function updateReminderState(
   token: string,
   rowIndex: number,
@@ -228,13 +292,14 @@ async function updateReminderState(
  * their own calendar; copying them here would be a second reminder for an
  * interview they already have booked.
  */
-async function sendReminderEmail(reservation: ReservationRow): Promise<void> {
+async function sendReminderEmail(reservation: ReservationRow, taskState?: TaskState): Promise<void> {
   const slot = reservation.slotLabel || reservation.reminderSendAt;
   const template = buildReminderEmailTemplate(
     reservation.fullName,
     slot,
     reservation.meetLink,
-    reservation.roleAppliedFor
+    reservation.roleAppliedFor,
+    taskState
   );
   await sendEmail(reservation.aucEmail, template.subject, template.body, template.html);
 }
@@ -271,10 +336,32 @@ export function buildReminderEmailTemplate(
   fullName: string,
   slot: string,
   meetLink: string,
-  roleAppliedFor: string
+  roleAppliedFor: string,
+  taskState?: TaskState
 ): { subject: string; body: string; html: string } {
   const committee = displayCommitteeName(roleAppliedFor);
-  const subject = "Resala AUC: your interview starts in 1 hour";
+  /*
+   * This mail lands an hour before the interview, which for the committees
+   * that collect work beforehand is the deadline itself. So it is the last
+   * moment worth saying "your task has not arrived" — and the subject line
+   * says it too, because a reminder people expect to be routine is one they
+   * open late.
+   */
+  const owesTask = Boolean(taskState?.expected && !taskState.submitted);
+  const subject = owesTask
+    ? "Resala AUC: your interview starts in 1 hour — we do not have your task yet"
+    : "Resala AUC: your interview starts in 1 hour";
+
+  const taskLines = !taskState?.expected
+    ? ["If your committee asked you to prepare something, bring it with you."]
+    : taskState.submitted
+      ? ["We have your task. Nothing else to hand in."]
+      : [
+          "We do not have your task yet, and it is due now.",
+          `Submit it here: ${TASK_SUBMISSION_URL}`,
+          "Send what you have — the people interviewing you would rather read something than nothing."
+        ];
+
   const body = [
     `Hi ${fullName},`,
     "",
@@ -283,7 +370,7 @@ export function buildReminderEmailTemplate(
     `Interview slot: ${slot}`,
     `Google Meet link: ${meetLink}`,
     "",
-    "If your committee asked you to prepare something, bring it with you.",
+    ...taskLines,
     "Please join from a quiet place if possible.",
     "If anything comes up, reply to this email.",
     "",
@@ -291,16 +378,40 @@ export function buildReminderEmailTemplate(
     "Resala AUC"
   ].join("\n");
 
+  /* An outstanding task gets its own card, above the Meet link: at this point
+     it is the more urgent of the two things they have to do. */
+  const taskCard = !taskState?.expected
+    ? ""
+    : taskState.submitted
+      ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+          <tr><td style="background:#eef7f1;border:1px solid #cfe7da;border-radius:14px;padding:16px;">
+            <div style="font-size:13px;color:#1a7f4b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Task received</div>
+            <div style="font-size:15px;line-height:1.6;color:#4b5563;">We have your task. Nothing else to hand in — just join on time.</div>
+          </td></tr></table>`
+      : `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+          <tr><td style="background:#fdecec;border:1px solid #f3c9c9;border-left:5px solid #b3261e;border-radius:14px;padding:18px;">
+            <div style="font-size:13px;color:#b3261e;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Your task is due now</div>
+            <div style="font-size:15px;line-height:1.6;color:#172033;">We do not have your task yet. Send what you have — the people interviewing you would rather read something than nothing.</div>
+            <a href="${escapeHtml(TASK_SUBMISSION_URL)}" style="display:inline-block;margin-top:12px;background:#0d2b45;color:#ffffff;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">Submit your task now</a>
+          </td></tr></table>`;
+
   const html = buildCenteredEmailHtml({
-    preheader: "Your Resala AUC interview starts in 1 hour.",
+    preheader: owesTask
+      ? "Your interview starts in 1 hour, and we do not have your task yet."
+      : "Your Resala AUC interview starts in 1 hour.",
     heroTitle: "Your Interview Starts Soon",
-    heroSubtitle: "Join from a quiet place, and bring anything your committee asked you to prepare.",
+    heroSubtitle: owesTask
+      ? "One thing is still outstanding — your task."
+      : "Join from a quiet place, and bring anything your committee asked you to prepare.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview${committee ? ` with <strong>${escapeHtml(committee)}</strong>` : ""} starts in <strong>1 hour</strong>.</p>
+      ${taskCard}
       ${infoCard("Interview slot", escapeHtml(slot))}
       ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible.")}
-      <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If your committee asked you to prepare something, bring it with you. If anything comes up, reply to this email.</p>
+      <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">${
+        taskState?.expected ? "" : "If your committee asked you to prepare something, bring it with you. "
+      }If anything comes up, reply to this email.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
     `

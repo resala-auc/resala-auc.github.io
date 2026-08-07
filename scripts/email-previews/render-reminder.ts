@@ -13,8 +13,19 @@ const OUT = Deno.args[0] ?? "email-previews";
  * interview they are waiting for, so it is worth seeing rendered.
  */
 const committees = [
-  { role: "Operations", file: "reminder-1-hour-before.html", label: "Operations" },
-  { role: "Visits", file: "reminder-1-hour-before-visits.html", label: "Visits" }
+  { role: "Operations", file: "reminder-1-hour-before.html", label: "Operations · no task" },
+  {
+    role: "Visits",
+    file: "reminder-1-hour-before-visits-task-missing.html",
+    label: "Visits · task still missing",
+    taskState: { expected: true, submitted: false }
+  },
+  {
+    role: "Visits",
+    file: "reminder-1-hour-before-visits-task-in.html",
+    label: "Visits · task already in",
+    taskState: { expected: true, submitted: true }
+  }
 ];
 
 const written = [];
@@ -23,7 +34,8 @@ for (const entry of committees) {
     "Nour Hassan",
     "2026-08-08 at 1:00 PM",
     "https://meet.google.com/abc-defg-hij",
-    entry.role
+    entry.role,
+    entry.taskState
   );
   await Deno.writeTextFile(`${OUT}/${entry.file}`, template.html);
   await Deno.writeTextFile(`${OUT}/${entry.file.replace(/\.html$/, ".txt")}`, template.body);
