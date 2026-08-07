@@ -160,7 +160,7 @@
 <dialog id="dlg"><div class="dlg" id="dlg-body"></div></dialog>
 
 <script type="module">
-import { getRubric } from "../scoring-rubrics.js";
+import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
@@ -206,6 +206,42 @@ function headIdOf(a) {
   const name = norm(a.headName);
   return ["engagement", "inclusion", "tracking", "recognition"].find((k) => name.includes(k)) || "";
 }
+
+/* The two things an applicant can be scored on: the committee they put first,
+   and — for whoever sits in on the second-preference half of the interview —
+   the committee they put second. Each carries its own rubric and its own head,
+   so they are scored separately and stored as separate rows. */
+function preferencesOf(a) {
+  const [secondCommittee, ...rest] = String(a.secondPreference || "").split("—");
+  const list = [{
+    key: "first",
+    label: `${display(a.roleAppliedFor)} · ${a.headName || "—"} (first)`,
+    committee: a.roleAppliedFor,
+    committeeId: committeeIdOf(a),
+    headId: headIdOf(a),
+    headRole: a.headName || "",
+    preference: "First"
+  }];
+  if (String(a.secondPreference || "").trim()) {
+    list.push({
+      key: "second",
+      label: `${display(a.secondPreference)} (second)`,
+      committee: a.secondPreference,
+      committeeId: a.secondCommitteeId || IDS_BY_NAME[norm(secondCommittee)] || "",
+      headId: a.secondHeadId || "",
+      headRole: rest.join("—").trim(),
+      preference: "Second"
+    });
+  }
+  return list;
+}
+
+/** This admin's own saved score for one applicant on one committee, if any. */
+const myScoreFor = (a, committee) => (a.scores || []).find(
+  (s) => norm(s.interviewerEmail) === norm(state.admin?.email) && normRole(s.committee) === normRole(committee)
+);
+
+const normRole = (v) => String(v ?? "").trim().toLowerCase().replaceAll("/", " ").replace(/\s+/g, " ");
 
 /* A committee collects work before the interview when its own config says so,
    which is the same config the booking flow and the emails read. */
@@ -407,6 +443,14 @@ function renderDialog(a) {
     .map((p) => `<option value="${esc(p.email)}">${esc(p.name)} — ${esc(display(p.department))} ${esc(p.positionType)}</option>`)
     .join("");
 
+  /* Scoring from here, so whoever actually sat in on the interview can record
+     it without being on that committee — including the second-preference half,
+     which is exactly the case no committee portal covers. */
+  const prefs = preferencesOf(a);
+  const prefOptions = prefs
+    .map((p, i) => `<option value="${esc(p.key)}"${i === 0 ? " selected" : ""}>${esc(p.label)}</option>`)
+    .join("");
+
   // Prefill the reschedule form from the booked slot: "2026-08-12 at 4:00 PM".
   const slotMatch = String(a.interviewSlot || "").match(/^(\d{4}-\d{2}-\d{2})\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
   let dateVal = "", timeVal = "";
@@ -434,6 +478,21 @@ function renderDialog(a) {
     <h3 class="sec">Scores and notes</h3>
     ${scoreRows}
     ${rubric ? "" : `<div class="note">${esc(display(a.roleAppliedFor))} has no rubric in its brief, so its interviews are notes only.</div>`}
+
+    <h3 class="sec">Score this applicant yourself</h3>
+    <div class="note" style="margin-bottom:10px;">
+      If you sat in on this interview, record it here — you do not have to be on the committee.
+      Pick which preference you are scoring; each is saved separately under your name.
+    </div>
+    <div class="row2" style="margin-bottom:12px;">
+      <div style="flex:2 1 280px;">
+        <label for="score-pref">Scoring for</label>
+        <select id="score-pref">${prefOptions}</select>
+      </div>
+      <div style="flex:0 0 auto; align-self:end;"><span class="note" id="score-total">—</span></div>
+    </div>
+    <div id="score-form"></div>
+    <div class="msg" id="score-msg"></div>
 
     <h3 class="sec">Assign a third interviewer</h3>
     ${a.secondPreference ? secondPreferenceStatusBanner(a) : ""}
@@ -545,6 +604,116 @@ function renderDialog(a) {
       msg.className = "msg bad"; msg.textContent = err.message;
     } finally { btn.disabled = false; }
   };
+
+  wireScoring(a, prefs);
+}
+
+/* ── scoring from the admin side ────────────────────────────────────────── */
+
+/**
+ * Renders the rubric for whichever preference is selected, prefilled with this
+ * admin's own previous score for it. A committee with no rubric in its brief
+ * still gets the notes box — notes are the record in that case.
+ */
+function renderScoreForm(a, pref) {
+  const rubric = getRubric(pref.committeeId, pref.headId);
+  const mine = myScoreFor(a, pref.committee);
+  const box = document.getElementById("score-form");
+
+  const criteria = rubric
+    ? rubric.criteria.map((c) => {
+        const id = `sc-${c.name.replace(/\W+/g, "-")}`;
+        const value = mine?.scores?.[c.name];
+        return `<div class="row2" style="margin-bottom:8px;">
+          <div><label for="${id}">${esc(c.name)} <span class="note">out of ${c.weight}</span></label>
+            <input type="number" id="${id}" data-criterion="${esc(c.name)}" min="0" max="${c.weight}" step="1"
+                   value="${value === undefined || value === null ? "" : esc(value)}" placeholder="0–${c.weight}"></div>
+        </div>`;
+      }).join("")
+    : `<div class="note" style="margin-bottom:8px;">${esc(display(pref.committee))} has no rubric in its brief,
+        so record what you saw in the notes.</div>`;
+
+  box.innerHTML = `${criteria}
+    <div style="margin-top:10px;">
+      <label for="score-notes">Notes</label>
+      <textarea id="score-notes" rows="4"
+        placeholder="What they actually said. Specifics beat impressions.">${esc(mine?.notes || "")}</textarea>
+    </div>
+    <div style="margin-top:10px;">
+      <label for="score-task">Task link (optional)</label>
+      <input type="url" id="score-task" placeholder="https://…" value="${esc(mine?.taskLink || submittedLink(a))}">
+    </div>
+    <div class="row2" style="margin-top:12px;">
+      <div style="flex:0 0 auto;"><button class="btn btn-sm" id="score-save">Save my score</button></div>
+      <div class="note" style="align-self:center;">${mine
+        ? "Last saved " + esc(String(mine.updatedAt).slice(0, 16).replace("T", " "))
+        : "Not scored by you yet"}</div>
+    </div>`;
+
+  updateScoreTotal(pref);
+  box.querySelectorAll("input[data-criterion]").forEach((input) => {
+    input.addEventListener("input", () => updateScoreTotal(pref));
+  });
+  document.getElementById("score-save").onclick = () => saveScore(a, pref);
+}
+
+const readScores = () => {
+  const scores = {};
+  document.querySelectorAll("#score-form input[data-criterion]").forEach((input) => {
+    const raw = input.value.trim();
+    if (raw !== "") scores[input.dataset.criterion] = Number(raw);
+  });
+  return scores;
+};
+
+function updateScoreTotal(pref) {
+  const rubric = getRubric(pref.committeeId, pref.headId);
+  const total = totalScore(rubric, readScores());
+  document.getElementById("score-total").textContent =
+    total === null ? (rubric ? "Fill every criterion for a total" : "Notes only") : `${total}/100`;
+}
+
+function wireScoring(a, prefs) {
+  const select = document.getElementById("score-pref");
+  if (!select) return;
+  const current = () => prefs.find((p) => p.key === select.value) ?? prefs[0];
+  renderScoreForm(a, current());
+  select.onchange = () => renderScoreForm(a, current());
+}
+
+async function saveScore(a, pref) {
+  const msg = document.getElementById("score-msg");
+  const btn = document.getElementById("score-save");
+  const rubric = getRubric(pref.committeeId, pref.headId);
+  const scores = readScores();
+  const total = totalScore(rubric, scores);
+  const notes = document.getElementById("score-notes").value.trim();
+
+  if (rubric && total === null && !notes) {
+    msg.className = "msg bad";
+    msg.textContent = "Score every criterion, or leave a note saying why you could not.";
+    return;
+  }
+
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+  try {
+    await api({
+      mode: "heads-save-score",
+      email: state.admin.email,
+      applicantEmail: a.email,
+      committee: pref.committee,
+      headRole: pref.headRole,
+      preference: pref.preference,
+      scores,
+      total: total === null ? "" : total,
+      notes,
+      taskLink: document.getElementById("score-task").value.trim()
+    });
+    msg.className = "msg ok"; msg.textContent = "Saved.";
+    await load(state.admin.email, true);
+  } catch (err) {
+    msg.className = "msg bad"; msg.textContent = err.message;
+  } finally { btn.disabled = false; }
 }
 
 /* ── actions ────────────────────────────────────────────────────────────── */

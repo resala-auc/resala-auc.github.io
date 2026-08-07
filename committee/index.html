@@ -363,6 +363,20 @@ function renderCriterion(criterion, value, headId) {
     </div>`;
 }
 
+/* There is one interview per applicant, run by the committee they put first.
+   A second preference and an assigned third interviewer are guests on it:
+   they score, they join, but they never move or cancel it — otherwise the
+   committee actually running it finds out their slot changed from the
+   applicant. The backend enforces this too; this only hides what would fail. */
+function runsThisInterview(applicant) {
+  /* Against the viewer's own department, not the row's committee: a third
+     interviewer assigned to score the FIRST preference would otherwise pass
+     this check while belonging to another committee entirely. */
+  return normalizeRole(state.access?.department) === normalizeRole(applicant.roleAppliedFor);
+}
+
+const normalizeRole = (v) => String(v ?? "").trim().toLowerCase().replaceAll("/", " ").replace(/\s+/g, " ");
+
 /* Whether this applicant's committee collects work before the interview, read
    from the same config the booking flow and the emails use — so adding a task
    to another committee lights this portal up without touching it. */
@@ -485,7 +499,14 @@ function renderPanel() {
     </div>` : ""}
 
     <h3 class="sec">Interview</h3>
-    ${applicant.interviewSlot || applicant.reservationRowIndex ? `
+    ${!runsThisInterview(applicant) ? `
+      <div class="facts"><div><b>When</b>${esc(applicant.interviewSlot || "Not booked")}</div>
+        <div><b>Status</b>${esc(stateLabel(applicant))}</div></div>
+      <div class="note">${esc(display(applicant.roleAppliedFor))} runs this interview, so they are the ones who
+        move, cancel, or mark it. You join it and score${applicant.preference === "Second"
+          ? " your committee's side of it" : ""} — say above whether the time works for you, and they will
+        arrange the rest.</div>
+    ` : applicant.interviewSlot || applicant.reservationRowIndex ? `
       ${applicant.interviewSlot ? `
         <div class="row2" style="margin-bottom:10px;">
           <div>
@@ -687,6 +708,7 @@ async function setSecondPreferenceAvailability(available) {
 
 async function cancelInterview() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("cancel-interview");
   if (!applicant) return;
@@ -713,6 +735,7 @@ async function cancelInterview() {
 
 async function setState() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("set-state");
   if (!applicant) return;
@@ -735,6 +758,7 @@ async function setState() {
 
 async function reschedule() {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!runsThisInterview(applicant)) return;   // guests never control the booking
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("reschedule");
   if (!applicant) return;

@@ -2005,7 +2005,7 @@ function gmailConfigured(): boolean {
   return Boolean(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN && GMAIL_SENDER_EMAIL);
 }
 
-function buildConfirmationEmailTemplate(
+export function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
   reservation: ReservationDetails | null,
   roleGuideLinks: RoleGuideLink[],
@@ -2192,7 +2192,7 @@ function buildConfirmationEmailHtml({
  * label. Keeping the two apart is why the card can say "Children’s Day —
  * Creative Head" and still link to the right guide.
  */
-function getApplicantRoleGuideLinks(payload: ApplicationPayload): RoleGuideLink[] {
+export function getApplicantRoleGuideLinks(payload: ApplicationPayload): RoleGuideLink[] {
   return [
     { preferenceLabel: "First preference", roleName: firstPreferenceLabel(payload), lookup: payload.roleAppliedFor },
     { preferenceLabel: "Second preference", roleName: secondPreferenceLabel(payload), lookup: payload.secondPreference }
@@ -3705,6 +3705,40 @@ async function requireRecruitmentAdmin(token: string, email: string): Promise<{ 
 }
 
 /**
+ * May this person move, cancel, or mark this applicant's interview?
+ *
+ * Only the committee the applicant put FIRST. There is one interview and one
+ * calendar event, run by the first-preference committee and following their
+ * questions; a second-preference committee and an assigned third interviewer
+ * are guests on it. Letting a guest move it means the committee actually
+ * running the interview learns their slot changed from the applicant.
+ *
+ * Scoring, the profile, and the Meet link stay open to all of them — this
+ * gate is only on the controls that change the booking itself.
+ */
+async function requireFirstPreferenceCommittee(
+  token: string,
+  email: string,
+  applicantEmail: string
+): Promise<CommitteeAccess> {
+  const access = await requireCommitteeAccess(token, email);
+
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:H")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const row = rows.find((entry) => normalize(String(entry[2] ?? "")) === normalize(applicantEmail));
+  if (!row) throw new Error("No application found for that applicant.");
+
+  const firstPreference = String(row[7] ?? "").trim();
+  if (normalizeRole(firstPreference) !== normalizeRole(access.department)) {
+    throw new Error(
+      `${displayCommitteeName(firstPreference)} runs this interview, so only they can move, cancel, or mark it. ` +
+        "You can still score this applicant and join the interview."
+    );
+  }
+  return access;
+}
+
+/**
  * May this person act on this applicant, for this committee?
  *
  * Either they run the committee, or an admin assigned them to the applicant —
@@ -3750,7 +3784,7 @@ async function setHeadsInterviewStatus(
   const status = normalizeInterviewStatus(payload.interviewStatus);
   if (!status) throw new Error("Unknown interview status.");
 
-  await authorizeApplicantAccess(token, payload.email, payload.committee, payload.applicantEmail);
+  await requireFirstPreferenceCommittee(token, payload.email, payload.applicantEmail);
 
   const rowNumber = await findReservationRow(token, payload.applicantEmail);
   if (!rowNumber) throw new Error("This applicant has no booked interview.");
@@ -3767,15 +3801,15 @@ async function setHeadsInterviewStatus(
 }
 
 /**
- * The same reschedule the admin has, but scoped: the caller must run this
- * committee or be assigned to the applicant, and the reservation row is looked
- * up here rather than taken from the client.
+ * The same reschedule the admin has, but scoped: the caller must be the
+ * committee the applicant put first, and the reservation row is looked up
+ * here rather than taken from the client.
  */
 async function rescheduleAsCommittee(
   token: string,
   payload: HeadsCommitteeReschedulePayload
 ): Promise<Record<string, unknown>> {
-  await authorizeApplicantAccess(token, payload.email, payload.committee, payload.applicantEmail);
+  await requireFirstPreferenceCommittee(token, payload.email, payload.applicantEmail);
 
   const rowNumber = await findReservationRow(token, payload.applicantEmail);
   if (!rowNumber) throw new Error("This applicant has no booked interview.");
@@ -3810,12 +3844,14 @@ async function cancelHeadsInterview(
   if (!applicantEmail) throw new Error("Which applicant is cancelling?");
 
   /*
-   * Either authority is enough. A committee cancels its own interviews; an
-   * admin cancels anyone's. Committee access is checked first because that is
-   * the common case, and its error message is the more useful one.
+   * Either authority is enough. The committee the applicant put first cancels
+   * their own interviews; a recruitment admin cancels anyone's. A second
+   * preference cannot: they are a guest on an interview somebody else runs.
+   * The committee check goes first because it is the common case, and its
+   * error message is the more useful one.
    */
   try {
-    await authorizeApplicantAccess(token, payload.email, payload.committee, applicantEmail);
+    await requireFirstPreferenceCommittee(token, payload.email, applicantEmail);
   } catch (committeeError) {
     try {
       await requireRecruitmentAdmin(token, payload.email);
@@ -4340,9 +4376,27 @@ async function saveHeadsScore(
   /*
    * The caller may score a committee they do not run — that is the whole point
    * of a third interviewer — so committee access alone is not enough. Either
-   * they run this committee, or an admin assigned them to this applicant.
+   * they run this committee, an admin assigned them to this applicant, or they
+   * are on the recruitment board, who sit in on interviews across committees
+   * and would otherwise have to be assigned to every applicant one at a time.
    */
-  const access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
+  let access: CommitteeAccess;
+  try {
+    access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
+  } catch (committeeError) {
+    let admin: { name: string; email: string };
+    try {
+      admin = await requireRecruitmentAdmin(token, payload.email);
+    } catch {
+      throw committeeError;
+    }
+    access = {
+      department: committee,
+      name: admin.name,
+      positionType: "Recruitment board",
+      email: admin.email
+    };
+  }
 
   const applicants = await readHeadsApplicants(token);
   const applicant = applicants.find((a) => normalize(String(a.email ?? "")) === normalize(applicantEmail));
@@ -5546,7 +5600,7 @@ async function sendInterviewCancelledEmail(
   }
 }
 
-function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName: string; slot: string }): string {
+export function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName: string; slot: string }): string {
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
@@ -5594,7 +5648,7 @@ function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName: string
 </html>`;
 }
 
-function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: string; slot: string; meetLink: string }): string {
+export function buildRescheduleEmailHtml({ fullName, slot, meetLink }: { fullName: string; slot: string; meetLink: string }): string {
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">

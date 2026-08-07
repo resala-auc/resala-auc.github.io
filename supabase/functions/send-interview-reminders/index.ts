@@ -267,7 +267,7 @@ async function sendEmail(to: string, subject: string, text: string, html: string
   }
 }
 
-function buildReminderEmailTemplate(
+export function buildReminderEmailTemplate(
   fullName: string,
   slot: string,
   meetLink: string,
