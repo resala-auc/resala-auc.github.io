@@ -13,6 +13,8 @@
 import {
   buildConfirmationEmailTemplate,
   buildInterviewCancelledEmailHtml,
+  buildPreferenceSwapCommitteeNoticeHtml,
+  buildPreferenceSwapEmailHtml,
   buildRescheduleEmailHtml
 } from "../../supabase/functions/submit/index.ts";
 
@@ -138,6 +140,52 @@ written.push({
   file: "confirmation-no-slot-booked.html",
   title: "Confirmation · application received, no slot booked",
   subject: noSlot.subject
+});
+
+/*
+ * Not per-committee: the swap-preference emails read the same regardless of
+ * which two committees are involved, so one pair of examples covers it —
+ * with, and without, an interview already booked.
+ */
+await Deno.mkdir(`${OUT}/preference-swap`, { recursive: true });
+for (const [file, booking] of [
+  ["applicant-notice-booked.html", { slotLabel: SLOT, meetLink: MEET }],
+  ["applicant-notice-no-booking.html", null]
+] as const) {
+  await Deno.writeTextFile(
+    `${OUT}/preference-swap/${file}`,
+    buildPreferenceSwapEmailHtml({
+      fullName: "Nour Hassan",
+      firstLabel: "PR / Fundraising — Partnerships Head",
+      secondLabel: "Children\u2019s Day — Creative Logistics & Visual Identity Lead",
+      booking
+    })
+  );
+  written.push({
+    committee: "",
+    dir: "preference-swap",
+    file,
+    title: `Applicant notice · preferences swapped (${booking ? "interview already booked" : "no booking yet"})`,
+    subject: "Resala AUC: your preferences have been updated"
+  });
+}
+
+await Deno.writeTextFile(
+  `${OUT}/preference-swap/committee-notice.html`,
+  buildPreferenceSwapCommitteeNoticeHtml({
+    committeeName: "Children\u2019s Day",
+    applicantName: "Nour Hassan",
+    applicantEmail: "nour.hassan@aucegypt.edu",
+    newFirstLabel: "PR / Fundraising — Partnerships Head",
+    booking: { slotLabel: SLOT, meetLink: MEET }
+  })
+);
+written.push({
+  committee: "",
+  dir: "preference-swap",
+  file: "committee-notice.html",
+  title: "Committee notice · sent to whichever committee just lost first preference",
+  subject: "Resala AUC: Nour Hassan is now your second preference"
 });
 
 await Deno.writeTextFile(`${OUT}/.submit-manifest.json`, JSON.stringify(written, null, 2));

@@ -5030,7 +5030,13 @@ async function assignHeadsInterviewer(
 async function swapHeadsPreferences(
   token: string,
   payload: HeadsSwapPreferencesPayload
-): Promise<{ applicantEmail: string; firstPreference: string; secondPreference: string }> {
+): Promise<{
+  applicantEmail: string;
+  firstPreference: string;
+  secondPreference: string;
+  applicantEmailSent: boolean;
+  committeeNotified: boolean;
+}> {
   await requireRecruitmentAdmin(token, payload.email);
 
   const applicantEmail = String(payload.applicantEmail ?? "").trim();
@@ -5093,11 +5099,313 @@ async function swapHeadsPreferences(
     { values: [newRow.slice(firstCol, lastCol + 1)] }
   );
 
-  return {
-    applicantEmail,
-    firstPreference: newFirst.headName ? `${newFirst.committee} — ${newFirst.headName}` : newFirst.committee,
-    secondPreference: newSecondCombined
-  };
+  const fullName = String(row[HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
+  const booking = await findLiveBooking(token, applicantEmail);
+
+  const firstLabel = newFirst.headName ? `${newFirst.committee} — ${newFirst.headName}` : newFirst.committee;
+  const secondLabel = newSecondCombined;
+
+  // Neither send blocks the swap already written above — the sheet is the
+  // record of what changed; these are best-effort notice of it.
+  let applicantEmailSent = false;
+  try {
+    const cc = await buildApplicantCc(token, newFirst.committee, applicantEmail);
+    await sendPreferenceSwapEmail({ fullName, aucEmail: applicantEmail, firstLabel, secondLabel, booking, cc });
+    applicantEmailSent = gmailConfigured();
+  } catch (error) {
+    console.error(`Preference-swap applicant email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  let committeeNotified = false;
+  try {
+    committeeNotified = await sendPreferenceSwapCommitteeNotice({
+      token,
+      committee: oldFirst.committee,
+      applicantName: fullName,
+      applicantEmail,
+      newFirstLabel: firstLabel,
+      booking
+    });
+  } catch (error) {
+    console.error(`Preference-swap committee notice failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { applicantEmail, firstPreference: firstLabel, secondPreference: secondLabel, applicantEmailSent, committeeNotified };
+}
+
+/** The applicant's active reservation, if the slot is still theirs — null once withdrawn or never booked. */
+async function findLiveBooking(
+  token: string,
+  applicantEmail: string
+): Promise<{ slotLabel: string; meetLink: string } | null> {
+  const rowNumber = await findReservationRow(token, applicantEmail);
+  if (!rowNumber) return null;
+
+  const response = await sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, `A${rowNumber}:N${rowNumber}`)}`);
+  const row = (await response.json()).values?.[0] ?? [];
+  const slotId = String(row[1] ?? "").trim();
+  if (!slotId) return null;
+
+  return { slotLabel: String(row[2] ?? "").trim(), meetLink: String(row[7] ?? "").trim() };
+}
+
+/**
+ * Tells the applicant their preferences changed. Cc is the new first
+ * preference's committee plus HR — the same audience every other applicant
+ * email already carries — because from here on that committee is who the
+ * applicant should expect to hear from first.
+ */
+async function sendPreferenceSwapEmail({
+  fullName,
+  aucEmail,
+  firstLabel,
+  secondLabel,
+  booking,
+  cc
+}: {
+  fullName: string;
+  aucEmail: string;
+  firstLabel: string;
+  secondLabel: string;
+  booking: { slotLabel: string; meetLink: string } | null;
+  cc: string;
+}): Promise<void> {
+  if (!gmailConfigured()) return;
+
+  const subject = "Resala AUC: your preferences have been updated";
+  const body = [
+    `Hi ${fullName},`,
+    "",
+    "Your application preferences have been updated:",
+    `- First choice: ${firstLabel}`,
+    `- Second choice: ${secondLabel}`,
+    "",
+    booking
+      ? `Your interview on ${booking.slotLabel} stands exactly as booked — the time and the Google Meet link do not change.`
+      : "You do not have an interview booked yet.",
+    "",
+    "If this was not what you meant, reply to this email and we will sort it out.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = buildPreferenceSwapEmailHtml({ fullName, firstLabel, secondLabel, booking });
+  const accessToken = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: aucEmail,
+    cc: cc || undefined,
+    subject,
+    text: body,
+    html,
+    attachments: []
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gmail send failed: ${await response.text()}`);
+  }
+}
+
+export function buildPreferenceSwapEmailHtml({
+  fullName,
+  firstLabel,
+  secondLabel,
+  booking
+}: {
+  fullName: string;
+  firstLabel: string;
+  secondLabel: string;
+  booking: { slotLabel: string; meetLink: string } | null;
+}): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Preferences Updated</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">Your preferences now</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:16px;line-height:1.6;color:#172033;">
+                      <span style="color:#64748b;">First choice</span> · <strong>${escapeHtml(firstLabel)}</strong><br>
+                      <span style="color:#64748b;">Second choice</span> · <strong>${escapeHtml(secondLabel)}</strong>
+                    </td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:15px;line-height:1.55;color:#4b5563;">${
+                        booking
+                          ? `Your interview on <strong>${escapeHtml(booking.slotLabel)}</strong> stands exactly as booked — the time and the Google Meet link do not change.`
+                          : "You do not have an interview booked yet."
+                      }</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#4b5563;">If this was not what you meant, reply to this email and we will sort it out.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+/**
+ * Tells the committee an applicant just left as their first preference. Sent
+ * to that committee alone — this is an internal heads-up, not addressed to
+ * the applicant, so it says plainly what does and does not change for them:
+ * if they already have this applicant's interview booked, it is still theirs
+ * to run. What changed is only which committee the applicant is now counted
+ * against as first choice.
+ */
+async function sendPreferenceSwapCommitteeNotice({
+  token,
+  committee,
+  applicantName,
+  applicantEmail,
+  newFirstLabel,
+  booking
+}: {
+  token: string;
+  committee: string;
+  applicantName: string;
+  applicantEmail: string;
+  newFirstLabel: string;
+  booking: { slotLabel: string; meetLink: string } | null;
+}): Promise<boolean> {
+  if (!gmailConfigured()) return false;
+
+  const panel = await getCommitteePanel(token, committee).catch(() => []);
+  if (!panel.length) return false;
+
+  const committeeName = displayCommitteeName(committee);
+  const subject = `Resala AUC: ${applicantName} is now your second preference`;
+  const bookingLine = booking
+    ? `Their interview with you on ${booking.slotLabel} is unaffected — it is still yours to run as scheduled. Only their preference order changed, not the booking.`
+    : "They have no interview booked yet.";
+
+  const body = [
+    `Hi ${committeeName},`,
+    "",
+    `${applicantName} (${applicantEmail}) had you as their first preference. Their preferences were just swapped — you are now their second preference, and their first is ${newFirstLabel}.`,
+    "",
+    bookingLine,
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = buildPreferenceSwapCommitteeNoticeHtml({ committeeName, applicantName, applicantEmail, newFirstLabel, booking });
+  const accessToken = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: panel.map((member) => member.email).join(", "),
+    subject,
+    text: body,
+    html,
+    attachments: []
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gmail send failed: ${await response.text()}`);
+  }
+  return true;
+}
+
+export function buildPreferenceSwapCommitteeNoticeHtml({
+  committeeName,
+  applicantName,
+  applicantEmail,
+  newFirstLabel,
+  booking
+}: {
+  committeeName: string;
+  applicantName: string;
+  applicantEmail: string;
+  newFirstLabel: string;
+  booking: { slotLabel: string; meetLink: string } | null;
+}): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:24px;line-height:1.25;color:#ffffff;font-weight:bold;margin-top:20px;">${escapeHtml(applicantName)} is now your second preference</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(committeeName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">
+                  <strong>${escapeHtml(applicantName)}</strong> (${escapeHtml(applicantEmail)}) had you as their first
+                  preference. Their preferences were just swapped — you are now their <strong>second</strong> preference,
+                  and their first is <strong>${escapeHtml(newFirstLabel)}</strong>.
+                </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:15px;line-height:1.6;color:#172033;">${
+                        booking
+                          ? `Their interview with you on <strong>${escapeHtml(booking.slotLabel)}</strong> is unaffected — it is still yours to run as scheduled. Only their preference order changed, not the booking.`
+                          : "They have no interview booked yet."
+                      }</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 }
 
 async function loadDirectorApplicants(

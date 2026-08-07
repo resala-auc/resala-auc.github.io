@@ -622,11 +622,14 @@ function renderDialog(a) {
     const msg = document.getElementById("swap-msg");
     if (!confirm(`Swap ${a.fullName}'s first and second preference?\n\n` +
       `${display(a.roleAppliedFor)} · ${a.headName || "—"} becomes their second choice, and ` +
-      `${display(a.secondPreference)} becomes their first. Nothing already booked moves.`)) return;
+      `${display(a.secondPreference)} becomes their first. Nothing already booked moves. ` +
+      "The applicant, the new first-preference committee, and HR are emailed; the committee they just left is notified too.")) return;
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Swapping…";
     try {
-      await api({ mode: "heads-swap-preferences", email: state.admin.email, applicantEmail: a.email });
-      msg.className = "msg ok"; msg.textContent = "Swapped.";
+      const r = await api({ mode: "heads-swap-preferences", email: state.admin.email, applicantEmail: a.email });
+      msg.className = "msg ok";
+      msg.textContent = `Swapped.${r.applicantEmailSent ? " Applicant emailed." : " Applicant email not sent."}` +
+        `${r.committeeNotified ? " Old committee notified." : " Old committee not notified."}`;
       await load(state.admin.email, true);
     } catch (err) {
       msg.className = "msg bad"; msg.textContent = err.message;
