@@ -2052,6 +2052,10 @@ export function buildConfirmationEmailTemplate(
   const bodyLines = [
     `Hi ${payload.fullName},`,
     "",
+    // Says up front what this email is for. People skim a confirmation for the
+    // time and close it; the task and the thread rules are further down.
+    "Please read this email to the end. It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.",
+    "",
     `Thanks for applying to Resala AUC. Your first preference is ${firstPreferenceLabel(payload)}, and your second preference is ${secondPreferenceLabel(payload)}.`,
     "",
   ];
@@ -2091,18 +2095,27 @@ export function buildConfirmationEmailTemplate(
     bodyLines.push(`${sheetLine} Bring your work with you to the interview.`.trim(), "");
   }
 
+  /*
+   * One thread, and the reason for it: the committee running the interview is
+   * copied on this email and nowhere else. A fresh message to the Resala inbox
+   * reaches nobody who can move a slot, which is how a reschedule request sits
+   * unread until the interview has been and gone.
+   */
   if (panel.length) {
     bodyLines.push(
-      `Questions about ${firstPreferenceLabel(payload)}? Contact the people interviewing you:`,
-      ...panel.map((m) => `- ${m.name}${m.positionType ? ` (${m.positionType})` : ""}: ${m.email}`),
+      "Everything about this interview goes through this email thread:",
+      "- Reply to this email, and use Reply All so the people below stay on it.",
+      "- Please do not start a new email to resala@aucegypt.edu. It does not reach your committee, and nobody there can move your interview.",
+      `- To move or cancel, reply at least ${RESCHEDULE_NOTICE_MINUTES} minutes before your slot and agree the new time with them.`,
       "",
-      `Need to move your interview? Reply to this email and agree a new time with them at least ${RESCHEDULE_NOTICE_MINUTES} minutes before your slot. They are on this thread.`,
+      `The people interviewing you for ${firstPreferenceLabel(payload)}:`,
+      ...panel.map((m) => `- ${m.name}${m.positionType ? ` (${m.positionType})` : ""}: ${m.email}`),
       ""
     );
   }
 
   bodyLines.push(
-    "If anything feels unclear, just reply to this email and we will help.",
+    "If anything feels unclear, reply here and we will help.",
     "",
     "Best,",
     "Resala AUC"
@@ -2121,7 +2134,8 @@ export function buildConfirmationEmailTemplate(
       slot: hasSlot ? slot : "",
       meetLink: hasSlot ? reservation!.meetLink : "",
       roleGuideLinks,
-      hasSlot
+      hasSlot,
+      panel
     })
   };
 }
@@ -2134,7 +2148,8 @@ function buildConfirmationEmailHtml({
   slot,
   meetLink,
   roleGuideLinks,
-  hasSlot = true
+  hasSlot = true,
+  panel = []
 }: {
   payload: ApplicationPayload;
   fullName: string;
@@ -2144,6 +2159,7 @@ function buildConfirmationEmailHtml({
   meetLink: string;
   roleGuideLinks: RoleGuideLink[];
   hasSlot?: boolean;
+  panel?: Array<{ email: string; name: string; positionType: string }>;
 }): string {
   return `<!doctype html>
 <html>
@@ -2165,6 +2181,7 @@ function buildConfirmationEmailHtml({
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this email to the end.</strong> It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(firstPreference)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. ${hasSlot ? "We received your application and reserved your interview slot." : "We received your application."}</p>
                 ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
@@ -2206,7 +2223,33 @@ function buildConfirmationEmailHtml({
                   </tr>
                 </table>
                 `}
-                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything feels unclear, just reply to this email and we will help.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#eef3fb;border:1px solid #cddcf0;border-left:5px solid #0d2b45;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Use this thread for everything</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        Your committee is copied on this email and nowhere else. Reply here — and use
+                        <strong>Reply All</strong> so they stay on it.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        Please do not start a new email to resala@aucegypt.edu. It does not reach your committee,
+                        and nobody there can move your interview.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        To move or cancel, reply at least ${RESCHEDULE_NOTICE_MINUTES} minutes before your slot and agree the new time with them.
+                      </div>
+                      ${
+                        panel.length
+                          ? `<div style="font-size:14px;line-height:1.7;color:#4b5563;margin-top:12px;border-top:1px solid #cddcf0;padding-top:12px;">
+                               <strong style="color:#0d2b45;">On this thread:</strong><br>${panel
+                                 .map((m) => `${escapeHtml(m.name)}${m.positionType ? ` (${escapeHtml(m.positionType)})` : ""} — ${escapeHtml(m.email)}`)
+                                 .join("<br>")}
+                             </div>`
+                          : ""
+                      }
+                    </td>
+                  </tr>
+                </table>
                 <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>

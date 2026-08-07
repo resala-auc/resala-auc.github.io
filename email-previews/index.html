@@ -11,74 +11,252 @@
   :root { --blue:#0c2c80; --ink:#1b1f23; --muted:#55606e; --line:#d7e3f0; --ivory:#fdf9f3; }
   body { margin:0; padding:40px 24px; background:var(--ivory); color:var(--ink);
          font:16px/1.6 "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
-  main { max-width: 760px; margin: 0 auto; }
+  main { max-width: 820px; margin: 0 auto; }
   h1 { color: var(--blue); font-weight: 900; letter-spacing: -0.02em; margin: 0 0 6px; }
-  .lede { color: var(--muted); margin: 0 0 30px; }
-  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
-  li { background:#fff; border:1px solid var(--line); border-radius:14px; padding:16px 18px; }
-  li > a { color: var(--blue); font-weight: 700; font-size: 17px; text-decoration: none; }
+  .lede { color: var(--muted); margin: 0 0 34px; }
+  section { margin-bottom: 30px; }
+  h2 { color: var(--blue); font-size: 20px; font-weight: 800; margin: 0 0 12px;
+       padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  li { background:#fff; border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  li > a { color: var(--blue); font-weight: 700; font-size: 16px; text-decoration: none; }
   li > a:hover { text-decoration: underline; }
-  .subject { color: var(--muted); font-size: 14px; margin-top: 4px; }
-  .files { font-size: 13.5px; margin-top: 8px; }
+  .subject { color: var(--muted); font-size: 14px; margin-top: 3px; }
+  .files { font-size: 13.5px; margin-top: 7px; }
   .files a { color: var(--blue); }
-  footer { color: var(--muted); font-size: 14px; margin-top: 28px; }
-  code { background:#fff; border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size: 14px; }
+  footer { color: var(--muted); font-size: 14px; margin-top: 30px; border-top:1px solid var(--line); padding-top:16px; }
+  code { background:#fff; border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:14px; }
 </style>
 </head>
 <body>
   <main>
     <h1>Emails an applicant receives</h1>
-    <p class="lede">Rendered from the same builders the edge functions send with, so these are what actually arrives.</p>
-    <ul>
-      <li>
-        <a href="confirmation-01-no-task.html">Confirmation · committee with no task (Operations)</a>
-        <div class="subject">Subject: Resala AUC Application Confirmation</div>
-        <div class="files"><a href="confirmation-01-no-task.html">HTML</a> · <a href="confirmation-01-no-task.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="confirmation-02-task-submitted-before.html">Confirmation · task submitted before the interview (Children's Day · Creative)</a>
-        <div class="subject">Subject: Resala AUC Application Confirmation</div>
-        <div class="files"><a href="confirmation-02-task-submitted-before.html">HTML</a> · <a href="confirmation-02-task-submitted-before.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="confirmation-03-task-submitted-visits.html">Confirmation · task submitted before the interview (Visits · Discovery)</a>
-        <div class="subject">Subject: Resala AUC Application Confirmation</div>
-        <div class="files"><a href="confirmation-03-task-submitted-visits.html">HTML</a> · <a href="confirmation-03-task-submitted-visits.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="confirmation-04-no-slot-booked.html">Confirmation · application received, no slot booked yet</a>
-        <div class="subject">Subject: Resala AUC Application Confirmation</div>
-        <div class="files"><a href="confirmation-04-no-slot-booked.html">HTML</a> · <a href="confirmation-04-no-slot-booked.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="reschedule.html">Interview moved to a new time</a>
-        <div class="subject">Subject: Resala AUC: Your interview has been rescheduled</div>
-        <div class="files"><a href="reschedule.html">HTML</a></div>
-      </li>
-      <li>
-        <a href="cancelled.html">Interview cancelled at the applicant's request</a>
-        <div class="subject">Subject: Resala AUC: Your interview has been cancelled</div>
-        <div class="files"><a href="cancelled.html">HTML</a></div>
-      </li>
-      <li>
-        <a href="reminder-1-hour-before.html">Reminder · one hour before the interview (Operations · no task)</a>
-        <div class="subject">Subject: Resala AUC: your interview starts in 1 hour</div>
-        <div class="files"><a href="reminder-1-hour-before.html">HTML</a> · <a href="reminder-1-hour-before.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="reminder-1-hour-before-visits-task-missing.html">Reminder · one hour before the interview (Visits · task still missing)</a>
-        <div class="subject">Subject: Resala AUC: your interview starts in 1 hour — we do not have your task yet</div>
-        <div class="files"><a href="reminder-1-hour-before-visits-task-missing.html">HTML</a> · <a href="reminder-1-hour-before-visits-task-missing.txt">plain text</a></div>
-      </li>
-      <li>
-        <a href="reminder-1-hour-before-visits-task-in.html">Reminder · one hour before the interview (Visits · task already in)</a>
-        <div class="subject">Subject: Resala AUC: your interview starts in 1 hour</div>
-        <div class="files"><a href="reminder-1-hour-before-visits-task-in.html">HTML</a> · <a href="reminder-1-hour-before-visits-task-in.txt">plain text</a></div>
-      </li>
-    </ul>
+    <p class="lede">Grouped by the committee they put first. Rendered from the same builders the edge
+       functions send with, so these are what actually arrives.</p>
+      <section>
+        <h2>Tech Team</h2>
+        <ul>
+        <li>
+          <a href="tech-team/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="tech-team/confirmation.html">HTML</a> · <a href="tech-team/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="tech-team/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="tech-team/reschedule.html">HTML</a> · <a href="tech-team/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="tech-team/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="tech-team/cancelled.html">HTML</a> · <a href="tech-team/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="tech-team/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="tech-team/reminder.html">HTML</a> · <a href="tech-team/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Operations</h2>
+        <ul>
+        <li>
+          <a href="operations/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="operations/confirmation.html">HTML</a> · <a href="operations/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="operations/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="operations/reschedule.html">HTML</a> · <a href="operations/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="operations/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="operations/cancelled.html">HTML</a> · <a href="operations/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="operations/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="operations/reminder.html">HTML</a> · <a href="operations/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Branding / Media</h2>
+        <ul>
+        <li>
+          <a href="branding-media/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="branding-media/confirmation.html">HTML</a> · <a href="branding-media/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="branding-media/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="branding-media/reschedule.html">HTML</a> · <a href="branding-media/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="branding-media/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="branding-media/cancelled.html">HTML</a> · <a href="branding-media/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="branding-media/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="branding-media/reminder.html">HTML</a> · <a href="branding-media/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>HR</h2>
+        <ul>
+        <li>
+          <a href="hr/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="hr/confirmation.html">HTML</a> · <a href="hr/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="hr/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="hr/reschedule.html">HTML</a> · <a href="hr/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="hr/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="hr/cancelled.html">HTML</a> · <a href="hr/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="hr/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="hr/reminder.html">HTML</a> · <a href="hr/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>PR / Fundraising</h2>
+        <ul>
+        <li>
+          <a href="pr-fundraising/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="pr-fundraising/confirmation.html">HTML</a> · <a href="pr-fundraising/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="pr-fundraising/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="pr-fundraising/reschedule.html">HTML</a> · <a href="pr-fundraising/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="pr-fundraising/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="pr-fundraising/cancelled.html">HTML</a> · <a href="pr-fundraising/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="pr-fundraising/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="pr-fundraising/reminder.html">HTML</a> · <a href="pr-fundraising/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Visits</h2>
+        <ul>
+        <li>
+          <a href="visits/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="visits/confirmation.html">HTML</a> · <a href="visits/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="visits/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="visits/reschedule.html">HTML</a> · <a href="visits/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="visits/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="visits/cancelled.html">HTML</a> · <a href="visits/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="visits/reminder-task-missing.html">Reminder · task still missing</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour — we do not have your task yet</div>
+          <div class="files"><a href="visits/reminder-task-missing.html">HTML</a> · <a href="visits/reminder-task-missing.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="visits/reminder-task-received.html">Reminder · task already in</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="visits/reminder-task-received.html">HTML</a> · <a href="visits/reminder-task-received.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Children's Day</h2>
+        <ul>
+        <li>
+          <a href="childrens-day/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="childrens-day/confirmation.html">HTML</a> · <a href="childrens-day/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="childrens-day/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="childrens-day/reschedule.html">HTML</a> · <a href="childrens-day/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="childrens-day/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="childrens-day/cancelled.html">HTML</a> · <a href="childrens-day/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="childrens-day/reminder-task-missing.html">Reminder · task still missing</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour — we do not have your task yet</div>
+          <div class="files"><a href="childrens-day/reminder-task-missing.html">HTML</a> · <a href="childrens-day/reminder-task-missing.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="childrens-day/reminder-task-received.html">Reminder · task already in</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="childrens-day/reminder-task-received.html">HTML</a> · <a href="childrens-day/reminder-task-received.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Initiatives</h2>
+        <ul>
+        <li>
+          <a href="initiatives/confirmation.html">Confirmation · sent the moment they book</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="initiatives/confirmation.html">HTML</a> · <a href="initiatives/confirmation.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="initiatives/reschedule.html">Reschedule · sent when the time moves</a>
+          <div class="subject">Resala AUC: Your interview has been rescheduled</div>
+          <div class="files"><a href="initiatives/reschedule.html">HTML</a> · <a href="initiatives/reschedule.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="initiatives/cancelled.html">Cancellation · sent when the booking is called off</a>
+          <div class="subject">Resala AUC: Your interview has been cancelled</div>
+          <div class="files"><a href="initiatives/cancelled.html">HTML</a> · <a href="initiatives/cancelled.txt">plain text</a></div>
+        </li>
+        <li>
+          <a href="initiatives/reminder.html">Reminder · one hour before the interview</a>
+          <div class="subject">Resala AUC: your interview starts in 1 hour</div>
+          <div class="files"><a href="initiatives/reminder.html">HTML</a> · <a href="initiatives/reminder.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
+      <section>
+        <h2>Any committee</h2>
+        <ul>
+        <li>
+          <a href="confirmation-no-slot-booked.html">Confirmation · application received, no slot booked</a>
+          <div class="subject">Resala AUC Application Confirmation</div>
+          <div class="files"><a href="confirmation-no-slot-booked.html">HTML</a> · <a href="confirmation-no-slot-booked.txt">plain text</a></div>
+        </li>
+        </ul>
+      </section>
     <footer>
       Regenerate with <code>node scripts/build-email-previews.mjs</code> after changing any template.
-      Attachments (the per-head task sheets) are not shown here — they live in <code>task-files/</code>.
+      Only Visits and Children's Day set a task, so only they have the two reminder versions.
+      The task sheets themselves are the PDFs in <code>task-files/</code>, attached to the confirmation.
     </footer>
   </main>
 </body>
