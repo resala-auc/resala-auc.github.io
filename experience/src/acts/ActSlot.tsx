@@ -121,53 +121,43 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               {committee.interviewDurationMinutes} minutes.
             </motion.p>
 
+            {/*
+              The brief itself used to sit here — scenario, deliverable, every
+              bullet — while the applicant was trying to do one thing: pick a
+              time. It arrives in the confirmation email as a PDF anyway, so
+              this step only has to make sure nobody books without knowing a
+              task is coming, and reads the email when it lands.
+            */}
             {task.required ? (
               <motion.div
                 variants={rise}
-                className="mb-10 rounded-2xl border border-brand-glow bg-brand-pale p-5"
+                className="mb-10 rounded-2xl border-2 border-brand-blue/25 bg-brand-pale p-6"
               >
-                <p className="mb-2 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
+                <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold tracking-[0.22em] text-brand-blue uppercase">
                   <ClipboardList className="h-4 w-4" strokeWidth={1.8} />
-                  {task.atInterview
-                    ? "At your interview"
-                    : task.dueBeforeInterviewMinutes
-                      ? "Submit before your interview"
-                      : "Bring this with you"}{" "}
-                  · {task.title ?? task.summary}
+                  One more thing
                 </p>
-                <p className="text-sm leading-relaxed text-brand-ink">{task.detail}</p>
+                <p className="font-serif text-xl leading-snug font-bold text-brand-blue">
+                  There is a small task for this role.
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-brand-ink">
+                  It is not here — it comes in your confirmation email the moment you book, as a
+                  sheet made for the head you picked.{" "}
+                  <strong className="font-semibold">Read that email carefully.</strong>
+                </p>
                 {task.dueBeforeInterviewMinutes ? (
-                  <p className="mt-3 text-sm leading-relaxed text-brand-ink">
-                    Your task sheet is emailed to you as soon as you book, and you hand your work in
-                    at{" "}
-                    <a
-                      className="font-medium text-brand-blue underline underline-offset-2"
-                      href={task.submissionUrl}
-                      target="_blank"
-                      rel="noopener"
-                    >
-                      the submission page
-                    </a>{" "}
-                    at least{" "}
+                  <p className="mt-2 text-sm leading-relaxed text-brand-ink">
+                    You hand it in online at least{" "}
                     {task.dueBeforeInterviewMinutes === 60
                       ? "an hour"
                       : `${task.dueBeforeInterviewMinutes} minutes`}{" "}
-                    before your interview.
+                    before your interview, so pick a time that leaves you room to do it.
                   </p>
-                ) : null}
-                {task.scenario ? (
-                  <p className="mt-3 text-sm leading-relaxed text-brand-muted">{task.scenario}</p>
-                ) : null}
-                {task.points?.length ? (
-                  <ul className="mt-3 flex flex-col gap-1.5">
-                    {task.points.map((point) => (
-                      <li key={point} className="flex gap-2 text-sm leading-relaxed text-brand-ink">
-                        <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-brand-blue" />
-                        {point}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
+                ) : (
+                  <p className="mt-2 text-sm leading-relaxed text-brand-ink">
+                    Bring your work with you to the interview.
+                  </p>
+                )}
               </motion.div>
             ) : (
               <div className="mb-10" />
