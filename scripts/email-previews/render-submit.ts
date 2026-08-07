@@ -13,8 +13,7 @@
 import {
   buildConfirmationEmailTemplate,
   buildInterviewCancelledEmailHtml,
-  buildRescheduleEmailHtml,
-  getApplicantRoleGuideLinks
+  buildRescheduleEmailHtml
 } from "../../supabase/functions/submit/index.ts";
 
 const OUT = Deno.args[0] ?? "email-previews";
@@ -91,12 +90,7 @@ for (const committee of COMMITTEES) {
   await Deno.mkdir(`${OUT}/${committee.dir}`, { recursive: true });
   const payload = applicant(committee) as never;
 
-  const confirmation = buildConfirmationEmailTemplate(
-    payload,
-    reservation,
-    getApplicantRoleGuideLinks(payload),
-    panel
-  );
+  const confirmation = buildConfirmationEmailTemplate(payload, reservation, panel);
   await Deno.writeTextFile(`${OUT}/${committee.dir}/confirmation.html`, confirmation.html);
   await Deno.writeTextFile(`${OUT}/${committee.dir}/confirmation.txt`, confirmation.body);
   written.push({
@@ -127,15 +121,15 @@ for (const committee of COMMITTEES) {
     committee: committee.label,
     dir: committee.dir,
     file: "cancelled.html",
-    title: "Cancellation · sent when the booking is called off",
-    subject: "Resala AUC: Your interview has been cancelled"
+    title: "Withdrawal · sent when the applicant pulls out",
+    subject: "Resala AUC: your application has been withdrawn"
   });
 }
 
 /* The one case that has no committee: an application that arrived without a
    slot, which reads the same whoever sent it. */
 const noSlotPayload = { ...applicant(COMMITTEES[1]), interviewSlot: "", interviewSlotLabel: "", interviewSlotId: "" } as never;
-const noSlot = buildConfirmationEmailTemplate(noSlotPayload, null, getApplicantRoleGuideLinks(noSlotPayload), panel);
+const noSlot = buildConfirmationEmailTemplate(noSlotPayload, null, panel);
 await Deno.writeTextFile(`${OUT}/confirmation-no-slot-booked.html`, noSlot.html);
 await Deno.writeTextFile(`${OUT}/confirmation-no-slot-booked.txt`, noSlot.body);
 written.push({

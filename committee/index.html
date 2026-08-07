@@ -140,7 +140,7 @@
   .state.noshow{ background: #fdecec; color: #a3231b; }
   .state.notdone { background: var(--soft); color: var(--muted); }
   .state.pending { background: #fdf4e0; color: var(--warn); }
-  /* Cancelled is not "not done": nobody is waiting on this interview. */
+  /* Withdrawn is not "not done": nobody is waiting on this interview. */
   .state.cancelled { background: #efe7f5; color: #5b3d78; }
   .row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
   .row2 > div { flex: 1 1 140px; }
@@ -266,7 +266,8 @@ function rubricFor(applicant) {
 const STATES = ["Not Done", "Done", "No Show", "Pending"];
 const stateLabel = (a) => String(a.interviewStatus || "").trim() || "Not Done";
 const stateClass = (a) => ({
-  "done": "done", "no show": "noshow", "pending": "pending", "cancelled": "cancelled"
+  "done": "done", "no show": "noshow", "pending": "pending",
+  "cancelled": "cancelled", "withdrawn": "cancelled"
 }[norm(stateLabel(a))] ?? "notdone");
 
 /** This interviewer's own saved score for an applicant, if any. */
@@ -526,8 +527,8 @@ function renderPanel() {
         <div class="note" style="margin-bottom:14px;">
           Mark <b>No Show</b> if they never joined. It is what the ranking and any follow-up read.
         </div>
-      ` : `<div class="banner warn">This interview was cancelled and their slot went back on the board.
-           Their application still stands — put them on a new time below whenever they are ready.</div>`}
+      ` : `<div class="banner warn">This application was withdrawn and the slot went back on the board.
+           If they change their mind, booking a time below puts them back in.</div>`}
 
       <div class="row2">
         <div><label for="re-date">Move to date</label><input type="date" id="re-date" value="${esc(reDate)}"></div>
@@ -538,9 +539,10 @@ function renderPanel() {
 
       ${applicant.interviewSlot ? `
         <div class="row2" style="margin-top:14px;">
-          <div class="note">Applicant asked to cancel? This frees the slot and drops the calendar invite.
-            Their application stays, so you can book them a new time later.</div>
-          <div class="go"><button class="btn btn-sm btn-ghost" id="cancel-interview">Cancel interview</button></div>
+          <div class="note">Only if they are pulling out altogether. This withdraws their application,
+            frees the slot for someone else, and emails them. Moving them to another time is the
+            reschedule above, not this.</div>
+          <div class="go"><button class="btn btn-sm btn-ghost" id="cancel-interview">Withdraw application</button></div>
         </div>` : ""}
       <div class="msg" id="int-msg"></div>
     ` : `<div class="note">They never booked an interview, so there is nothing to mark or move.</div>`}
@@ -718,8 +720,9 @@ async function cancelInterview() {
   const msg = document.getElementById("int-msg");
   const btn = document.getElementById("cancel-interview");
   if (!applicant) return;
-  if (!confirm(`Cancel ${applicant.fullName}'s interview on ${applicant.interviewSlot}?\n\n` +
-    "The slot goes back on the board, the calendar invite is deleted, and they are emailed.")) return;
+  if (!confirm(`Withdraw ${applicant.fullName}'s application?\n\n` +
+    `Their interview on ${applicant.interviewSlot} is cancelled, the slot goes back on the board, ` +
+    "and they are emailed to say the application is withdrawn. Use Reschedule instead if they only want another time.")) return;
 
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Cancelling…";
   try {

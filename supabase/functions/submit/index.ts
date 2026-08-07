@@ -1991,8 +1991,7 @@ async function sendConfirmationEmail(
     return;
   }
 
-  const roleGuideLinks = getApplicantRoleGuideLinks(payload);
-  const template = buildConfirmationEmailTemplate(payload, reservation, roleGuideLinks, panel);
+  const template = buildConfirmationEmailTemplate(payload, reservation, panel);
   const attachments = await getHeadsTaskAttachments(payload);
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
@@ -2043,7 +2042,6 @@ function gmailConfigured(): boolean {
 export function buildConfirmationEmailTemplate(
   payload: ApplicationPayload,
   reservation: ReservationDetails | null,
-  roleGuideLinks: RoleGuideLink[],
   panel: Array<{ email: string; name: string; positionType: string }> = []
 ): ConfirmationEmailTemplate {
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
@@ -2056,7 +2054,7 @@ export function buildConfirmationEmailTemplate(
     // time and close it; the task and the thread rules are further down.
     "Please read this email to the end. It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.",
     "",
-    `Thanks for applying to Resala AUC. Your first preference is ${firstPreferenceLabel(payload)}, and your second preference is ${secondPreferenceLabel(payload)}.`,
+    `You applied for ${firstPreferenceLabel(payload)}, with ${secondPreferenceLabel(payload)} as your second preference.`,
     "",
   ];
 
@@ -2064,7 +2062,7 @@ export function buildConfirmationEmailTemplate(
     bodyLines.push(
       `Your interview slot is: ${slot}.`,
       `Google Meet link: ${reservation!.meetLink}`,
-      `You will receive a Google Calendar invitation and a reminder email ${INTERVIEW_REMINDER_MINUTES} minutes before the interview.`,
+      `A calendar invitation is on its way, and a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.`,
       "",
     );
   } else {
@@ -2074,13 +2072,12 @@ export function buildConfirmationEmailTemplate(
     );
   }
 
-  bodyLines.push(
-    ...buildHeadsTaskLines(payload),
-    "Role guide:",
-    `${ROLE_GUIDE_BASE_URL}/`,
-    ...formatRoleGuideTextLines(roleGuideLinks),
-    "",
-  );
+  /*
+   * No role guide here. It is what somebody reads to decide what to apply for,
+   * and this email only exists once they have. Keeping it made the message
+   * longer for a link nobody clicks twice.
+   */
+  bodyLines.push(...buildHeadsTaskLines(payload));
 
   /*
    * The task block above already names the attached sheet, the deadline and
@@ -2133,7 +2130,6 @@ export function buildConfirmationEmailTemplate(
       secondPreference: secondPreferenceLabel(payload),
       slot: hasSlot ? slot : "",
       meetLink: hasSlot ? reservation!.meetLink : "",
-      roleGuideLinks,
       hasSlot,
       panel
     })
@@ -2147,7 +2143,6 @@ function buildConfirmationEmailHtml({
   secondPreference,
   slot,
   meetLink,
-  roleGuideLinks,
   hasSlot = true,
   panel = []
 }: {
@@ -2157,7 +2152,6 @@ function buildConfirmationEmailHtml({
   secondPreference: string;
   slot: string;
   meetLink: string;
-  roleGuideLinks: RoleGuideLink[];
   hasSlot?: boolean;
   panel?: Array<{ email: string; name: string; positionType: string }>;
 }): string {
@@ -2182,7 +2176,7 @@ function buildConfirmationEmailHtml({
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this email to the end.</strong> It has your interview time, anything your committee asks you to prepare, and the one thread to use for every question about it.</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Thanks for applying to <strong>Resala AUC</strong>. Your first preference is <strong>${escapeHtml(firstPreference)}</strong>, and your second preference is <strong>${escapeHtml(secondPreference)}</strong>. ${hasSlot ? "We received your application and reserved your interview slot." : "We received your application."}</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">You applied for <strong>${escapeHtml(firstPreference)}</strong>, with <strong>${escapeHtml(secondPreference)}</strong> as your second preference.${hasSlot ? "" : " We will be in touch to schedule your interview."}</p>
                 ${hasSlot ? `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
@@ -2197,7 +2191,7 @@ function buildConfirmationEmailHtml({
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
                       <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">You will receive a Google Calendar invitation and a reminder email ${INTERVIEW_REMINDER_MINUTES} minutes before the interview.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">A calendar invitation is on its way, and a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.</div>
                     </td>
                   </tr>
                 </table>
@@ -2212,7 +2206,6 @@ function buildConfirmationEmailHtml({
                 </table>
                 `}
                 ${buildHeadsTaskHtml(payload)}
-                ${buildRoleGuideHtml(roleGuideLinks)}
                 ${!getHeadsTask(payload).task || getHeadsTask(payload).task!.atInterview || getHeadsTask(payload).task!.submissionUrl ? "" : `
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 22px;">
                   <tr>
@@ -2291,37 +2284,7 @@ function getRoleGuideUrl(roleName: string): string {
   return slug ? `${ROLE_GUIDE_BASE_URL}/${slug}/` : `${ROLE_GUIDE_BASE_URL}/`;
 }
 
-function formatRoleGuideTextLines(roleGuideLinks: RoleGuideLink[]): string[] {
-  return roleGuideLinks.flatMap((link) => [
-    `- ${link.preferenceLabel} role details: ${link.roleName}`,
-    `  ${link.url}`
-  ]);
-}
 
-function buildRoleGuideHtml(roleGuideLinks: RoleGuideLink[]): string {
-  const roleRows = roleGuideLinks
-    .map(
-      (link) => `<tr>
-        <td style="padding:12px 0;border-top:1px solid rgba(245,196,107,.35);">
-          <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:.8px;font-weight:bold;margin-bottom:5px;">${escapeHtml(link.preferenceLabel)}</div>
-          <div style="font-size:16px;line-height:1.35;color:#ffffff;font-weight:bold;margin-bottom:9px;">${escapeHtml(link.roleName)}</div>
-          <a href="${escapeHtml(link.url)}" style="display:inline-block;background:#ffffff;color:#0d2b45;font-size:13px;font-weight:bold;text-decoration:none;border-radius:10px;padding:9px 13px;">View role details</a>
-        </td>
-      </tr>`
-    )
-    .join("");
-
-  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#0d2b45;border-radius:14px;padding:0 16px;margin:0 0 20px;">
-    <tr>
-      <td style="padding:16px 0 4px;">
-        <div style="font-size:13px;color:#f5c46b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:6px;">Role guide</div>
-        <div style="font-size:15px;line-height:1.55;color:#dbe7ef;margin-bottom:12px;">Review the full guide, then revisit the details for both preferences before your interview.</div>
-        <a href="${escapeHtml(`${ROLE_GUIDE_BASE_URL}/`)}" style="display:inline-block;background:#f5c46b;color:#0d2b45;font-size:14px;font-weight:bold;text-decoration:none;border-radius:10px;padding:11px 16px;">How to choose your role</a>
-      </td>
-    </tr>
-    ${roleRows}
-  </table>`;
-}
 
 function buildHeadsTaskHtml(payload: ApplicationPayload): string {
   const { task, forHead } = getHeadsTask(payload);
@@ -3913,11 +3876,14 @@ async function rescheduleAsCommittee(
 }
 
 /**
- * Cancelling is not a status change: the point of it is that the time goes back
- * on the board for somebody else. So it clears the Slot ID the availability
- * count reads, drops the calendar event, and stops the reminder — while leaving
- * the row itself in place, so the reschedule form can put them back on a new
- * time later without them reapplying.
+ * An applicant withdrawing. This is the only thing cancelling means — somebody
+ * pulling out, not a time being moved, which is what the reschedule is for. So
+ * it frees the slot for another applicant, drops the calendar event, stops the
+ * reminder, and marks the application Withdrawn.
+ *
+ * The row itself stays. Withdrawals get reversed — people change their minds —
+ * and putting them back on a time is then a reschedule rather than a whole new
+ * application.
  */
 async function cancelHeadsInterview(
   token: string,
@@ -3964,8 +3930,8 @@ async function cancelHeadsInterview(
   const calendarEventId = String(row[6] ?? "").trim();
   const status = String(row[8] ?? "").trim();
 
-  if (!slotId && normalize(status) === "cancelled") {
-    throw new Error("That interview is already cancelled.");
+  if (!slotId && (normalize(status) === "withdrawn" || normalize(status) === "cancelled")) {
+    throw new Error("That application has already been withdrawn.");
   }
 
   let deletedEvent = false;
@@ -3989,7 +3955,7 @@ async function cancelHeadsInterview(
     token,
     "PUT",
     `${sheetRange(RESERVATION_SHEET_NAME, `G${rowNumber}:L${rowNumber}`)}?valueInputOption=RAW`,
-    { values: [["", "", "Cancelled", "", "", "Cancelled"]] }
+    { values: [["", "", "Withdrawn", "", "", "Cancelled"]] }
   );
 
   let freedSlot = false;
@@ -4035,7 +4001,7 @@ async function cancelHeadsInterview(
   return { applicantEmail, slot: slotLabel, deletedEvent, freedSlot, emailSent };
 }
 
-/** Interview Slot (P), Slot ID (Q) and Interview Status (R) on the heads sheet. */
+/** Interview Slot (P), Slot ID (Q), Interview Status (R), Status (S). */
 async function clearHeadsApplicationSlot(token: string, aucEmail: string): Promise<boolean> {
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, "A2:C")}`);
   const rows = ((await response.json()).values ?? []) as string[][];
@@ -4045,8 +4011,8 @@ async function clearHeadsApplicationSlot(token: string, aucEmail: string): Promi
   await sheetsFetch(
     token,
     "PUT",
-    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `P${index + 2}:R${index + 2}`)}?valueInputOption=RAW`,
-    { values: [["", "", "Cancelled"]] }
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `P${index + 2}:S${index + 2}`)}?valueInputOption=RAW`,
+    { values: [["", "", "Withdrawn", "Withdrawn"]] }
   );
   return true;
 }
@@ -5651,17 +5617,18 @@ async function sendInterviewCancelledEmail(
 ): Promise<void> {
   if (!gmailConfigured()) return;
 
-  const subject = "Resala AUC: Your interview has been cancelled";
+  const subject = "Resala AUC: your application has been withdrawn";
   const body = [
     `Hi ${fullName},`,
     "",
     slot
-      ? `Your Resala AUC interview on ${slot} has been cancelled, as requested.`
-      : "Your Resala AUC interview has been cancelled, as requested.",
-    "The calendar invitation has been removed and the time is back on the board.",
+      ? `We have withdrawn your application and cancelled your interview on ${slot}, as you asked.`
+      : "We have withdrawn your application and cancelled your interview, as you asked.",
+    "The calendar invitation has been removed. There is nothing left for you to do.",
     "",
-    "Your application itself is still with us. If you would like another time,",
-    "reply to this email and we will book you in.",
+    "Thank you for the time you put into applying — it was read, and it was appreciated.",
+    "",
+    "If this was not what you meant, or you change your mind, reply to this email and we will sort it out.",
     "",
     "Best,",
     "Resala AUC"
@@ -5700,8 +5667,8 @@ export function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName:
             <tr>
               <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
                 <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
-                <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Interview Cancelled</div>
-                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">Your application is still with us.</div>
+                <div style="font-size:26px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">Application Withdrawn</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">There is nothing left for you to do.</div>
               </td>
             </tr>
             <tr>
@@ -5709,15 +5676,17 @@ export function buildInterviewCancelledEmailHtml({ fullName, slot }: { fullName:
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">
                   ${slot
-                    ? `Your interview on <b>${escapeHtml(slot)}</b> has been cancelled, as requested.`
-                    : "Your interview has been cancelled, as requested."}
-                  The calendar invitation has been removed and the time is back on the board.
+                    ? `We have withdrawn your application and cancelled your interview on <b>${escapeHtml(slot)}</b>, as you asked.`
+                    : "We have withdrawn your application and cancelled your interview, as you asked."}
+                  The calendar invitation has been removed.
+                </p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">
+                  Thank you for the time you put into applying — it was read, and it was appreciated.
                 </p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
-                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Want another time?</div>
-                      <div style="font-size:15px;line-height:1.55;color:#4b5563;">Reply to this email and we will book you in. You do not need to apply again.</div>
+                      <div style="font-size:15px;line-height:1.55;color:#4b5563;">If this was not what you meant, or you change your mind, reply to this email and we will sort it out.</div>
                     </td>
                   </tr>
                 </table>

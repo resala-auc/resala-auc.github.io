@@ -530,10 +530,10 @@ function renderDialog(a) {
       </div>
       ${a.interviewSlot ? `
         <div class="row2" style="margin-top:14px;">
-          <div class="note">Applicant asked to cancel? This frees the slot and deletes the calendar invite.
-            Their application stays, so they can be booked a new time without reapplying.</div>
-          <div style="flex:0 0 auto;"><button class="btn btn-sm btn-ghost" id="cancel-interview">Cancel interview</button></div>
-        </div>` : `<div class="note" style="margin-top:10px;">This interview was cancelled. Booking a date above puts them back on the board.</div>`}
+          <div class="note">Only if they are pulling out altogether. This withdraws the application,
+            frees the slot, and emails them. To move them to another time, use the date and time above.</div>
+          <div style="flex:0 0 auto;"><button class="btn btn-sm btn-ghost" id="cancel-interview">Withdraw application</button></div>
+        </div>` : `<div class="note" style="margin-top:10px;">This application was withdrawn. Booking a date above puts them back in.</div>`}
       <div class="msg" id="re-msg"></div>`
       : `<div class="note">No booked interview to move.</div>`}
   `;
@@ -589,9 +589,10 @@ function renderDialog(a) {
   if (cancelBtn) cancelBtn.onclick = async (e) => {
     const btn = e.currentTarget;
     const msg = document.getElementById("re-msg");
-    if (!confirm(`Cancel ${a.fullName}'s interview on ${a.interviewSlot || "their booked slot"}?\n\n` +
-      "The slot goes back on the board, the calendar invite is deleted, and they are emailed.")) return;
-    btn.disabled = true; msg.className = "msg"; msg.textContent = "Cancelling…";
+    if (!confirm(`Withdraw ${a.fullName}'s application?\n\n` +
+      `Their interview on ${a.interviewSlot || "their booked slot"} is cancelled, the slot goes back on the board, ` +
+      "and they are emailed to say the application is withdrawn.")) return;
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Withdrawing…";
     try {
       const r = await api({
         mode: "heads-cancel-interview",
@@ -600,7 +601,7 @@ function renderDialog(a) {
         committee: a.roleAppliedFor
       });
       msg.className = "msg ok";
-      msg.textContent = `Cancelled.${r.emailSent ? " Applicant emailed." : " Email not sent."}`;
+      msg.textContent = `Withdrawn.${r.emailSent ? " Applicant emailed." : " Email not sent."}`;
       await load(state.admin.email, true);
     } catch (err) {
       msg.className = "msg bad"; msg.textContent = err.message;
