@@ -646,6 +646,13 @@ const SAME_DAY_SLOT_CUTOFF_HOUR = 11;
 const REMOVED_OVERLAPPING_DEFAULT_SLOT_CODES = new Set(["1530", "1930", "2030"]);
 
 const HIERARCHY_SHEET_NAME = "Board Hierarchy";
+/*
+ * HR runs this recruitment, so its Director and Vice-Director are copied on
+ * every mail an applicant receives — that is how they see the cycle moving
+ * without asking each committee. Read from the hierarchy rather than named
+ * here, so it follows whoever holds the role.
+ */
+const MONITOR_COMMITTEE = Deno.env.get("MONITOR_COMMITTEE") ?? "HR";
 const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email", "Phone"];
 
 const BOARD_ONBOARDING_SHEET_NAME = "Board Onboarding";
@@ -1604,7 +1611,7 @@ Deno.serve(async (request) => {
     const panel = await getCommitteePanel(token, payload.roleAppliedFor);
     // The panel is CC'd on that confirmation and is on the calendar invite, so
     // a separate "new applicant" email to them is a third copy of the same news.
-    const emailSent = await trySendConfirmationEmail(payload, reservation, panel);
+    const emailSent = await trySendConfirmationEmail(payload, reservation, panel, token);
 
     return jsonResponse({ ok: true, emailSent });
   } catch (error) {
@@ -1990,7 +1997,8 @@ async function appendApplication(token: string, payload: ApplicationPayload, she
 async function sendConfirmationEmail(
   payload: ApplicationPayload,
   reservation: ReservationDetails | null,
-  panel: Array<{ email: string; name: string; positionType: string }> = []
+  panel: Array<{ email: string; name: string; positionType: string }> = [],
+  token?: string
 ): Promise<void> {
   if (!gmailConfigured()) {
     return;
@@ -1998,11 +2006,12 @@ async function sendConfirmationEmail(
 
   const template = buildConfirmationEmailTemplate(payload, reservation, panel);
   const attachments = await getHeadsTaskAttachments(payload);
+  const sheetsToken = token ?? (await getGoogleAccessToken());
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
     to: payload.aucEmail,
-    cc: panel.map((member) => member.email).join(", "),
+    cc: await buildApplicantCc(sheetsToken, payload.roleAppliedFor, payload.aucEmail, panel),
     subject: template.subject,
     text: template.body,
     html: template.html,
@@ -2029,10 +2038,11 @@ async function sendConfirmationEmail(
 async function trySendConfirmationEmail(
   payload: ApplicationPayload,
   reservation: ReservationDetails,
-  panel: Array<{ email: string; name: string; positionType: string }> = []
+  panel: Array<{ email: string; name: string; positionType: string }> = [],
+  token?: string
 ): Promise<boolean> {
   try {
-    await sendConfirmationEmail(payload, reservation, panel);
+    await sendConfirmationEmail(payload, reservation, panel, token);
     return gmailConfigured();
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Confirmation email failed.");
@@ -3946,6 +3956,8 @@ async function cancelHeadsInterview(
   const fullName = String(row[3] ?? "").trim();
   const calendarEventId = String(row[6] ?? "").trim();
   const status = String(row[8] ?? "").trim();
+  // Column M: the committee they applied to, which is who gets copied.
+  const roleAppliedFor = String(row[12] ?? "").trim() || String(payload.committee ?? "").trim();
 
   if (!slotId && (normalize(status) === "withdrawn" || normalize(status) === "cancelled")) {
     throw new Error("That application has already been withdrawn.");
@@ -4009,7 +4021,12 @@ async function cancelHeadsInterview(
 
   let emailSent = false;
   try {
-    await sendInterviewCancelledEmail({ fullName, aucEmail: applicantEmail, slot: slotLabel });
+    await sendInterviewCancelledEmail({
+      fullName,
+      aucEmail: applicantEmail,
+      slot: slotLabel,
+      cc: await buildApplicantCc(token, roleAppliedFor, applicantEmail)
+    });
     emailSent = gmailConfigured();
   } catch (error) {
     console.error(`Cancellation email failed: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -5360,11 +5377,15 @@ async function rescheduleInterview(
 
   let emailSent = false;
   try {
-    await sendRescheduleEmail(applicantPayload, {
-      slot: newSlot,
-      calendarEventId: newCalendarEvent.calendarEventId,
-      meetLink: newCalendarEvent.meetLink
-    });
+    await sendRescheduleEmail(
+      applicantPayload,
+      {
+        slot: newSlot,
+        calendarEventId: newCalendarEvent.calendarEventId,
+        meetLink: newCalendarEvent.meetLink
+      },
+      await buildApplicantCc(token, roleAppliedFor, aucEmail, reschedulePanel)
+    );
     emailSent = gmailConfigured();
   } catch (error) {
     console.error(`Reschedule email failed: ${error instanceof Error ? error.message : "unknown error"}`);
@@ -5578,7 +5599,11 @@ async function resolveRescheduleSlot(
   };
 }
 
-async function sendRescheduleEmail(payload: ApplicationPayload, reservation: ReservationDetails): Promise<void> {
+async function sendRescheduleEmail(
+  payload: ApplicationPayload,
+  reservation: ReservationDetails,
+  cc = ""
+): Promise<void> {
   if (!gmailConfigured()) return;
 
   const slot = payload.interviewSlotLabel ?? payload.interviewSlot;
@@ -5603,6 +5628,7 @@ async function sendRescheduleEmail(payload: ApplicationPayload, reservation: Res
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
     to: payload.aucEmail,
+    cc: cc || undefined,
     subject,
     text: body,
     html,
@@ -5630,7 +5656,7 @@ async function sendRescheduleEmail(payload: ApplicationPayload, reservation: Res
  * committee can put them on a new time.
  */
 async function sendInterviewCancelledEmail(
-  { fullName, aucEmail, slot }: { fullName: string; aucEmail: string; slot: string }
+  { fullName, aucEmail, slot, cc = "" }: { fullName: string; aucEmail: string; slot: string; cc?: string }
 ): Promise<void> {
   if (!gmailConfigured()) return;
 
@@ -5660,6 +5686,7 @@ async function sendInterviewCancelledEmail(
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
     to: aucEmail,
+    cc: cc || undefined,
     subject,
     text: body,
     html,
@@ -6215,6 +6242,31 @@ async function addCalendarEventAttendee(
  * invite and named in the confirmation email instead of a shared inbox.
  * Read live from the Board Hierarchy sheet so it tracks roster changes.
  */
+/**
+ * Who is copied on an applicant's mail: the committee interviewing them, then
+ * the recruitment monitors. Deduplicated, and never the applicant themselves —
+ * a person appearing in both To and Cc gets two copies in some clients.
+ */
+async function buildApplicantCc(
+  token: string,
+  roleAppliedFor: string,
+  applicantEmail: string,
+  panel?: Array<{ email: string; name: string; positionType: string }>
+): Promise<string> {
+  const committee = panel ?? (await getCommitteePanel(token, roleAppliedFor).catch(() => []));
+  const monitors = await getCommitteePanel(token, MONITOR_COMMITTEE).catch(() => []);
+
+  const seen = new Set([normalize(applicantEmail)]);
+  const addresses: string[] = [];
+  for (const person of [...committee, ...monitors]) {
+    const key = normalize(person.email);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    addresses.push(person.email);
+  }
+  return addresses.join(", ");
+}
+
 async function getCommitteePanel(
   token: string,
   roleAppliedFor: string

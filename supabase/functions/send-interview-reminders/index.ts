@@ -45,6 +45,14 @@ const RESERVATION_HEADERS = [
   "Second Preference"
 ];
 
+const HIERARCHY_SHEET_NAME = Deno.env.get("HIERARCHY_SHEET_NAME") ?? "Board Hierarchy";
+/*
+ * HR runs this recruitment, so its Director and Vice-Director are copied on
+ * every reminder alongside the committee doing the interview. Read from the
+ * hierarchy rather than named here, so it follows whoever holds the role.
+ */
+const MONITOR_COMMITTEE = Deno.env.get("MONITOR_COMMITTEE") ?? "HR";
+
 const HEADS_APPLICATION_SHEET_NAME =
   Deno.env.get("HEADS_APPLICATION_SHEET_NAME") ?? "Heads Applications";
 const TASK_SUBMISSION_URL = (
@@ -124,6 +132,7 @@ Deno.serve(async (request) => {
     const slots = await getSlotMap(token);
     const reservations = await getReservations(token);
     const taskStates = await getTaskStates(token);
+    const panels = await getPanels(token);
     const now = getCurrentLocalDateTime(CALENDAR_TIME_ZONE);
     let sent = 0;
     let skipped = 0;
@@ -154,7 +163,8 @@ Deno.serve(async (request) => {
       try {
         await sendReminderEmail(
           { ...reservation, reminderSendAt },
-          taskStates.get(normalize(reservation.aucEmail))
+          taskStates.get(normalize(reservation.aucEmail)),
+          buildReminderCc(panels, reservation)
         );
         await updateReminderState(token, reservation.rowIndex, reminderSendAt, now, "Sent");
         sent += 1;
@@ -275,6 +285,35 @@ async function getTaskStates(token: string): Promise<Map<string, TaskState>> {
   return states;
 }
 
+/**
+ * Director and Vice-Director addresses per committee, plus the recruitment
+ * monitors under their own key. One read for the whole run.
+ *
+ * A reminder that cannot find its panel still goes to the applicant: being
+ * copied is oversight, and losing it should not cost somebody their reminder.
+ */
+async function getPanels(token: string): Promise<{ byCommittee: Map<string, string[]>; monitors: string[] }> {
+  const byCommittee = new Map<string, string[]>();
+  let monitors: string[] = [];
+  try {
+    const response = await sheetsFetch(token, "GET", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}`);
+    const rows = ((await response.json()).values ?? []) as string[][];
+
+    for (const row of rows) {
+      const department = normalizeRole(String(row[1] ?? ""));
+      const position = normalize(String(row[2] ?? ""));
+      const email = String(row[4] ?? "").trim();
+      if (!department || !email || !position.includes("director")) continue;
+      if (!/^[A-Za-z0-9._%+-]+@aucegypt\.edu$/i.test(email)) continue;
+      byCommittee.set(department, [...(byCommittee.get(department) ?? []), email]);
+    }
+    monitors = byCommittee.get(normalizeRole(MONITOR_COMMITTEE)) ?? [];
+  } catch (error) {
+    console.error(`Panel lookup failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+  return { byCommittee, monitors };
+}
+
 async function updateReminderState(
   token: string,
   rowIndex: number,
@@ -292,7 +331,28 @@ async function updateReminderState(
  * their own calendar; copying them here would be a second reminder for an
  * interview they already have booked.
  */
-async function sendReminderEmail(reservation: ReservationRow, taskState?: TaskState): Promise<void> {
+/** The committee running the interview, then the monitors, minus duplicates. */
+function buildReminderCc(
+  panels: { byCommittee: Map<string, string[]>; monitors: string[] },
+  reservation: ReservationRow
+): string {
+  const committee = panels.byCommittee.get(normalizeRole(reservation.roleAppliedFor)) ?? [];
+  const seen = new Set([normalize(reservation.aucEmail)]);
+  const addresses: string[] = [];
+  for (const email of [...committee, ...panels.monitors]) {
+    const key = normalize(email);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    addresses.push(email);
+  }
+  return addresses.join(", ");
+}
+
+async function sendReminderEmail(
+  reservation: ReservationRow,
+  taskState?: TaskState,
+  cc = ""
+): Promise<void> {
   const slot = reservation.slotLabel || reservation.reminderSendAt;
   const template = buildReminderEmailTemplate(
     reservation.fullName,
@@ -301,7 +361,7 @@ async function sendReminderEmail(reservation: ReservationRow, taskState?: TaskSt
     reservation.roleAppliedFor,
     taskState
   );
-  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html);
+  await sendEmail(reservation.aucEmail, template.subject, template.body, template.html, cc);
 }
 
 async function sendEmail(to: string, subject: string, text: string, html: string, cc = ""): Promise<void> {
