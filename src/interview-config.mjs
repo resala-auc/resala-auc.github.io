@@ -217,11 +217,23 @@ export const interviewConfig = {
         }
       }
     },
+    /*
+     * 5-8 Aug are transcribed from the brief as originally published, gaps and
+     * all — 5th and 7th genuinely ran short some hours, and 8th was left a
+     * stub. Every other committee runs 11-14 Aug too (9-10 is the shared rest
+     * gap), so 11-14 here repeat 6 Aug's pattern — the one full, regular day
+     * this committee actually ran, noon to 11pm on the hour — rather than
+     * inventing a new shape or copying a short day forward.
+     */
     days: [
       { date: "2026-08-05", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "19:00", "22:00", "23:00"] },
       { date: "2026-08-06", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
       { date: "2026-08-07", times: ["15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
-      { date: "2026-08-08", times: ["15:00", "16:00", "17:00"] }
+      { date: "2026-08-08", times: ["15:00", "16:00", "17:00"] },
+      { date: "2026-08-11", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-12", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-13", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
+      { date: "2026-08-14", times: ["12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] }
     ]
   },
 
