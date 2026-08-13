@@ -2121,6 +2121,7 @@ export function buildConfirmationEmailTemplate(
     bodyLines.push(
       `Your interview slot is: ${slot}.`,
       `Google Meet link: ${reservation!.meetLink}`,
+      "Please keep your camera on for the interview.",
       `A calendar invitation is on its way, and a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.`,
       "",
     );
@@ -2256,7 +2257,8 @@ function buildConfirmationEmailHtml({
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
                       <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
                       <a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">A calendar invitation is on its way, and a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:8px;">Please keep your camera on for the interview.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;">A calendar invitation is on its way, and a reminder ${INTERVIEW_REMINDER_MINUTES} minutes before.</div>
                     </td>
                   </tr>
                 </table>

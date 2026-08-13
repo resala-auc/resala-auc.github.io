@@ -432,7 +432,7 @@ export function buildReminderEmailTemplate(
     `Google Meet link: ${meetLink}`,
     "",
     ...taskLines,
-    "Please join from a quiet place if possible.",
+    "Please join from a quiet place if possible, with your camera on.",
     "If anything comes up, reply to this email.",
     "",
     "Best,",
@@ -463,13 +463,13 @@ export function buildReminderEmailTemplate(
     heroTitle: "Your Interview Starts Soon",
     heroSubtitle: owesTask
       ? "One thing is still outstanding — your task."
-      : "Join from a quiet place a few minutes early.",
+      : "Join from a quiet place a few minutes early, with your camera on.",
     bodyHtml: `
       <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your <strong>Resala AUC</strong> interview${committee ? ` with <strong>${escapeHtml(committee)}</strong>` : ""} starts in <strong>1 hour</strong>.</p>
       ${taskCard}
       ${infoCard("Interview slot", escapeHtml(slot))}
-      ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible.")}
+      ${linkCard("Google Meet", "Join the interview meeting", meetLink, "Please join from a quiet place if possible, with your camera on.")}
       <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">If anything comes up, reply to this email.</p>
       <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
