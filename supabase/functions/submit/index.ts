@@ -186,11 +186,18 @@ const HEADS_APPLICATION_HEADERS = [
   // Whichever committee actually evaluated them decides this — first
   // preference, second preference, or an assigned third interviewer — so it
   // is not tied to "Committee" above the way everything else on this row is.
+  // "" until a committee drafts them onto its team diagram, then "Draft" while
+  // the diagram is still being built, then "Yes" once the committee confirms
+  // the diagram and the welcome email actually goes out.
   "Accepted",
   "Accepted Role",
   "Accepted Position",
   "Accepted By",
-  "Accepted At"
+  "Accepted At",
+  // Which committee's diagram this draft/acceptance belongs to — not always
+  // "Committee" above, since a second-preference or assigned committee can
+  // accept someone too. Needed to filter a diagram to only its own rows.
+  "Accepted Committee"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
@@ -200,6 +207,7 @@ const ACCEPTED_ROLE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Role");
 const ACCEPTED_POSITION_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Position");
 const ACCEPTED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted By");
 const ACCEPTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted At");
+const ACCEPTED_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Committee");
 const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
 const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
 const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
@@ -1087,19 +1095,45 @@ type HeadsSwapPreferencesPayload = {
 };
 
 /**
- * A director deciding an applicant is in — which committee, which head-role
- * team, and whether they join it as its Head or as a Member. Open to whoever
- * can already score this applicant, not only the first-preference committee:
- * accepting is an evaluation decision, not control over a booking, the same
- * distinction that already separates scoring from reschedule/cancel.
+ * A director placing an applicant onto the committee's team diagram — which
+ * head-role team, and whether they join it as its Head or as a Member. Open
+ * to whoever can already score this applicant, not only the first-preference
+ * committee: this is an evaluation decision, not control over a booking, the
+ * same distinction that already separates scoring from reschedule/cancel.
+ *
+ * This only drafts the placement — no email yet. The diagram can be built up
+ * and corrected freely; nobody is contacted until the committee confirms it
+ * with HeadsConfirmTeamPayload below.
  */
-type HeadsAcceptApplicantPayload = {
-  mode: "heads-accept-applicant";
+type HeadsAssignApplicantPayload = {
+  mode: "heads-assign-applicant";
   email: string;
   applicantEmail: string;
   committee: string;
   headId: string;
   position: "Head" | "Member";
+};
+
+/** Pulls an applicant back off the diagram before the committee has confirmed it. */
+type HeadsUnassignApplicantPayload = {
+  mode: "heads-unassign-applicant";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+};
+
+/**
+ * The committee reviewing its finished diagram and sending it: every
+ * applicant currently drafted onto one of this committee's roles gets the
+ * welcome email at once, and flips from Draft to Yes. Restricted to the
+ * committee itself (not second-preference or an assigned interviewer) since
+ * this is the one step that actually contacts people on the committee's
+ * behalf.
+ */
+type HeadsConfirmTeamPayload = {
+  mode: "heads-confirm-team";
+  email: string;
+  committee: string;
 };
 
 type AdminCreateHeadsMeetingPayload = {
@@ -1166,7 +1200,9 @@ type SubmissionPayload =
   | HeadsConfirmSecondAvailabilityPayload
   | HeadsAssignInterviewerPayload
   | HeadsSwapPreferencesPayload
-  | HeadsAcceptApplicantPayload
+  | HeadsAssignApplicantPayload
+  | HeadsUnassignApplicantPayload
+  | HeadsConfirmTeamPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
@@ -1644,10 +1680,22 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await swapHeadsPreferences(token, payload)) });
     }
 
-    if (isHeadsAcceptApplicantPayload(payload)) {
+    if (isHeadsAssignApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
-      return jsonResponse({ ok: true, ...(await acceptHeadsApplicant(token, payload)) });
+      return jsonResponse({ ok: true, ...(await assignHeadsApplicant(token, payload)) });
+    }
+
+    if (isHeadsUnassignApplicantPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await unassignHeadsApplicant(token, payload)) });
+    }
+
+    if (isHeadsConfirmTeamPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await confirmHeadsTeam(token, payload)) });
     }
 
     if (isAdminCreateHeadsMeetingPayload(payload)) {
@@ -1826,10 +1874,18 @@ function isHeadsSwapPreferencesPayload(
   return (payload as HeadsSwapPreferencesPayload).mode === "heads-swap-preferences";
 }
 
-function isHeadsAcceptApplicantPayload(
+function isHeadsAssignApplicantPayload(
   payload: SubmissionPayload
-): payload is HeadsAcceptApplicantPayload {
-  return (payload as HeadsAcceptApplicantPayload).mode === "heads-accept-applicant";
+): payload is HeadsAssignApplicantPayload {
+  return (payload as HeadsAssignApplicantPayload).mode === "heads-assign-applicant";
+}
+function isHeadsUnassignApplicantPayload(
+  payload: SubmissionPayload
+): payload is HeadsUnassignApplicantPayload {
+  return (payload as HeadsUnassignApplicantPayload).mode === "heads-unassign-applicant";
+}
+function isHeadsConfirmTeamPayload(payload: SubmissionPayload): payload is HeadsConfirmTeamPayload {
+  return (payload as HeadsConfirmTeamPayload).mode === "heads-confirm-team";
 }
 
 function isAdminResetPayload(payload: SubmissionPayload): payload is AdminResetPayload {
@@ -4530,11 +4586,16 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         secondPreferenceAvailability: String(row[SECOND_PREF_AVAILABILITY_COLUMN] ?? ""),
         secondPreferenceAvailabilityNote: String(row[SECOND_PREF_AVAILABILITY_NOTE_COLUMN] ?? ""),
         secondPreferenceAvailabilitySetAt: String(row[SECOND_PREF_AVAILABILITY_SET_AT_COLUMN] ?? ""),
-        // Set once a committee has decided this applicant is in — which of the
-        // committee's own head-role teams, and Head or Member of it.
+        // Set once a committee has drafted or confirmed this applicant onto its
+        // team diagram — which head-role team, Head or Member, and which
+        // status: "" (unplaced), "Draft" (on the diagram, not emailed yet), or
+        // "Yes" (diagram confirmed, welcome email sent).
+        acceptedStatus: String(row[ACCEPTED_COLUMN] ?? "").trim(),
         accepted: String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes",
+        acceptedDraft: String(row[ACCEPTED_COLUMN] ?? "").trim() === "Draft",
         acceptedRole: String(row[ACCEPTED_ROLE_COLUMN] ?? ""),
         acceptedPosition: String(row[ACCEPTED_POSITION_COLUMN] ?? ""),
+        acceptedCommittee: String(row[ACCEPTED_COMMITTEE_COLUMN] ?? ""),
         acceptedBy: String(row[ACCEPTED_BY_COLUMN] ?? ""),
         acceptedAt: String(row[ACCEPTED_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
@@ -5602,20 +5663,19 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
 }
 
 /**
- * A director accepting an applicant: which committee, which head-role team,
- * Head or Member. Recorded on the row, then one email out — welcome, not a
- * scoresheet update, so it goes through the same audience every applicant
- * email already uses rather than a quiet internal note.
+ * A director dropping an applicant onto the team diagram: which committee,
+ * which head-role team, Head or Member. Recorded as a Draft — nothing is
+ * emailed here. The committee reviews the whole diagram and sends it with
+ * confirmHeadsTeam below, once it looks right.
  */
-async function acceptHeadsApplicant(
+async function assignHeadsApplicant(
   token: string,
-  payload: HeadsAcceptApplicantPayload
+  payload: HeadsAssignApplicantPayload
 ): Promise<{
   applicantEmail: string;
   committee: string;
   headName: string;
   position: string;
-  emailSent: boolean;
 }> {
   const applicantEmail = String(payload.applicantEmail ?? "").trim();
   const committee = String(payload.committee ?? "").trim();
@@ -5627,10 +5687,11 @@ async function acceptHeadsApplicant(
 
   /*
    * Same authority as scoring, not the stricter first-preference-only rule
-   * reschedule and cancel use — accepting evaluates an applicant, it does not
-   * move or control the interview they already booked, so whoever the
-   * committee trusted to score them (first preference, second preference, or
-   * an assigned third interviewer) can also decide they are in.
+   * reschedule and cancel use — placing someone on the diagram evaluates an
+   * applicant, it does not move or control the interview they already
+   * booked, so whoever the committee trusted to score them (first
+   * preference, second preference, or an assigned third interviewer) can
+   * also decide they are in.
    */
   const access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
 
@@ -5646,36 +5707,154 @@ async function acceptHeadsApplicant(
   const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
   if (index === -1) throw new Error("No application found for that applicant.");
 
-  const fullName = String(rows[index][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
-  const acceptedAt = new Date().toISOString();
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+    throw new Error("Already confirmed and emailed — pull them off the diagram first if this needs to change.");
+  }
+
+  const draftedAt = new Date().toISOString();
 
   await sheetsFetch(
     token,
     "PUT",
     `${sheetRange(
       HEADS_APPLICATION_SHEET_NAME,
-      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_AT_COLUMN + 1)}${index + 2}`
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
     )}?valueInputOption=RAW`,
-    { values: [["Yes", head.name, position, access.email, acceptedAt]] }
+    { values: [["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]] }
   );
 
-  let emailSent = false;
-  try {
-    const cc = await buildApplicantCc(token, committee, applicantEmail);
-    await sendAcceptanceEmail({
-      fullName,
-      aucEmail: applicantEmail,
-      committee: displayCommitteeName(committee),
-      headName: head.name,
-      position,
-      cc
-    });
-    emailSent = gmailConfigured();
-  } catch (error) {
-    console.error(`Acceptance email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
+}
+
+/** Pulls a draft placement back off the diagram. Blocked once the committee has already confirmed and emailed it. */
+async function unassignHeadsApplicant(
+  token: string,
+  payload: HeadsUnassignApplicantPayload
+): Promise<{ applicantEmail: string }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  if (!applicantEmail || !committee) throw new Error("Applicant and committee are required.");
+
+  await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
+  if (status === "Yes") {
+    throw new Error("Already confirmed and emailed — this can't be undone from the diagram.");
   }
 
-  return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position, emailSent };
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    { values: [["", "", "", "", "", ""]] }
+  );
+
+  return { applicantEmail };
+}
+
+/**
+ * The committee confirming its finished diagram: every applicant currently
+ * drafted onto one of this committee's roles gets the welcome email at once,
+ * and flips from Draft to Yes. Head roles still empty afterward come back in
+ * `missingHeadRoles` — purely informational, nothing about the interview
+ * schedule or deadline changes on its own.
+ */
+async function confirmHeadsTeam(
+  token: string,
+  payload: HeadsConfirmTeamPayload
+): Promise<{
+  committee: string;
+  sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
+  missingHeadRoles: string[];
+}> {
+  const committee = String(payload.committee ?? "").trim();
+  if (!committee) throw new Error("Committee is required.");
+
+  // Only the committee itself confirms and sends — not a second-preference
+  // committee or an assigned interviewer, who may draft placements but should
+  // not be the ones who trigger the actual welcome email on this committee's
+  // behalf.
+  const access = await requireCommitteeAccess(token, payload.email);
+  if (normalizeRole(access.department) !== normalizeRole(committee)) {
+    throw new Error(`${displayCommitteeName(access.department)} does not run ${displayCommitteeName(committee)}'s diagram.`);
+  }
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+
+  const drafted = rows
+    .map((row, index) => ({ row, index }))
+    .filter(
+      ({ row }) =>
+        String(row[ACCEPTED_COLUMN] ?? "").trim() === "Draft" &&
+        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)
+    );
+
+  const confirmedAt = new Date().toISOString();
+  const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
+
+  for (const { row, index } of drafted) {
+    const applicantEmail = String(row[emailColumn] ?? "").trim();
+    const fullName = String(row[nameColumn] ?? "").trim();
+    const headName = String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim();
+    const position = String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member";
+    if (!applicantEmail) continue;
+
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_AT_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      { values: [["Yes", headName, position, access.email, confirmedAt]] }
+    );
+
+    try {
+      const cc = await buildApplicantCc(token, committee, applicantEmail);
+      await sendAcceptanceEmail({
+        fullName,
+        aucEmail: applicantEmail,
+        committee: displayCommitteeName(committee),
+        headName,
+        position,
+        cc
+      });
+    } catch (error) {
+      console.error(`Acceptance email failed for ${applicantEmail}: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
+    sent.push({ applicantEmail, fullName, headName, position });
+  }
+
+  // Filled by anything already on the diagram for this committee — Draft or
+  // Yes, including the ones just sent above — so a role someone was placed
+  // into moments ago does not falsely show up as missing.
+  const heads = COMMITTEE_HEADS[normalizeRole(committee)] ?? [];
+  const filledHeadRoles = new Set(
+    rows
+      .filter(
+        (row) =>
+          (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes" || String(row[ACCEPTED_COLUMN] ?? "").trim() === "Draft") &&
+          normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+          String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head"
+      )
+      .map((row) => normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")))
+  );
+  const missingHeadRoles = heads.filter((h) => !filledHeadRoles.has(normalizeRole(h.name))).map((h) => h.name);
+
+  return { committee: displayCommitteeName(committee), sent, missingHeadRoles };
 }
 
 async function sendAcceptanceEmail({
