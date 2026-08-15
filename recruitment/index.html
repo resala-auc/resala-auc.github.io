@@ -107,6 +107,30 @@
   .msg.bad { color: var(--bad); }
   .empty { color: var(--muted); padding: 30px 4px; }
   .close { float: right; background: transparent; border: 0; font-size: 22px; color: var(--muted); line-height: 1; }
+
+  /* ── team diagrams (admin approval) ───────────────────────────────────── */
+  .views { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: 14px; color: var(--ink); }
+  .tab[aria-selected="true"] { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+  .team-summary { display: flex; gap: 10px 20px; flex-wrap: wrap; align-items: center;
+    background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 12px 18px; margin-bottom: 16px; }
+  .team-summary .count { font-size: 13.5px; color: var(--muted); }
+  .team-summary .count b { color: var(--ink); }
+  .missing-summary { background: #fdf4e0; color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; margin-bottom: 22px; }
+  .missing-summary b { color: var(--ink); }
+  .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin: 14px 0 16px; }
+  .role-box { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 13px 14px; }
+  .role-box.missing { border-color: #e3b96a; background: #fffaf0; }
+  .role-box-title { font-weight: 700; margin-bottom: 9px; font-size: 14px; }
+  .slot-group { margin-bottom: 9px; }
+  .slot-group:last-child { margin-bottom: 0; }
+  .slot-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
+  .slot-chip { display: flex; align-items: center; gap: 7px; background: var(--soft); border-radius: 9px; padding: 6px 9px; margin-bottom: 6px; font-size: 13px; }
+  .chip-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 1px 7px; border-radius: 999px; flex: 0 0 auto; }
+  .chip-status.draft { background: #fdf4e0; color: var(--warn); }
+  .chip-status.submitted { background: #e8effd; color: var(--blue); }
+  .chip-status.sent { background: #e8f6ee; color: var(--good); }
+  .chip-status.pending { background: #fdecec; color: var(--bad); }
 </style>
 </head>
 <body>
@@ -137,23 +161,33 @@
 
   <main>
     <div class="stats" id="stats"></div>
-    <div class="filters">
-      <div>
-        <label for="f-committee">Committee</label>
-        <select id="f-committee"><option value="">All committees</option></select>
-      </div>
-      <div>
-        <label for="f-state">Scoring</label>
-        <select id="f-state">
-          <option value="">Any</option>
-          <option value="none">Not scored</option>
-          <option value="part">Partly scored</option>
-          <option value="done">Scored by both</option>
-        </select>
-      </div>
+
+    <div class="views" role="tablist" id="views">
+      <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
+      <button class="tab" data-view="teams">Team diagrams</button>
     </div>
-    <div id="groups"></div>
-    <div class="empty hidden" id="empty">No applications yet.</div>
+
+    <div id="view-applicants">
+      <div class="filters">
+        <div>
+          <label for="f-committee">Committee</label>
+          <select id="f-committee"><option value="">All committees</option></select>
+        </div>
+        <div>
+          <label for="f-state">Scoring</label>
+          <select id="f-state">
+            <option value="">Any</option>
+            <option value="none">Not scored</option>
+            <option value="part">Partly scored</option>
+            <option value="done">Scored by both</option>
+          </select>
+        </div>
+      </div>
+      <div id="groups"></div>
+      <div class="empty hidden" id="empty">No applications yet.</div>
+    </div>
+
+    <div id="view-teams" class="hidden"></div>
   </main>
 </div>
 
@@ -177,6 +211,7 @@
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
+import { getRoleGuideById } from "../role-guide-data.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
@@ -224,7 +259,7 @@ function confirmDialog(message) {
   });
 }
 
-let state = { admin: null, data: null, selected: null };
+let state = { admin: null, data: null, selected: null, teamMsg: null };
 
 async function api(payload) {
   const res = await fetch(ENDPOINT, {
@@ -810,6 +845,126 @@ async function saveScore(a, pref) {
   } finally { btn.disabled = false; }
 }
 
+/* ── team diagrams (admin approval) ────────────────────────────────────── */
+
+/* Every committee recruiting this cycle: its raw sheet name (what the API
+   expects as `committee`) paired with its role-guide id (what the head list
+   is keyed by). */
+const CYCLE_COMMITTEES = [
+  { raw: "Tech Director", id: "tech-director" },
+  { raw: "Operations", id: "operations" },
+  { raw: "Branding / Media", id: "branding-media" },
+  { raw: "HR", id: "hr" },
+  { raw: "PR / Fundraising", id: "pr-fundraising" },
+  { raw: "Visits", id: "visits" },
+  { raw: "Children Day Director", id: "children-day-director" },
+  { raw: "Initiatives Director", id: "initiatives-director" }
+];
+
+function teamApplicantsFor(rawCommittee) {
+  const label = display(rawCommittee);
+  return state.data.applicants.filter((a) => a.acceptedStatus && norm(a.acceptedCommittee) === norm(label));
+}
+
+/* Drafted but stuck behind the applicant's own first-preference committee,
+   who has not released them yet — mirrors the same rule the committee portal
+   and the backend both enforce. */
+function isHeldForFirstPreference(a, rawCommittee) {
+  return a.acceptedStatus === "Draft" && normRole(a.roleAppliedFor) !== normRole(rawCommittee) && !a.firstPreferenceReleased;
+}
+
+function adminChip(a, rawCommittee) {
+  const pending = isHeldForFirstPreference(a, rawCommittee);
+  const label = a.acceptedStatus === "Yes" ? "Sent" : a.acceptedStatus === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
+  const cls = a.acceptedStatus === "Yes" ? "sent" : a.acceptedStatus === "Submitted" ? "submitted" : pending ? "pending" : "draft";
+  return `<div class="slot-chip"><span>${esc(a.fullName)}</span><span class="chip-status ${cls}">${label}</span></div>`;
+}
+
+function renderTeamCommittee(rawCommittee, guideId) {
+  const heads = getRoleGuideById(guideId)?.heads ?? [];
+  const applicants = teamApplicantsFor(rawCommittee);
+
+  const submitted = applicants.filter((a) => a.acceptedStatus === "Submitted");
+  const sent = applicants.filter((a) => a.acceptedStatus === "Yes");
+  const pending = applicants.filter((a) => isHeldForFirstPreference(a, rawCommittee));
+
+  const boxes = heads.map((h) => {
+    const inRole = applicants.filter((a) => norm(a.acceptedRole) === norm(h.name));
+    const headHolders = inRole.filter((a) => a.acceptedPosition === "Head");
+    const members = inRole.filter((a) => a.acceptedPosition === "Member");
+    return `<div class="role-box ${headHolders.length ? "" : "missing"}">
+      <div class="role-box-title">${esc(h.name)}</div>
+      <div class="slot-group"><div class="slot-label">Head</div>
+        ${headHolders.length ? headHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">No head assigned yet.</div>`}</div>
+      <div class="slot-group"><div class="slot-label">Members</div>
+        ${members.length ? members.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
+    </div>`;
+  }).join("");
+
+  const missing = heads
+    .filter((h) => !applicants.some((a) => norm(a.acceptedRole) === norm(h.name) && a.acceptedPosition === "Head"))
+    .map((h) => h.name);
+
+  return { raw: rawCommittee, label: display(rawCommittee), boxes, missing, submittedCount: submitted.length, sentCount: sent.length, pendingCount: pending.length };
+}
+
+function renderTeams() {
+  const el = document.getElementById("view-teams");
+  if (!state.data) return;
+
+  const results = CYCLE_COMMITTEES.map((c) => renderTeamCommittee(c.raw, c.id));
+  const totalSubmitted = results.reduce((n, r) => n + r.submittedCount, 0);
+  const totalMissing = results.reduce((n, r) => n + r.missing.length, 0);
+  const stillMissing = results.filter((r) => r.missing.length);
+
+  const summary = `
+    <div class="team-summary">
+      <span class="count"><b>${totalSubmitted}</b> submitted, awaiting your approval</span>
+      <span class="count"><b>${totalMissing}</b> head roles still unfilled, across ${stillMissing.length} committee${stillMissing.length === 1 ? "" : "s"}</span>
+    </div>
+    ${stillMissing.length ? `<div class="missing-summary">Still missing a Head: ${
+      stillMissing.map((r) => `<b>${esc(r.label)}</b> — ${r.missing.map(esc).join(", ")}`).join(" &nbsp;·&nbsp; ")
+    }. Worth flagging for a deadline extension on those roles.</div>` : ""}
+    ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-6px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}`;
+
+  const sections = results.map((r) => `
+    <section class="committee">
+      <h2>${esc(r.label)}
+        <span class="c">${r.sentCount} sent · ${r.submittedCount} awaiting approval${r.pendingCount ? ` · ${r.pendingCount} pending first preference` : ""}</span>
+      </h2>
+      ${r.missing.length ? `<div class="note" style="margin-bottom:8px;">Still missing a Head for: ${r.missing.map(esc).join(", ")}.</div>` : ""}
+      <div class="team-grid">${r.boxes}</div>
+      <div class="row2" style="align-items:center;">
+        <div class="note">${r.submittedCount ? `${r.submittedCount} submitted by the committee, ready for your approval.` : "Nothing submitted yet."}</div>
+        <div style="flex:0 0 auto;">
+          <button class="btn btn-sm btn-gold" data-approve="${esc(r.raw)}"${r.submittedCount ? "" : " disabled"}>Approve & send${r.submittedCount ? ` (${r.submittedCount})` : ""}</button>
+        </div>
+      </div>
+    </section>`).join("");
+
+  el.innerHTML = `${summary}${sections}`;
+}
+
+async function approveTeam(rawCommittee, btn) {
+  const label = display(rawCommittee);
+  const count = btn.textContent.match(/\((\d+)\)/)?.[1] ?? "these";
+  if (!(await confirmDialog(`Approve and send acceptance emails for ${count} applicant(s) in ${label}?\n\nThis emails them immediately, cc the committee and HR.`))) return;
+
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const r = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: rawCommittee });
+    state.teamMsg = {
+      type: "ok",
+      text: `${label}: sent ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}`
+    };
+    await load(state.admin.email);
+    renderTeams();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    renderTeams();
+  }
+}
+
 /* ── actions ────────────────────────────────────────────────────────────── */
 
 async function load(email, keepDialog) {
@@ -820,7 +975,7 @@ async function load(email, keepDialog) {
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("bar-sub").textContent = `${data.admin.name} · ${data.admin.email}`;
-  renderStats(); renderFilters(); renderGroups();
+  renderStats(); renderFilters(); renderGroups(); renderTeams();
   if (keepDialog && state.selected) {
     const a = state.data.applicants.find((x) => norm(x.email) === norm(state.selected));
     if (a) renderDialog(a);
@@ -854,6 +1009,25 @@ document.getElementById("groups").addEventListener("click", (e) => {
 for (const id of ["f-committee", "f-state"]) {
   document.getElementById(id).addEventListener("change", renderGroups);
 }
+
+document.getElementById("views").addEventListener("click", (e) => {
+  const view = e.target.closest("[data-view]");
+  if (!view) return;
+  state.teamMsg = null;
+  document.getElementById("view-applicants").classList.toggle("hidden", view.dataset.view !== "applicants");
+  document.getElementById("view-teams").classList.toggle("hidden", view.dataset.view !== "teams");
+  for (const btn of document.querySelectorAll("#views [data-view]")) {
+    btn.setAttribute("aria-selected", btn.dataset.view === view.dataset.view);
+  }
+  if (view.dataset.view === "teams") renderTeams();
+});
+
+document.getElementById("view-teams").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-approve]");
+  if (!btn) return;
+  approveTeam(btn.dataset.approve, btn);
+});
+
 document.getElementById("refresh").addEventListener("click", () => load(state.admin.email));
 document.getElementById("logout").addEventListener("click", () => {
   sessionStorage.removeItem("recruitmentAdminEmail");

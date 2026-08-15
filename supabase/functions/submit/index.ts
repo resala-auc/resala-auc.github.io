@@ -187,8 +187,10 @@ const HEADS_APPLICATION_HEADERS = [
   // preference, second preference, or an assigned third interviewer — so it
   // is not tied to "Committee" above the way everything else on this row is.
   // "" until a committee drafts them onto its team diagram, then "Draft" while
-  // the diagram is still being built, then "Yes" once the committee confirms
-  // the diagram and the welcome email actually goes out.
+  // the diagram is still being built, then "Submitted" once the committee
+  // confirms its diagram and hands it to the recruitment admin, then "Yes"
+  // once the admin approves and the welcome email actually goes out. Nothing
+  // is ever emailed on the committee's own say-so.
   "Accepted",
   "Accepted Role",
   "Accepted Position",
@@ -200,11 +202,17 @@ const HEADS_APPLICATION_HEADERS = [
   "Accepted Committee",
   // The applicant's own first-preference committee (— "Committee" above) has
   // first claim on them. A second-preference or assigned committee can still
-  // draft them onto its diagram, but cannot confirm and email until the
-  // first-preference committee explicitly says here it does not want them.
+  // draft them onto its diagram, but cannot submit it for admin approval
+  // until the first-preference committee explicitly says here it does not
+  // want them.
   "First Preference Released",
   "First Preference Released By",
-  "First Preference Released At"
+  "First Preference Released At",
+  // Who on the committee confirmed the diagram and handed it to the admin —
+  // kept separate from Accepted By/At above, which stays whoever originally
+  // drafted the placement, so the two steps stay distinguishable.
+  "Submitted By",
+  "Submitted At"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
@@ -219,6 +227,8 @@ const ACCEPTED_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Co
 const RELEASED_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released");
 const RELEASED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released By");
 const RELEASED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released At");
+const SUBMITTED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Submitted By");
+const SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Submitted At");
 const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
 const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
 const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
@@ -1113,8 +1123,9 @@ type HeadsSwapPreferencesPayload = {
  * same distinction that already separates scoring from reschedule/cancel.
  *
  * This only drafts the placement — no email yet. The diagram can be built up
- * and corrected freely; nobody is contacted until the committee confirms it
- * with HeadsConfirmTeamPayload below.
+ * and corrected freely; nobody is contacted until the committee submits it
+ * with HeadsSubmitTeamPayload below, and even then not until the recruitment
+ * admin approves it with HeadsAdminConfirmTeamPayload.
  */
 type HeadsAssignApplicantPayload = {
   mode: "heads-assign-applicant";
@@ -1134,15 +1145,28 @@ type HeadsUnassignApplicantPayload = {
 };
 
 /**
- * The committee reviewing its finished diagram and sending it: every
- * applicant currently drafted onto one of this committee's roles gets the
- * welcome email at once, and flips from Draft to Yes. Restricted to the
- * committee itself (not second-preference or an assigned interviewer) since
- * this is the one step that actually contacts people on the committee's
- * behalf.
+ * The committee reviewing its finished diagram and handing it off: every
+ * applicant currently drafted onto one of this committee's roles (and
+ * eligible — first preference, or released) flips from Draft to Submitted.
+ * Nothing is emailed here — this only queues the roster for the recruitment
+ * admin, who is the one who actually sends it with
+ * HeadsAdminConfirmTeamPayload below. Restricted to the committee itself, not
+ * a second-preference committee or an assigned interviewer.
  */
-type HeadsConfirmTeamPayload = {
-  mode: "heads-confirm-team";
+type HeadsSubmitTeamPayload = {
+  mode: "heads-submit-team";
+  email: string;
+  committee: string;
+};
+
+/**
+ * The recruitment admin approving one committee's submitted roster: every
+ * applicant currently Submitted for that committee gets the welcome email at
+ * once and flips to Yes. This is the only mode that actually sends the
+ * acceptance email — a committee's own submit never does.
+ */
+type HeadsAdminConfirmTeamPayload = {
+  mode: "heads-admin-confirm-team";
   email: string;
   committee: string;
 };
@@ -1226,7 +1250,8 @@ type SubmissionPayload =
   | HeadsSwapPreferencesPayload
   | HeadsAssignApplicantPayload
   | HeadsUnassignApplicantPayload
-  | HeadsConfirmTeamPayload
+  | HeadsSubmitTeamPayload
+  | HeadsAdminConfirmTeamPayload
   | HeadsReleaseFirstPreferencePayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1717,10 +1742,16 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await unassignHeadsApplicant(token, payload)) });
     }
 
-    if (isHeadsConfirmTeamPayload(payload)) {
+    if (isHeadsSubmitTeamPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
-      return jsonResponse({ ok: true, ...(await confirmHeadsTeam(token, payload)) });
+      return jsonResponse({ ok: true, ...(await submitHeadsTeam(token, payload)) });
+    }
+
+    if (isHeadsAdminConfirmTeamPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await sendHeadsTeamAcceptances(token, payload)) });
     }
 
     if (isHeadsReleaseFirstPreferencePayload(payload)) {
@@ -1915,8 +1946,13 @@ function isHeadsUnassignApplicantPayload(
 ): payload is HeadsUnassignApplicantPayload {
   return (payload as HeadsUnassignApplicantPayload).mode === "heads-unassign-applicant";
 }
-function isHeadsConfirmTeamPayload(payload: SubmissionPayload): payload is HeadsConfirmTeamPayload {
-  return (payload as HeadsConfirmTeamPayload).mode === "heads-confirm-team";
+function isHeadsSubmitTeamPayload(payload: SubmissionPayload): payload is HeadsSubmitTeamPayload {
+  return (payload as HeadsSubmitTeamPayload).mode === "heads-submit-team";
+}
+function isHeadsAdminConfirmTeamPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminConfirmTeamPayload {
+  return (payload as HeadsAdminConfirmTeamPayload).mode === "heads-admin-confirm-team";
 }
 function isHeadsReleaseFirstPreferencePayload(
   payload: SubmissionPayload
@@ -4639,6 +4675,11 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         firstPreferenceReleased: String(row[RELEASED_COLUMN] ?? "").trim() === "Yes",
         firstPreferenceReleasedBy: String(row[RELEASED_BY_COLUMN] ?? ""),
         firstPreferenceReleasedAt: String(row[RELEASED_AT_COLUMN] ?? ""),
+        // Who on the committee confirmed the diagram and sent it to the admin
+        // for approval — distinct from acceptedBy/acceptedAt, which stays
+        // whoever originally drafted the placement.
+        submittedBy: String(row[SUBMITTED_BY_COLUMN] ?? ""),
+        submittedAt: String(row[SUBMITTED_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
@@ -5706,8 +5747,9 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
 /**
  * A director dropping an applicant onto the team diagram: which committee,
  * which head-role team, Head or Member. Recorded as a Draft — nothing is
- * emailed here. The committee reviews the whole diagram and sends it with
- * confirmHeadsTeam below, once it looks right.
+ * emailed here. The committee reviews the whole diagram and submits it with
+ * submitHeadsTeam below, then the recruitment admin approves it with
+ * sendHeadsTeamAcceptances before anyone is actually emailed.
  */
 async function assignHeadsApplicant(
   token: string,
@@ -5775,19 +5817,36 @@ async function assignHeadsApplicant(
     `${sheetRange(
       HEADS_APPLICATION_SHEET_NAME,
       isFirstPreference
-        ? `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(RELEASED_AT_COLUMN + 1)}${index + 2}`
+        ? `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
         : `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
     )}?valueInputOption=RAW`,
     {
       values: [
         isFirstPreference
-          // Reclaiming as first preference also clears any release — it is
-          // moot once the committee that mattered wants them after all.
-          ? ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee), "", "", ""]
+          // Reclaiming as first preference also clears any release and any
+          // prior submission — both are moot once the committee that
+          // mattered wants them after all, and this draft needs its own
+          // fresh confirm before it can go to the admin again.
+          ? ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee), "", "", "", "", ""]
           : ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]
       ]
     }
   );
+
+  // Redrafting a non-first-preference placement (say, changing the role)
+  // un-submits it too, so a stale "Submitted" does not linger for the admin
+  // to approve against what the committee actually meant.
+  if (!isFirstPreference) {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      { values: [["", ""]] }
+    );
+  }
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
 }
@@ -5811,7 +5870,7 @@ async function unassignHeadsApplicant(
 
   const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
   if (status === "Yes") {
-    throw new Error("Already confirmed and emailed — this can't be undone from the diagram.");
+    throw new Error("Already approved and emailed — this can't be undone from the diagram.");
   }
 
   await sheetsFetch(
@@ -5823,33 +5882,64 @@ async function unassignHeadsApplicant(
     )}?valueInputOption=RAW`,
     { values: [["", "", "", "", "", ""]] }
   );
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    { values: [["", ""]] }
+  );
 
   return { applicantEmail };
 }
 
 /**
- * The committee confirming its finished diagram: every applicant currently
- * drafted onto one of this committee's roles gets the welcome email at once,
- * and flips from Draft to Yes. Head roles still empty afterward come back in
- * `missingHeadRoles` — purely informational, nothing about the interview
- * schedule or deadline changes on its own.
+ * Filled by anything on the diagram for this committee that is not a dead
+ * "" — Draft, Submitted, or Yes — so a role someone was just placed into (but
+ * not yet submitted, or not yet approved) does not falsely show up as
+ * missing while the committee is still mid-build.
  */
-async function confirmHeadsTeam(
+function missingHeadRolesFor(rows: string[][], committee: string): string[] {
+  const heads = COMMITTEE_HEADS[normalizeRole(committee)] ?? [];
+  const filled = new Set(
+    rows
+      .filter(
+        (row) =>
+          ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim()) &&
+          normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+          String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head"
+      )
+      .map((row) => normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")))
+  );
+  return heads.filter((h) => !filled.has(normalizeRole(h.name))).map((h) => h.name);
+}
+
+/**
+ * The committee confirming its finished diagram — this does NOT email anyone.
+ * It hands every eligible Draft to the recruitment admin by flipping it to
+ * Submitted; the admin reviews across every committee and is the one who
+ * actually triggers the welcome email, with sendHeadsTeamAcceptances below.
+ * Head roles still empty afterward come back in `missingHeadRoles`, so the
+ * committee (and the admin) can see what to flag for a deadline extension.
+ */
+async function submitHeadsTeam(
   token: string,
-  payload: HeadsConfirmTeamPayload
+  payload: HeadsSubmitTeamPayload
 ): Promise<{
   committee: string;
-  sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
+  submitted: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
   held: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }>;
   missingHeadRoles: string[];
 }> {
   const committee = String(payload.committee ?? "").trim();
   if (!committee) throw new Error("Committee is required.");
 
-  // Only the committee itself confirms and sends — not a second-preference
-  // committee or an assigned interviewer, who may draft placements but should
-  // not be the ones who trigger the actual welcome email on this committee's
-  // behalf.
+  // Only the committee itself submits its own diagram — not a
+  // second-preference committee or an assigned interviewer, who may draft
+  // placements but should not be the ones handing the whole roster to the
+  // admin on this committee's behalf.
   const access = await requireCommitteeAccess(token, payload.email);
   if (normalizeRole(access.department) !== normalizeRole(committee)) {
     throw new Error(`${displayCommitteeName(access.department)} does not run ${displayCommitteeName(committee)}'s diagram.`);
@@ -5869,8 +5959,8 @@ async function confirmHeadsTeam(
         normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)
     );
 
-  const confirmedAt = new Date().toISOString();
-  const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
+  const submittedAt = new Date().toISOString();
+  const submitted: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
   const held: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
 
   for (const { row, index } of drafted) {
@@ -5883,7 +5973,7 @@ async function confirmHeadsTeam(
     /*
      * This committee is not who the applicant put first, and the
      * first-preference committee has not released them — stays a Draft,
-     * nothing sent. The director sees this back as `held`, with whose
+     * not submitted. The director sees this back as `held`, with whose
      * portal to go ask.
      */
     const firstPreferenceCommittee = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
@@ -5897,11 +5987,81 @@ async function confirmHeadsTeam(
     await sheetsFetch(
       token,
       "PUT",
+      `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}`)}?valueInputOption=RAW`,
+      { values: [["Submitted"]] }
+    );
+    await sheetsFetch(
+      token,
+      "PUT",
       `${sheetRange(
         HEADS_APPLICATION_SHEET_NAME,
-        `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_AT_COLUMN + 1)}${index + 2}`
+        `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
       )}?valueInputOption=RAW`,
-      { values: [["Yes", headName, position, access.email, confirmedAt]] }
+      { values: [[access.email, submittedAt]] }
+    );
+
+    submitted.push({ applicantEmail, fullName, headName, position });
+  }
+
+  return {
+    committee: displayCommitteeName(committee),
+    submitted,
+    held,
+    missingHeadRoles: missingHeadRolesFor(rows, committee)
+  };
+}
+
+/**
+ * The recruitment admin approving a committee's submitted roster: every
+ * applicant currently Submitted for this committee gets the welcome email at
+ * once and flips to Yes. This is the only place that email actually goes
+ * out — a committee confirming its own diagram never sends anything by
+ * itself, only hands it here first.
+ */
+async function sendHeadsTeamAcceptances(
+  token: string,
+  payload: HeadsAdminConfirmTeamPayload
+): Promise<{
+  committee: string;
+  sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
+  missingHeadRoles: string[];
+}> {
+  const committee = String(payload.committee ?? "").trim();
+  if (!committee) throw new Error("Committee is required.");
+
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+
+  const submitted = rows
+    .map((row, index) => ({ row, index }))
+    .filter(
+      ({ row }) =>
+        String(row[ACCEPTED_COLUMN] ?? "").trim() === "Submitted" &&
+        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)
+    );
+
+  const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
+
+  for (const { row, index } of submitted) {
+    const applicantEmail = String(row[emailColumn] ?? "").trim();
+    const fullName = String(row[nameColumn] ?? "").trim();
+    const headName = String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim();
+    const position = String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member";
+    if (!applicantEmail) continue;
+
+    // Only the status cell — Accepted By/At stays whoever originally drafted
+    // the placement, and Submitted By/At stays whoever on the committee
+    // confirmed it, so the audit trail keeps both steps distinct.
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}`)}?valueInputOption=RAW`,
+      { values: [["Yes"]] }
     );
 
     try {
@@ -5920,23 +6080,7 @@ async function confirmHeadsTeam(
     sent.push({ applicantEmail, fullName, headName, position });
   }
 
-  // Filled by anything already on the diagram for this committee — Draft or
-  // Yes, including the ones just sent above — so a role someone was placed
-  // into moments ago does not falsely show up as missing.
-  const heads = COMMITTEE_HEADS[normalizeRole(committee)] ?? [];
-  const filledHeadRoles = new Set(
-    rows
-      .filter(
-        (row) =>
-          (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes" || String(row[ACCEPTED_COLUMN] ?? "").trim() === "Draft") &&
-          normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
-          String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head"
-      )
-      .map((row) => normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")))
-  );
-  const missingHeadRoles = heads.filter((h) => !filledHeadRoles.has(normalizeRole(h.name))).map((h) => h.name);
-
-  return { committee: displayCommitteeName(committee), sent, held, missingHeadRoles };
+  return { committee: displayCommitteeName(committee), sent, missingHeadRoles: missingHeadRolesFor(rows, committee) };
 }
 
 /**

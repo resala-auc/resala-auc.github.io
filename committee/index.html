@@ -185,6 +185,7 @@
     padding: 1px 7px; border-radius: 999px; flex: 0 0 auto;
   }
   .chip-status.draft { background: #fdf4e0; color: var(--warn); }
+  .chip-status.submitted { background: #e8effd; color: var(--blue); }
   .chip-status.sent { background: #e8f6ee; color: var(--good); }
   .chip-status.pending { background: #fdecec; color: #a3231b; }
   .chip-x {
@@ -704,14 +705,15 @@ function acceptStatus(applicant) {
   if (applicant.acceptedStatus && !p) {
     const committeeName = display(applicant.committee || applicant.roleAppliedFor);
     const released = applicant.firstPreferenceReleased;
+    const statusNote = { Draft: " — still a draft, not submitted yet.", Submitted: " — submitted, awaiting admin approval.", Yes: " — already approved and emailed." }[applicant.acceptedStatus] || "";
     return `
       <div class="banner warn">
         Wanted by <b>${esc(applicant.acceptedCommittee)}</b>, as ${esc(applicant.acceptedPosition)} of
-        ${esc(applicant.acceptedRole)}${applicant.acceptedStatus === "Yes" ? " — already confirmed and emailed." : " — still a draft, not emailed yet."}
+        ${esc(applicant.acceptedRole)}${statusNote}
       </div>
       <div class="note" style="margin-bottom:10px;">
         ${esc(committeeName)} is their first preference, so nothing is final until you decide: claim them for
-        ${esc(committeeName)} from the <b>Team diagram</b> tab, or release them so ${esc(applicant.acceptedCommittee)} can confirm.
+        ${esc(committeeName)} from the <b>Team diagram</b> tab, or release them so ${esc(applicant.acceptedCommittee)} can proceed.
       </div>
       <div class="actions">
         <button class="btn btn-sm ${released ? "btn-gold" : "btn-ghost"}" id="toggle-release" data-release="${released ? "false" : "true"}">
@@ -727,17 +729,23 @@ function acceptStatus(applicant) {
   }
   const when = applicant.acceptedAt ? `· ${esc(String(applicant.acceptedAt).slice(0, 16).replace("T", " "))}` : "";
   if (applicant.acceptedStatus === "Yes") {
-    return `<div class="banner ok">Confirmed as ${esc(applicant.acceptedPosition || "—")} of
-      ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram, and emailed ${when}.</div>`;
+    return `<div class="banner ok">Approved as ${esc(applicant.acceptedPosition || "—")} of
+      ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram, and emailed by the recruitment admin.</div>`;
+  }
+  if (applicant.acceptedStatus === "Submitted") {
+    const submittedWhen = applicant.submittedAt ? `· ${esc(String(applicant.submittedAt).slice(0, 16).replace("T", " "))}` : "";
+    return `<div class="banner warn">Submitted as ${esc(applicant.acceptedPosition || "—")} of
+      ${esc(applicant.acceptedRole || "—")} ${submittedWhen}. Waiting on the recruitment admin to approve it — nothing is
+      emailed until they do.</div>`;
   }
   if (applicant.preference !== "First" && !applicant.firstPreferenceReleased) {
     return `<div class="banner warn">Drafted as ${esc(applicant.acceptedPosition || "—")} of
       ${esc(applicant.acceptedRole || "—")} ${when}, but ${esc(display(applicant.roleAppliedFor))} is their first preference and
-      has not released them yet. Nothing sends until they do.</div>`;
+      has not released them yet. Cannot be submitted until they do.</div>`;
   }
   return `<div class="banner warn">Drafted as ${esc(applicant.acceptedPosition || "—")} of
-    ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram ${when}. Not emailed yet —
-    confirm the diagram from the <b>Team diagram</b> tab to send it.</div>`;
+    ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram ${when}. Not submitted yet —
+    submit the diagram from the <b>Team diagram</b> tab to send it to the recruitment admin for approval.</div>`;
 }
 
 /* ── team diagram ───────────────────────────────────────────────────────── */
@@ -781,13 +789,13 @@ function isHeldForFirstPreference(applicant) {
 function slotChip(applicant) {
   const p = placementOn(applicant);
   const pending = isHeldForFirstPreference(applicant);
-  const label = p.status === "Yes" ? "Sent" : pending ? "Pending" : "Draft";
-  const cls = p.status === "Yes" ? "sent" : pending ? "pending" : "draft";
+  const label = p.status === "Yes" ? "Sent" : p.status === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
+  const cls = p.status === "Yes" ? "sent" : p.status === "Submitted" ? "submitted" : pending ? "pending" : "draft";
   return `
     <div class="slot-chip">
       <span>${esc(applicant.fullName)}</span>
       <span class="chip-status ${cls}">${label}</span>
-      ${p.status === "Draft" ? `<button type="button" class="chip-x" data-unassign="${esc(applicant.email)}" title="Remove">×</button>` : ""}
+      ${p.status !== "Yes" ? `<button type="button" class="chip-x" data-unassign="${esc(applicant.email)}" title="Remove">×</button>` : ""}
     </div>
     ${pending ? `<div class="note" style="margin:-3px 0 6px;">Waiting on ${esc(display(applicant.roleAppliedFor))}'s committee to release them.</div>` : ""}`;
 }
@@ -839,6 +847,7 @@ function renderTeam() {
   const elsewhere = pool.filter((a) => a.acceptedStatus && !placementOn(a));
   const readyCount = here.filter((a) => placementOn(a).status === "Draft" && !isHeldForFirstPreference(a)).length;
   const pendingCount = here.filter(isHeldForFirstPreference).length;
+  const submittedCount = here.filter((a) => placementOn(a).status === "Submitted").length;
   const sentCount = here.filter((a) => placementOn(a).status === "Yes").length;
 
   const boxes = heads
@@ -868,14 +877,17 @@ function renderTeam() {
 
   el.innerHTML = `
     <div class="team-summary">
-      <span class="count"><b>${readyCount}</b> ready to send</span>
+      <span class="count"><b>${readyCount}</b> ready to submit</span>
       ${pendingCount ? `<span class="count"><b>${pendingCount}</b> waiting on first preference</span>` : ""}
-      <span class="count"><b>${sentCount}</b> already sent</span>
+      <span class="count"><b>${submittedCount}</b> awaiting admin approval</span>
+      <span class="count"><b>${sentCount}</b> approved and sent</span>
       <span class="count"><b>${unplaced.length}</b> not yet placed</span>
       <div class="go">
-        <button class="btn btn-gold" id="confirm-team"${readyCount ? "" : " disabled"}>Confirm & send acceptance emails</button>
+        <button class="btn btn-gold" id="confirm-team"${readyCount ? "" : " disabled"}>Submit for admin approval</button>
       </div>
     </div>
+    <div class="note" style="margin:-10px 0 18px;">Submitting does not email anyone — the recruitment admin reviews it
+      and sends the acceptance emails from their own portal.</div>
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-8px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
 
     <h2 class="sec2">${esc(display(state.access.department))} — roles</h2>
@@ -934,31 +946,31 @@ async function unassignFromTeam(email) {
 }
 
 async function confirmTeam() {
-  // Only what is actually sendable — a placement still waiting on the
+  // Only what is actually submittable — a placement still waiting on the
   // applicant's first-preference committee is excluded here the same way the
-  // backend excludes it from `sent`, so the confirm dialog's count matches
-  // what really goes out.
+  // backend excludes it, so the confirm dialog's count matches what really
+  // goes to the admin.
   const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft" && !isHeldForFirstPreference(a));
   if (!drafts.length) return;
   const headCount = drafts.filter((a) => placementOn(a).position === "Head").length;
   const memberCount = drafts.length - headCount;
 
   if (!(await confirmDialog(
-    `Send acceptance emails to ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
-    `(${headCount} as Head, ${memberCount} as Member)?\n\n` +
-    "This emails every one of them immediately, cc the committee and HR."
+    `Submit ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
+    `(${headCount} as Head, ${memberCount} as Member) for admin approval?\n\n` +
+    "This does not email anyone yet — the recruitment admin reviews the roster and sends the acceptance emails."
   ))) return;
 
   const btn = document.getElementById("confirm-team");
-  if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+  if (btn) { btn.disabled = true; btn.textContent = "Submitting…"; }
   try {
-    const r = await api({ mode: "heads-confirm-team", email: state.access.email, committee: state.access.department });
+    const r = await api({ mode: "heads-submit-team", email: state.access.email, committee: state.access.department });
     const heldNote = r.held.length
       ? ` ${r.held.length} still waiting on their first preference: ${r.held.map((h) => `${h.fullName} (${h.firstPreferenceCommittee})`).join(", ")}.`
       : "";
     state.teamMsg = {
       type: "ok",
-      text: `Sent to ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}${heldNote}`
+      text: `Submitted ${r.submitted.length} for admin approval.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}${heldNote}`
     };
     await load(state.access.email);
   } catch (e) {
