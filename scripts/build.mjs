@@ -46,6 +46,11 @@ await cp("src/scoring-rubrics.mjs", "dist/scoring-rubrics.js");
 await cp("src/interview-config.mjs", "dist/interview-config.js");
 
 await cp("src/role-guide-data.mjs", "dist/role-guide-data.mjs");
+// The committee portal reads this too now, to list a committee's own head
+// roles when a director accepts an applicant. Same .js copy as
+// scoring-rubrics above, for the same reason — this one had never been
+// loaded by a browser before, only by the build scripts above.
+await cp("src/role-guide-data.mjs", "dist/role-guide-data.js");
 
 // The animated recruitment experience is a Vite app; it emits into dist/join/.
 await viteBuild();

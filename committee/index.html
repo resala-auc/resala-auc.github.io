@@ -216,6 +216,7 @@
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
+import { getRoleGuideById } from "../role-guide-data.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
@@ -380,7 +381,8 @@ function renderList() {
              <span class="state ${stateClass(a)}">${esc(stateLabel(a))}</span>
              ${expectsTask(a)
                ? `<span class="task-pill ${submittedLink(a) ? "" : "due"}">${submittedLink(a) ? "Task in" : "Task due"}</span>`
-               : ""}</div>
+               : ""}
+             ${a.accepted ? `<span class="task-pill">Accepted</span>` : ""}</div>
       </button>`;
   }).join("");
 }
@@ -620,9 +622,61 @@ function renderPanel() {
       <button class="btn btn-gold" id="save">Save</button>
       <span class="total" id="running"></span>
       <span class="note" id="saved">${mine ? "Last saved " + esc(String(mine.updatedAt).slice(0, 16).replace("T", " ")) : ""}</span>
-    </div>`;
+    </div>
+
+    <h3 class="sec">Accept this applicant</h3>
+    ${acceptSection(applicant)}`;
 
   updateRunningTotal();
+}
+
+/*
+ * Which of the committee's own head-role teams an applicant joins, and Head
+ * or Member of it. Open on every tab — first preference, second preference,
+ * assigned — the same reach as scoring, since accepting evaluates them, it
+ * does not touch the interview they booked with whoever runs it.
+ */
+function acceptSection(applicant) {
+  const guide = getRoleGuideById(committeeIdOf(applicant));
+  const heads = guide?.heads ?? [];
+  if (!heads.length) {
+    return `<div class="note">${esc(display(applicant.committee || applicant.roleAppliedFor))} has no listed roles to accept them into.</div>`;
+  }
+
+  const appliedHeadId = headIdOf(applicant);
+  const headOptions = heads
+    .map((h) => `<option value="${esc(h.id)}"${h.id === appliedHeadId ? " selected" : ""}>${esc(h.name)}</option>`)
+    .join("");
+
+  const already = applicant.accepted ? `
+    <div class="banner ok">
+      Accepted as ${esc(applicant.acceptedPosition || "—")} of ${esc(applicant.acceptedRole || "—")}
+      ${applicant.acceptedAt ? `· ${esc(String(applicant.acceptedAt).slice(0, 16).replace("T", " "))}` : ""}.
+      Sending again replaces this and emails them a second time.
+    </div>` : "";
+
+  return `${already}
+    <div class="note" style="margin-bottom:10px;">
+      Picks which role they join within ${esc(display(applicant.committee || applicant.roleAppliedFor))}, and whether as its
+      Head or a Member. Emails them directly — cc the committee and HR, same as every other applicant email.
+    </div>
+    <div class="row2" style="margin-bottom:10px;">
+      <div>
+        <label for="accept-head">Role</label>
+        <select id="accept-head">${headOptions}</select>
+      </div>
+      <div>
+        <label for="accept-position">As</label>
+        <select id="accept-position">
+          <option value="Member" selected>Member</option>
+          <option value="Head">Head</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-gold" id="accept-applicant">${applicant.accepted ? "Re-send acceptance" : "Accept and email"}</button>
+      <span class="msg" id="accept-msg"></span>
+    </div>`;
 }
 
 function readScores() {
@@ -732,7 +786,46 @@ document.getElementById("panel").addEventListener("click", (e) => {
   if (e.target.id === "cancel-interview") cancelInterview();
   if (e.target.id === "avail-yes") setSecondPreferenceAvailability(true);
   if (e.target.id === "avail-no") setSecondPreferenceAvailability(false);
+  if (e.target.id === "accept-applicant") acceptApplicant();
 });
+
+async function acceptApplicant() {
+  const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));
+  if (!applicant) return;
+  const msg = document.getElementById("accept-msg");
+  const btn = document.getElementById("accept-applicant");
+  const headSelect = document.getElementById("accept-head");
+  const positionSelect = document.getElementById("accept-position");
+  const headId = headSelect?.value;
+  const position = positionSelect?.value;
+  if (!headId || !position) return;
+  const headName = headSelect.options[headSelect.selectedIndex]?.textContent || headId;
+  const committee = applicant.committee || applicant.roleAppliedFor;
+
+  if (!(await confirmDialog(
+    `Accept ${applicant.fullName} into ${display(committee)} as ${position} of ${headName}?\n\n` +
+    "This emails them immediately, cc the committee and HR."
+  ))) return;
+
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Sending…";
+  try {
+    const r = await api({
+      mode: "heads-accept-applicant",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      committee,
+      headId,
+      position
+    });
+    msg.className = "msg ok";
+    msg.textContent = `Accepted.${r.emailSent ? " Applicant emailed." : " Email not sent."}`;
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  } finally { btn.disabled = false; }
+}
 
 async function setSecondPreferenceAvailability(available) {
   const applicant = currentList().find((a) => norm(a.email) === norm(state.selected));

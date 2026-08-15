@@ -182,11 +182,24 @@ const HEADS_APPLICATION_HEADERS = [
   // actually make that time.
   "Second Preference Availability",
   "Second Preference Availability Note",
-  "Second Preference Availability Set At"
+  "Second Preference Availability Set At",
+  // Whichever committee actually evaluated them decides this — first
+  // preference, second preference, or an assigned third interviewer — so it
+  // is not tied to "Committee" above the way everything else on this row is.
+  "Accepted",
+  "Accepted Role",
+  "Accepted Position",
+  "Accepted By",
+  "Accepted At"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
 const SECOND_PREFERENCE_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Committee");
+const ACCEPTED_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted");
+const ACCEPTED_ROLE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Role");
+const ACCEPTED_POSITION_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Position");
+const ACCEPTED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted By");
+const ACCEPTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted At");
 const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
 const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
 const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
@@ -275,6 +288,62 @@ const CORE_DAYS = [
   "2026-08-13",
   "2026-08-14"
 ];
+
+/**
+ * Every head role a committee can accept an applicant into, keyed the same
+ * way as COMMITTEE_INTERVIEWS. Mirrors src/role-guide-data.mjs by hand, same
+ * as every other config in this file — the function cannot import it, since
+ * that file is written for the browser bundle, not this Deno runtime.
+ */
+const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
+  "tech director": [
+    { id: "navigator", name: "The Navigator" },
+    { id: "scout", name: "The Scout" },
+    { id: "builder", name: "The Builder" },
+    { id: "verifier", name: "The Verifier" },
+    { id: "closer", name: "The Closer" },
+    { id: "firefighter", name: "The Firefighter" }
+  ],
+  operations: [
+    { id: "planning", name: "The Planner" },
+    { id: "inventory", name: "The Organizer" },
+    { id: "procurement", name: "The Negotiator" },
+    { id: "logistics", name: "The Coordinator" }
+  ],
+  "branding media": [
+    { id: "projects", name: "Head of Projects" },
+    { id: "production", name: "Head of Acting & Production" },
+    { id: "design", name: "Head of Graphic Design" },
+    { id: "editing", name: "Head of Video Editing" }
+  ],
+  hr: [
+    { id: "engagement", name: "Engagement Head" },
+    { id: "inclusion", name: "Inclusion Head" },
+    { id: "tracking", name: "Tracking System Head" }
+  ],
+  "pr fundraising": [
+    { id: "sponsorship", name: "Sponsorship Head" },
+    { id: "events", name: "Events Head" },
+    { id: "partnerships", name: "Partnerships Head" }
+  ],
+  visits: [
+    { id: "discovery", name: "Discovery Head" },
+    { id: "execution", name: "Execution Head" },
+    { id: "impact", name: "Impact Head" },
+    { id: "storytelling", name: "Storytelling Head" }
+  ],
+  "children day director": [
+    { id: "creative", name: "Creative Logistics & Visual Identity Lead" },
+    { id: "english", name: "English Sessions Lead" },
+    { id: "teaching", name: "Teaching & Organizing Lead" }
+  ],
+  "initiatives director": [
+    { id: "research", name: "Research Head" },
+    { id: "execution-management", name: "Execution Management Head" },
+    { id: "field-execution", name: "Field Execution Head" },
+    { id: "teaching-engagement", name: "Teaching & Engagement Head" }
+  ]
+};
 
 const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
   "tech director": {
@@ -1017,6 +1086,22 @@ type HeadsSwapPreferencesPayload = {
   startTime?: string;
 };
 
+/**
+ * A director deciding an applicant is in — which committee, which head-role
+ * team, and whether they join it as its Head or as a Member. Open to whoever
+ * can already score this applicant, not only the first-preference committee:
+ * accepting is an evaluation decision, not control over a booking, the same
+ * distinction that already separates scoring from reschedule/cancel.
+ */
+type HeadsAcceptApplicantPayload = {
+  mode: "heads-accept-applicant";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  headId: string;
+  position: "Head" | "Member";
+};
+
 type AdminCreateHeadsMeetingPayload = {
   mode: "admin-create-heads-meeting";
 };
@@ -1081,6 +1166,7 @@ type SubmissionPayload =
   | HeadsConfirmSecondAvailabilityPayload
   | HeadsAssignInterviewerPayload
   | HeadsSwapPreferencesPayload
+  | HeadsAcceptApplicantPayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
@@ -1558,6 +1644,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await swapHeadsPreferences(token, payload)) });
     }
 
+    if (isHeadsAcceptApplicantPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await acceptHeadsApplicant(token, payload)) });
+    }
+
     if (isAdminCreateHeadsMeetingPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -1732,6 +1824,12 @@ function isHeadsSwapPreferencesPayload(
   payload: SubmissionPayload
 ): payload is HeadsSwapPreferencesPayload {
   return (payload as HeadsSwapPreferencesPayload).mode === "heads-swap-preferences";
+}
+
+function isHeadsAcceptApplicantPayload(
+  payload: SubmissionPayload
+): payload is HeadsAcceptApplicantPayload {
+  return (payload as HeadsAcceptApplicantPayload).mode === "heads-accept-applicant";
 }
 
 function isAdminResetPayload(payload: SubmissionPayload): payload is AdminResetPayload {
@@ -4432,6 +4530,13 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         secondPreferenceAvailability: String(row[SECOND_PREF_AVAILABILITY_COLUMN] ?? ""),
         secondPreferenceAvailabilityNote: String(row[SECOND_PREF_AVAILABILITY_NOTE_COLUMN] ?? ""),
         secondPreferenceAvailabilitySetAt: String(row[SECOND_PREF_AVAILABILITY_SET_AT_COLUMN] ?? ""),
+        // Set once a committee has decided this applicant is in — which of the
+        // committee's own head-role teams, and Head or Member of it.
+        accepted: String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes",
+        acceptedRole: String(row[ACCEPTED_ROLE_COLUMN] ?? ""),
+        acceptedPosition: String(row[ACCEPTED_POSITION_COLUMN] ?? ""),
+        acceptedBy: String(row[ACCEPTED_BY_COLUMN] ?? ""),
+        acceptedAt: String(row[ACCEPTED_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
@@ -5480,6 +5585,194 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
                     </td>
                   </tr>
                 </table>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+/**
+ * A director accepting an applicant: which committee, which head-role team,
+ * Head or Member. Recorded on the row, then one email out — welcome, not a
+ * scoresheet update, so it goes through the same audience every applicant
+ * email already uses rather than a quiet internal note.
+ */
+async function acceptHeadsApplicant(
+  token: string,
+  payload: HeadsAcceptApplicantPayload
+): Promise<{
+  applicantEmail: string;
+  committee: string;
+  headName: string;
+  position: string;
+  emailSent: boolean;
+}> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  const headId = String(payload.headId ?? "").trim();
+  const position = payload.position === "Member" ? "Member" : "Head";
+  if (!applicantEmail || !committee || !headId) {
+    throw new Error("Applicant, committee and role are all required.");
+  }
+
+  /*
+   * Same authority as scoring, not the stricter first-preference-only rule
+   * reschedule and cancel use — accepting evaluates an applicant, it does not
+   * move or control the interview they already booked, so whoever the
+   * committee trusted to score them (first preference, second preference, or
+   * an assigned third interviewer) can also decide they are in.
+   */
+  const access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
+
+  const heads = COMMITTEE_HEADS[normalizeRole(committee)];
+  const head = heads?.find((h) => h.id === headId);
+  if (!head) {
+    throw new Error(`${displayCommitteeName(committee)} has no role called that. Pick one from the list.`);
+  }
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  const fullName = String(rows[index][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
+  const acceptedAt = new Date().toISOString();
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    { values: [["Yes", head.name, position, access.email, acceptedAt]] }
+  );
+
+  let emailSent = false;
+  try {
+    const cc = await buildApplicantCc(token, committee, applicantEmail);
+    await sendAcceptanceEmail({
+      fullName,
+      aucEmail: applicantEmail,
+      committee: displayCommitteeName(committee),
+      headName: head.name,
+      position,
+      cc
+    });
+    emailSent = gmailConfigured();
+  } catch (error) {
+    console.error(`Acceptance email failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position, emailSent };
+}
+
+async function sendAcceptanceEmail({
+  fullName,
+  aucEmail,
+  committee,
+  headName,
+  position,
+  cc
+}: {
+  fullName: string;
+  aucEmail: string;
+  committee: string;
+  headName: string;
+  position: string;
+  cc: string;
+}): Promise<void> {
+  if (!gmailConfigured()) return;
+
+  const subject = `Resala AUC: welcome to ${committee} — you're in!`;
+  const body = [
+    `Hi ${fullName},`,
+    "",
+    `You are in. Welcome to ${committee}, as ${position === "Head" ? "the Head of" : "a Member of"} ${headName}.`,
+    "",
+    "Someone from the committee will reach out with what happens next. For now, this is just the good news.",
+    "",
+    "Congratulations, and welcome to Resala.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position });
+  const accessToken = await getGmailAccessToken();
+  const rawMessage = buildRawEmailMessage({
+    from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+    to: aucEmail,
+    cc: cc || undefined,
+    subject,
+    text: body,
+    html,
+    attachments: []
+  });
+
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ raw: rawMessage })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Gmail send failed: ${await response.text()}`);
+  }
+}
+
+export function buildAcceptanceEmailHtml({
+  fullName,
+  committee,
+  headName,
+  position
+}: {
+  fullName: string;
+  committee: string;
+  headName: string;
+  position: string;
+}): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:28px 28px 34px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:28px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">You're in!</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">Welcome to ${escapeHtml(committee)}.</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">You are in</div>
+                      <div style="font-size:20px;line-height:1.35;font-weight:bold;color:#0d2b45;">${
+                        position === "Head" ? "Head of" : "Member of"
+                      } ${escapeHtml(headName)}</div>
+                      <div style="font-size:14px;line-height:1.5;color:#4b5563;margin-top:4px;">${escapeHtml(committee)}</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">Someone from the committee will reach out with what happens next. For now, this is just the good news.</p>
+                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Congratulations, and welcome to Resala.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>
             </tr>

@@ -11,6 +11,7 @@
  * Deno, not Node: these builders live in the edge function.
  */
 import {
+  buildAcceptanceEmailHtml,
   buildConfirmationEmailTemplate,
   buildInterviewCancelledEmailHtml,
   buildPreferenceSwapCommitteeNoticeHtml,
@@ -197,6 +198,28 @@ for (const [file, booking, movedAway] of [
       movedAway ? "their interview left with the applicant" : "interview untouched, still theirs to run"
     })`,
     subject: "Resala AUC: Nour Hassan is now your second preference"
+  });
+}
+
+/* One as Head, one as Member — the only two things the copy actually changes on. */
+await Deno.mkdir(`${OUT}/acceptance`, { recursive: true });
+for (const position of ["Head", "Member"] as const) {
+  const file = `${position.toLowerCase()}.html`;
+  await Deno.writeTextFile(
+    `${OUT}/acceptance/${file}`,
+    buildAcceptanceEmailHtml({
+      fullName: "Nour Hassan",
+      committee: "Children’s Day",
+      headName: "Creative Logistics & Visual Identity Lead",
+      position
+    })
+  );
+  written.push({
+    committee: "",
+    dir: "acceptance",
+    file,
+    title: `Acceptance · welcomed in as ${position}`,
+    subject: "Resala AUC: welcome to Children’s Day — you're in!"
   });
 }
 
