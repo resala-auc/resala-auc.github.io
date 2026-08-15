@@ -174,6 +174,8 @@
   .slot-group { margin-bottom: 11px; }
   .slot-group:last-child { margin-bottom: 0; }
   .candidate-list { display: flex; flex-direction: column; gap: 8px; }
+  .reallocate { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+  .reallocate select { font-size: 13px; }
   .slot-label {
     font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px;
     color: var(--muted); font-weight: 700; margin-bottom: 6px;
@@ -844,6 +846,36 @@ function candidateCard(applicant, headId, headOpen) {
     </div>`;
 }
 
+/* Pulls in anyone from the whole unplaced pool, not just people who applied
+   for this specific role — the deliberate way to make someone Head (or
+   Member) of a role they never applied for, as opposed to candidateCard
+   above, which only ever offers people who did apply for it. */
+function reallocatePicker(headId, headOpen, candidates) {
+  if (!candidates.length) return "";
+  const options = candidates
+    .map((a) => `<option value="${esc(a.email)}">${esc(a.fullName)} — applied for ${esc(a.headName || display(a.roleAppliedFor))}</option>`)
+    .join("");
+  return `
+    <div class="reallocate">
+      <div class="slot-label">Move someone else in</div>
+      <div class="row2">
+        <div style="flex:2 1 200px;">
+          <select data-realloc-email="${esc(headId)}">
+            <option value="" selected disabled>Pick an applicant…</option>
+            ${options}
+          </select>
+        </div>
+        <div>
+          <select data-realloc-position="${esc(headId)}">
+            <option value="Member" selected>Member</option>
+            ${headOpen ? `<option value="Head">Head</option>` : ""}
+          </select>
+        </div>
+        <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-realloc-add="${esc(headId)}">Add</button></div>
+      </div>
+    </div>`;
+}
+
 function poolCard(applicant, heads) {
   const elsewhere = applicant.acceptedStatus && !placementOn(applicant);
   if (elsewhere) {
@@ -928,6 +960,10 @@ function renderTeam() {
       const headHolders = inRole.filter((a) => placementOn(a).position === "Head");
       const members = inRole.filter((a) => placementOn(a).position === "Member");
       const candidates = unplacedByHead.get(h.id) || [];
+      const headOpen = headHolders.length === 0;
+      // Everyone else unplaced, for reallocating in someone who applied for
+      // a different role entirely.
+      const reallocatable = unplaced.filter((a) => headIdOf(a) !== h.id).sort(byScore);
       return `
         <div class="role-box ${headHolders.length ? "" : "missing"}">
           <div class="role-box-title">${esc(h.name)}</div>
@@ -944,9 +980,10 @@ function renderTeam() {
               <div class="slot-label">Candidates${candidates.length ? ` (${candidates.length})` : ""}</div>
               <div class="candidate-list">
                 ${candidates.length
-                  ? candidates.map((a) => candidateCard(a, h.id, headHolders.length === 0)).join("")
+                  ? candidates.map((a) => candidateCard(a, h.id, headOpen)).join("")
                   : `<div class="note">Nobody who applied for this role is still unplaced.</div>`}
               </div>
+              ${reallocatePicker(h.id, headOpen, reallocatable)}
             </div>
           </div>
         </div>`;
@@ -981,14 +1018,14 @@ function renderTeam() {
     </div>`;
 }
 
-async function assignToTeam(email, fixedHeadId) {
+async function assignToTeam(email, fixedHeadId, fixedPosition) {
   const applicant = teamPool().find((a) => norm(a.email) === norm(email));
   if (!applicant) return;
-  const positionSelect = document.querySelector(`[data-pool-position="${CSS.escape(email)}"]`);
-  // A role-scoped candidate card carries its role on the button itself —
-  // only "Other candidates" still needs its own role picker.
+  // A role-scoped candidate card carries its role (and the reallocate picker
+  // carries both role and position) on the button itself — only "Other
+  // candidates" still needs its own role picker looked up by email.
   const headId = fixedHeadId || document.querySelector(`[data-pool-head="${CSS.escape(email)}"]`)?.value;
-  const position = positionSelect?.value;
+  const position = fixedPosition || document.querySelector(`[data-pool-position="${CSS.escape(email)}"]`)?.value;
   if (!headId || !position) return;
 
   state.teamMsg = null;
@@ -1195,6 +1232,14 @@ document.getElementById("views").addEventListener("click", (e) => {
 document.getElementById("view-team").addEventListener("click", (e) => {
   const assignBtn = e.target.closest("[data-assign]");
   if (assignBtn) { assignToTeam(assignBtn.dataset.assign, assignBtn.dataset.assignHead || null); return; }
+  const reallocBtn = e.target.closest("[data-realloc-add]");
+  if (reallocBtn) {
+    const headId = reallocBtn.dataset.reallocAdd;
+    const email = document.querySelector(`[data-realloc-email="${CSS.escape(headId)}"]`)?.value;
+    const position = document.querySelector(`[data-realloc-position="${CSS.escape(headId)}"]`)?.value;
+    if (email) assignToTeam(email, headId, position);
+    return;
+  }
   const unassignBtn = e.target.closest("[data-unassign]");
   if (unassignBtn) { unassignFromTeam(unassignBtn.dataset.unassign); return; }
   if (e.target.id === "confirm-team") confirmTeam();
