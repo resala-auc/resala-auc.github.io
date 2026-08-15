@@ -197,17 +197,28 @@ const HEADS_APPLICATION_HEADERS = [
   // Which committee's diagram this draft/acceptance belongs to — not always
   // "Committee" above, since a second-preference or assigned committee can
   // accept someone too. Needed to filter a diagram to only its own rows.
-  "Accepted Committee"
+  "Accepted Committee",
+  // The applicant's own first-preference committee (— "Committee" above) has
+  // first claim on them. A second-preference or assigned committee can still
+  // draft them onto its diagram, but cannot confirm and email until the
+  // first-preference committee explicitly says here it does not want them.
+  "First Preference Released",
+  "First Preference Released By",
+  "First Preference Released At"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
 const SECOND_PREFERENCE_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Committee");
+const FIRST_PREFERENCE_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Committee");
 const ACCEPTED_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted");
 const ACCEPTED_ROLE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Role");
 const ACCEPTED_POSITION_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Position");
 const ACCEPTED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted By");
 const ACCEPTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted At");
 const ACCEPTED_COMMITTEE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Accepted Committee");
+const RELEASED_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released");
+const RELEASED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released By");
+const RELEASED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released At");
 const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
 const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
 const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
@@ -1136,6 +1147,19 @@ type HeadsConfirmTeamPayload = {
   committee: string;
 };
 
+/**
+ * Only the applicant's actual first-preference committee can call this — the
+ * same authority as requireFirstPreferenceCommittee. Releasing says "we do
+ * not want this applicant," which is what lets a second-preference or
+ * assigned committee's draft become confirmable. `release: false` undoes it.
+ */
+type HeadsReleaseFirstPreferencePayload = {
+  mode: "heads-release-first-preference";
+  email: string;
+  applicantEmail: string;
+  release: boolean;
+};
+
 type AdminCreateHeadsMeetingPayload = {
   mode: "admin-create-heads-meeting";
 };
@@ -1203,6 +1227,7 @@ type SubmissionPayload =
   | HeadsAssignApplicantPayload
   | HeadsUnassignApplicantPayload
   | HeadsConfirmTeamPayload
+  | HeadsReleaseFirstPreferencePayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
   | BoardOnboardingSlotsPayload
@@ -1698,6 +1723,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await confirmHeadsTeam(token, payload)) });
     }
 
+    if (isHeadsReleaseFirstPreferencePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await setFirstPreferenceRelease(token, payload)) });
+    }
+
     if (isAdminCreateHeadsMeetingPayload(payload)) {
       authorizeAdminReset(request);
 
@@ -1886,6 +1917,11 @@ function isHeadsUnassignApplicantPayload(
 }
 function isHeadsConfirmTeamPayload(payload: SubmissionPayload): payload is HeadsConfirmTeamPayload {
   return (payload as HeadsConfirmTeamPayload).mode === "heads-confirm-team";
+}
+function isHeadsReleaseFirstPreferencePayload(
+  payload: SubmissionPayload
+): payload is HeadsReleaseFirstPreferencePayload {
+  return (payload as HeadsReleaseFirstPreferencePayload).mode === "heads-release-first-preference";
 }
 
 function isAdminResetPayload(payload: SubmissionPayload): payload is AdminResetPayload {
@@ -4598,6 +4634,11 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         acceptedCommittee: String(row[ACCEPTED_COMMITTEE_COLUMN] ?? ""),
         acceptedBy: String(row[ACCEPTED_BY_COLUMN] ?? ""),
         acceptedAt: String(row[ACCEPTED_AT_COLUMN] ?? ""),
+        // Whether the applicant's own first-preference committee has said it
+        // does not want them, freeing whoever else drafted them to confirm.
+        firstPreferenceReleased: String(row[RELEASED_COLUMN] ?? "").trim() === "Yes",
+        firstPreferenceReleasedBy: String(row[RELEASED_BY_COLUMN] ?? ""),
+        firstPreferenceReleasedAt: String(row[RELEASED_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
@@ -5707,8 +5748,23 @@ async function assignHeadsApplicant(
   const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
   if (index === -1) throw new Error("No application found for that applicant.");
 
-  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+  const currentStatus = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
+  if (currentStatus === "Yes") {
     throw new Error("Already confirmed and emailed — pull them off the diagram first if this needs to change.");
+  }
+
+  /*
+   * The applicant's own first-preference committee always has first claim —
+   * it can draft (or redraft) them regardless of who else already has, which
+   * is what actually reclaims them. Anyone else is blocked from touching a
+   * slot another committee is already holding, so a second-preference or
+   * assigned committee cannot silently steal a draft from a different one.
+   */
+  const isFirstPreference =
+    normalizeRole(String(rows[index][FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee);
+  const currentHolder = String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+  if (!isFirstPreference && currentStatus === "Draft" && normalizeRole(currentHolder) !== normalizeRole(committee)) {
+    throw new Error(`Already drafted onto ${currentHolder || "another committee"}'s diagram.`);
   }
 
   const draftedAt = new Date().toISOString();
@@ -5718,9 +5774,19 @@ async function assignHeadsApplicant(
     "PUT",
     `${sheetRange(
       HEADS_APPLICATION_SHEET_NAME,
-      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
+      isFirstPreference
+        ? `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(RELEASED_AT_COLUMN + 1)}${index + 2}`
+        : `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
     )}?valueInputOption=RAW`,
-    { values: [["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]] }
+    {
+      values: [
+        isFirstPreference
+          // Reclaiming as first preference also clears any release — it is
+          // moot once the committee that mattered wants them after all.
+          ? ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee), "", "", ""]
+          : ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]
+      ]
+    }
   );
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
@@ -5774,6 +5840,7 @@ async function confirmHeadsTeam(
 ): Promise<{
   committee: string;
   sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
+  held: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }>;
   missingHeadRoles: string[];
 }> {
   const committee = String(payload.committee ?? "").trim();
@@ -5804,6 +5871,7 @@ async function confirmHeadsTeam(
 
   const confirmedAt = new Date().toISOString();
   const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
+  const held: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
 
   for (const { row, index } of drafted) {
     const applicantEmail = String(row[emailColumn] ?? "").trim();
@@ -5811,6 +5879,20 @@ async function confirmHeadsTeam(
     const headName = String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim();
     const position = String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member";
     if (!applicantEmail) continue;
+
+    /*
+     * This committee is not who the applicant put first, and the
+     * first-preference committee has not released them — stays a Draft,
+     * nothing sent. The director sees this back as `held`, with whose
+     * portal to go ask.
+     */
+    const firstPreferenceCommittee = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
+    const isFirstPreference = normalizeRole(firstPreferenceCommittee) === normalizeRole(committee);
+    const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
+    if (!isFirstPreference && !released) {
+      held.push({ applicantEmail, fullName, firstPreferenceCommittee: displayCommitteeName(firstPreferenceCommittee) });
+      continue;
+    }
 
     await sheetsFetch(
       token,
@@ -5854,7 +5936,48 @@ async function confirmHeadsTeam(
   );
   const missingHeadRoles = heads.filter((h) => !filledHeadRoles.has(normalizeRole(h.name))).map((h) => h.name);
 
-  return { committee: displayCommitteeName(committee), sent, missingHeadRoles };
+  return { committee: displayCommitteeName(committee), sent, held, missingHeadRoles };
+}
+
+/**
+ * The applicant's first-preference committee saying whether it wants them —
+ * the only thing that unblocks a second-preference or assigned committee's
+ * draft of the same applicant. `release: false` takes the release back.
+ */
+async function setFirstPreferenceRelease(
+  token: string,
+  payload: HeadsReleaseFirstPreferencePayload
+): Promise<{ applicantEmail: string; released: boolean }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Applicant is required.");
+  const release = payload.release !== false;
+
+  // Same authority as reschedule/cancel: only the committee the applicant put
+  // first. Releasing is that committee giving up its own claim, so nobody
+  // else should be able to do it on their behalf.
+  const access = await requireFirstPreferenceCommittee(token, payload.email, applicantEmail);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+    throw new Error("Already confirmed and emailed — nothing left to release.");
+  }
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(RELEASED_COLUMN + 1)}${index + 2}:${columnLetter(RELEASED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    { values: [[release ? "Yes" : "", release ? access.email : "", release ? new Date().toISOString() : ""]] }
+  );
+
+  return { applicantEmail, released: release };
 }
 
 async function sendAcceptanceEmail({

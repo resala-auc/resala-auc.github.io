@@ -186,6 +186,7 @@
   }
   .chip-status.draft { background: #fdf4e0; color: var(--warn); }
   .chip-status.sent { background: #e8f6ee; color: var(--good); }
+  .chip-status.pending { background: #fdecec; color: #a3231b; }
   .chip-x {
     margin-left: auto; background: none; border: 0; color: var(--muted);
     font-size: 16px; line-height: 1; padding: 2px 4px; flex: 0 0 auto;
@@ -694,6 +695,33 @@ function renderPanel() {
  * applicant in isolation cannot show.
  */
 function acceptStatus(applicant) {
+  const p = placementOn(applicant);
+
+  // Held by some other committee's diagram — only possible to see this from
+  // the applicant's actual first-preference committee, since that is the
+  // only side whose own committee field never matches where someone else put
+  // them. First preference has the claim, so this is where the call is made.
+  if (applicant.acceptedStatus && !p) {
+    const committeeName = display(applicant.committee || applicant.roleAppliedFor);
+    const released = applicant.firstPreferenceReleased;
+    return `
+      <div class="banner warn">
+        Wanted by <b>${esc(applicant.acceptedCommittee)}</b>, as ${esc(applicant.acceptedPosition)} of
+        ${esc(applicant.acceptedRole)}${applicant.acceptedStatus === "Yes" ? " — already confirmed and emailed." : " — still a draft, not emailed yet."}
+      </div>
+      <div class="note" style="margin-bottom:10px;">
+        ${esc(committeeName)} is their first preference, so nothing is final until you decide: claim them for
+        ${esc(committeeName)} from the <b>Team diagram</b> tab, or release them so ${esc(applicant.acceptedCommittee)} can confirm.
+      </div>
+      <div class="actions">
+        <button class="btn btn-sm ${released ? "btn-gold" : "btn-ghost"}" id="toggle-release" data-release="${released ? "false" : "true"}">
+          ${released ? "Revoke release" : `Release to ${esc(applicant.acceptedCommittee)}`}
+        </button>
+        <span class="msg" id="release-msg"></span>
+      </div>
+      ${released ? `<div class="note" style="margin-top:8px;">Released${applicant.firstPreferenceReleasedAt ? " · " + esc(String(applicant.firstPreferenceReleasedAt).slice(0, 16).replace("T", " ")) : ""}.</div>` : ""}`;
+  }
+
   if (!applicant.acceptedStatus) {
     return `<div class="note">Not on the diagram yet. Add them from the <b>Team diagram</b> tab above.</div>`;
   }
@@ -701,6 +729,11 @@ function acceptStatus(applicant) {
   if (applicant.acceptedStatus === "Yes") {
     return `<div class="banner ok">Confirmed as ${esc(applicant.acceptedPosition || "—")} of
       ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram, and emailed ${when}.</div>`;
+  }
+  if (applicant.preference !== "First" && !applicant.firstPreferenceReleased) {
+    return `<div class="banner warn">Drafted as ${esc(applicant.acceptedPosition || "—")} of
+      ${esc(applicant.acceptedRole || "—")} ${when}, but ${esc(display(applicant.roleAppliedFor))} is their first preference and
+      has not released them yet. Nothing sends until they do.</div>`;
   }
   return `<div class="banner warn">Drafted as ${esc(applicant.acceptedPosition || "—")} of
     ${esc(applicant.acceptedRole || "—")} on ${esc(applicant.acceptedCommittee)}'s diagram ${when}. Not emailed yet —
@@ -737,14 +770,26 @@ function placementOn(applicant) {
   return { role: applicant.acceptedRole, position: applicant.acceptedPosition, status: applicant.acceptedStatus };
 }
 
+/* Drafted but stuck behind the applicant's first-preference committee, who
+   has not released them yet — the only status a placement here can be in
+   without also being ready to send. */
+function isHeldForFirstPreference(applicant) {
+  const p = placementOn(applicant);
+  return p?.status === "Draft" && applicant.preference !== "First" && !applicant.firstPreferenceReleased;
+}
+
 function slotChip(applicant) {
   const p = placementOn(applicant);
+  const pending = isHeldForFirstPreference(applicant);
+  const label = p.status === "Yes" ? "Sent" : pending ? "Pending" : "Draft";
+  const cls = p.status === "Yes" ? "sent" : pending ? "pending" : "draft";
   return `
     <div class="slot-chip">
       <span>${esc(applicant.fullName)}</span>
-      <span class="chip-status ${p.status === "Yes" ? "sent" : "draft"}">${p.status === "Yes" ? "Sent" : "Draft"}</span>
+      <span class="chip-status ${cls}">${label}</span>
       ${p.status === "Draft" ? `<button type="button" class="chip-x" data-unassign="${esc(applicant.email)}" title="Remove">×</button>` : ""}
-    </div>`;
+    </div>
+    ${pending ? `<div class="note" style="margin:-3px 0 6px;">Waiting on ${esc(display(applicant.roleAppliedFor))}'s committee to release them.</div>` : ""}`;
 }
 
 function poolCard(applicant, heads) {
@@ -792,7 +837,8 @@ function renderTeam() {
   const here = pool.filter((a) => placementOn(a));
   const unplaced = pool.filter((a) => !a.acceptedStatus);
   const elsewhere = pool.filter((a) => a.acceptedStatus && !placementOn(a));
-  const draftCount = here.filter((a) => placementOn(a).status === "Draft").length;
+  const readyCount = here.filter((a) => placementOn(a).status === "Draft" && !isHeldForFirstPreference(a)).length;
+  const pendingCount = here.filter(isHeldForFirstPreference).length;
   const sentCount = here.filter((a) => placementOn(a).status === "Yes").length;
 
   const boxes = heads
@@ -822,11 +868,12 @@ function renderTeam() {
 
   el.innerHTML = `
     <div class="team-summary">
-      <span class="count"><b>${draftCount}</b> drafted</span>
+      <span class="count"><b>${readyCount}</b> ready to send</span>
+      ${pendingCount ? `<span class="count"><b>${pendingCount}</b> waiting on first preference</span>` : ""}
       <span class="count"><b>${sentCount}</b> already sent</span>
       <span class="count"><b>${unplaced.length}</b> not yet placed</span>
       <div class="go">
-        <button class="btn btn-gold" id="confirm-team"${draftCount ? "" : " disabled"}>Confirm & send acceptance emails</button>
+        <button class="btn btn-gold" id="confirm-team"${readyCount ? "" : " disabled"}>Confirm & send acceptance emails</button>
       </div>
     </div>
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-8px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
@@ -887,7 +934,11 @@ async function unassignFromTeam(email) {
 }
 
 async function confirmTeam() {
-  const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft");
+  // Only what is actually sendable — a placement still waiting on the
+  // applicant's first-preference committee is excluded here the same way the
+  // backend excludes it from `sent`, so the confirm dialog's count matches
+  // what really goes out.
+  const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft" && !isHeldForFirstPreference(a));
   if (!drafts.length) return;
   const headCount = drafts.filter((a) => placementOn(a).position === "Head").length;
   const memberCount = drafts.length - headCount;
@@ -902,14 +953,45 @@ async function confirmTeam() {
   if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
   try {
     const r = await api({ mode: "heads-confirm-team", email: state.access.email, committee: state.access.department });
+    const heldNote = r.held.length
+      ? ` ${r.held.length} still waiting on their first preference: ${r.held.map((h) => `${h.fullName} (${h.firstPreferenceCommittee})`).join(", ")}.`
+      : "";
     state.teamMsg = {
       type: "ok",
-      text: `Sent to ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}`
+      text: `Sent to ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}${heldNote}`
     };
     await load(state.access.email);
   } catch (e) {
     state.teamMsg = { type: "bad", text: e.message };
     renderTeam();
+  }
+}
+
+async function toggleRelease(applicantEmail, release) {
+  const applicant = currentList().find((a) => norm(a.email) === norm(applicantEmail));
+  if (!applicant) return;
+  const msg = document.getElementById("release-msg");
+  const btn = document.getElementById("toggle-release");
+
+  if (release && !(await confirmDialog(
+    `Release ${applicant.fullName} to ${applicant.acceptedCommittee}? They will be free to confirm and email this applicant.`
+  ))) return;
+
+  if (btn) btn.disabled = true;
+  if (msg) { msg.className = "msg"; msg.textContent = release ? "Releasing…" : "Revoking…"; }
+  try {
+    await api({
+      mode: "heads-release-first-preference",
+      email: state.access.email,
+      applicantEmail: applicant.email,
+      release
+    });
+    await load(state.access.email);
+    state.selected = applicant.email;
+    renderList(); renderPanel();
+  } catch (e) {
+    if (msg) { msg.className = "msg bad"; msg.textContent = e.message; }
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1040,6 +1122,7 @@ document.getElementById("panel").addEventListener("click", (e) => {
   if (e.target.id === "cancel-interview") cancelInterview();
   if (e.target.id === "avail-yes") setSecondPreferenceAvailability(true);
   if (e.target.id === "avail-no") setSecondPreferenceAvailability(false);
+  if (e.target.id === "toggle-release") toggleRelease(state.selected, e.target.dataset.release === "true");
 });
 
 async function setSecondPreferenceAvailability(available) {
