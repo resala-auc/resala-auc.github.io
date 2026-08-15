@@ -1172,6 +1172,20 @@ type HeadsAdminConfirmTeamPayload = {
 };
 
 /**
+ * The recruitment admin sending one Submitted placement back to Draft —
+ * the committee sees it reset right on their own diagram and can revise it
+ * before submitting again. Nothing is emailed either way. Only a Submitted
+ * row can be rejected — a Yes has already gone out and cannot be undone
+ * from here.
+ */
+type HeadsAdminRejectApplicantPayload = {
+  mode: "heads-admin-reject-applicant";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+};
+
+/**
  * Only the applicant's actual first-preference committee can call this — the
  * same authority as requireFirstPreferenceCommittee. Releasing says "we do
  * not want this applicant," which is what lets a second-preference or
@@ -1252,6 +1266,7 @@ type SubmissionPayload =
   | HeadsUnassignApplicantPayload
   | HeadsSubmitTeamPayload
   | HeadsAdminConfirmTeamPayload
+  | HeadsAdminRejectApplicantPayload
   | HeadsReleaseFirstPreferencePayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1754,6 +1769,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await sendHeadsTeamAcceptances(token, payload)) });
     }
 
+    if (isHeadsAdminRejectApplicantPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await rejectHeadsSubmission(token, payload)) });
+    }
+
     if (isHeadsReleaseFirstPreferencePayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1953,6 +1974,11 @@ function isHeadsAdminConfirmTeamPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminConfirmTeamPayload {
   return (payload as HeadsAdminConfirmTeamPayload).mode === "heads-admin-confirm-team";
+}
+function isHeadsAdminRejectApplicantPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminRejectApplicantPayload {
+  return (payload as HeadsAdminRejectApplicantPayload).mode === "heads-admin-reject-applicant";
 }
 function isHeadsReleaseFirstPreferencePayload(
   payload: SubmissionPayload
@@ -6099,6 +6125,55 @@ async function sendHeadsTeamAcceptances(
   }
 
   return { committee: displayCommitteeName(committee), sent, missingHeadRoles: missingHeadRolesFor(rows, committee) };
+}
+
+/**
+ * The recruitment admin sending one Submitted placement back to Draft —
+ * the committee sees it reset right on their own diagram (still showing the
+ * same role and position, so nothing about who it was for is lost) and can
+ * revise it before submitting again. Nothing is emailed either way; a Yes
+ * has already gone out and cannot be undone from here.
+ */
+async function rejectHeadsSubmission(
+  token: string,
+  payload: HeadsAdminRejectApplicantPayload
+): Promise<{ applicantEmail: string; committee: string }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  if (!applicantEmail || !committee) throw new Error("Applicant and committee are required.");
+
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
+  if (status === "Yes") throw new Error("Already approved and emailed — this can't be rejected from here.");
+  if (status !== "Submitted") throw new Error("This applicant has not been submitted for approval.");
+  if (normalizeRole(String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) {
+    throw new Error("This applicant is not on that committee's diagram.");
+  }
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}`)}?valueInputOption=RAW`,
+    { values: [["Draft"]] }
+  );
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    { values: [["", ""]] }
+  );
+
+  return { applicantEmail, committee: displayCommitteeName(committee) };
 }
 
 /**

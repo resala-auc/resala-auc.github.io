@@ -137,6 +137,8 @@
   .chip-status.submitted { background: #e8effd; color: var(--blue); }
   .chip-status.sent { background: #e8f6ee; color: var(--good); }
   .chip-status.pending { background: #fdecec; color: var(--bad); }
+  .chip-x { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px; flex: 0 0 auto; }
+  .chip-x:hover { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -883,7 +885,11 @@ function adminChip(a, rawCommittee) {
   const pending = isHeldForFirstPreference(a, rawCommittee);
   const label = a.acceptedStatus === "Yes" ? "Sent" : a.acceptedStatus === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
   const cls = a.acceptedStatus === "Yes" ? "sent" : a.acceptedStatus === "Submitted" ? "submitted" : pending ? "pending" : "draft";
-  return `<div class="slot-chip"><span>${esc(a.fullName)}</span><span class="chip-status ${cls}">${label}</span></div>`;
+  return `<div class="slot-chip">
+    <span>${esc(a.fullName)}</span>
+    <span class="chip-status ${cls}">${label}</span>
+    ${a.acceptedStatus === "Submitted" ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Reject — sends it back to Draft on their diagram">↺</button>` : ""}
+  </div>`;
 }
 
 function renderTeamCommittee(rawCommittee, guideId) {
@@ -930,7 +936,7 @@ function renderTeams() {
     </div>
     ${stillMissing.length ? `
       <div class="missing-summary">
-        <div class="missing-summary-title">Still missing a Head — worth flagging for a deadline extension on these roles</div>
+        <div class="missing-summary-title">Still missing a Head — extend the deadline for these roles only, approving is not blocked by them</div>
         <div class="missing-grid">
           ${stillMissing.map((r) => `
             <div class="missing-name">${esc(r.label)}</div>
@@ -970,6 +976,22 @@ async function approveTeam(rawCommittee, btn) {
       type: "ok",
       text: `${label}: sent ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}`
     };
+    await load(state.admin.email);
+    renderTeams();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    renderTeams();
+  }
+}
+
+async function rejectSubmission(email, rawCommittee) {
+  const a = state.data.applicants.find((x) => norm(x.email) === norm(email));
+  const label = display(rawCommittee);
+  if (!(await confirmDialog(`Reject ${a?.fullName || "this applicant"}'s submission for ${label}?\n\nSends it back to Draft on the committee's own diagram — nobody is emailed, and they can revise and resubmit it.`))) return;
+
+  try {
+    await api({ mode: "heads-admin-reject-applicant", email: state.admin.email, applicantEmail: email, committee: rawCommittee });
+    state.teamMsg = { type: "ok", text: `${a?.fullName || "Applicant"}: sent back to Draft for ${label} to revise.` };
     await load(state.admin.email);
     renderTeams();
   } catch (err) {
@@ -1036,9 +1058,10 @@ document.getElementById("views").addEventListener("click", (e) => {
 });
 
 document.getElementById("view-teams").addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-approve]");
-  if (!btn) return;
-  approveTeam(btn.dataset.approve, btn);
+  const approveBtn = e.target.closest("[data-approve]");
+  if (approveBtn) { approveTeam(approveBtn.dataset.approve, approveBtn); return; }
+  const rejectBtn = e.target.closest("[data-reject]");
+  if (rejectBtn) { rejectSubmission(rejectBtn.dataset.reject, rejectBtn.dataset.rejectCommittee); return; }
 });
 
 document.getElementById("refresh").addEventListener("click", () => load(state.admin.email));
