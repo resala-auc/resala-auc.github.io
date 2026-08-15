@@ -5809,6 +5809,24 @@ async function assignHeadsApplicant(
     throw new Error(`Already drafted onto ${currentHolder || "another committee"}'s diagram.`);
   }
 
+  // Only one Head per role. A different applicant already holding it has to
+  // be pulled off the diagram first — replacing them silently would be too
+  // easy to do by accident from a role's candidate list.
+  if (position === "Head") {
+    const existingHeadIndex = rows.findIndex(
+      (row, rowIndex) =>
+        rowIndex !== index &&
+        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+        normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")) === normalizeRole(head.name) &&
+        String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head" &&
+        ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim())
+    );
+    if (existingHeadIndex !== -1) {
+      const existingHeadName = String(rows[existingHeadIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
+      throw new Error(`${existingHeadName || "Someone else"} is already Head of ${head.name}. Remove them from the diagram first to replace them.`);
+    }
+  }
+
   const draftedAt = new Date().toISOString();
 
   await sheetsFetch(

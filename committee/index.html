@@ -163,15 +163,17 @@
   .team-summary .count b { color: var(--ink); }
   .team-summary .go { margin-left: auto; }
   h2.sec2 { font-size: 15px; color: var(--blue); margin: 0 0 12px; }
-  .team-grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-    gap: 14px; margin-bottom: 32px;
-  }
-  .role-box { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 15px 16px; }
+  /* One role per row, full width — reviewing is "who's up for this role",
+     not a grid you scan corner to corner. */
+  .team-roles { display: flex; flex-direction: column; gap: 16px; margin-bottom: 32px; }
+  .role-box { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
   .role-box.missing { border-color: #e3b96a; background: #fffaf0; }
-  .role-box-title { font-weight: 700; margin-bottom: 11px; }
+  .role-box-title { font-weight: 700; font-size: 16px; margin-bottom: 13px; }
+  .role-box-body { display: grid; grid-template-columns: 1fr 1fr 1.6fr; gap: 18px; align-items: start; }
+  @media (max-width: 820px) { .role-box-body { grid-template-columns: 1fr; } }
   .slot-group { margin-bottom: 11px; }
   .slot-group:last-child { margin-bottom: 0; }
+  .candidate-list { display: flex; flex-direction: column; gap: 8px; }
   .slot-label {
     font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px;
     color: var(--muted); font-weight: 700; margin-bottom: 6px;
@@ -800,6 +802,48 @@ function slotChip(applicant) {
     ${pending ? `<div class="note" style="margin:-3px 0 6px;">Waiting on ${esc(display(applicant.roleAppliedFor))}'s committee to release them.</div>` : ""}`;
 }
 
+/** Panel average, same ranking the Applicants tab already shows — so "best
+    candidate for this role" reads the same number in both places. */
+function scoreSummary(applicant) {
+  const score = rankScore(applicant);
+  return score === null
+    ? `<span class="score-pill none">Not scored</span>`
+    : `<span class="score-pill">${Math.round(score)}/100</span>`;
+}
+
+/** Up to two interviewers' notes, trimmed — enough to judge fit without
+    leaving the diagram to open the full applicant panel. */
+function notesSummary(applicant) {
+  const notes = (applicant.scores || [])
+    .map((s) => ({ who: s.interviewerName || s.interviewerEmail, text: String(s.notes || "").trim() }))
+    .filter((n) => n.text);
+  if (!notes.length) return `<div class="note">No interview notes yet.</div>`;
+  return notes
+    .slice(0, 2)
+    .map((n) => `<div class="note"><b>${esc(n.who)}:</b> ${esc(n.text.length > 120 ? n.text.slice(0, 120) + "…" : n.text)}</div>`)
+    .join("");
+}
+
+/* A candidate shown under the specific role they applied for — the role is
+   implicit (the box it's in), so there is no role picker here, only whether
+   they join as Head or Member. `headOpen` hides the Head option once the
+   role already has one, since only one Head per role is allowed. */
+function candidateCard(applicant, headId, headOpen) {
+  return `
+    <div class="pool-card">
+      <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
+      <div class="meta">${esc(display(applicant.committee || applicant.roleAppliedFor))}${applicant.preference !== "First" ? ` · their ${esc(applicant.preference.toLowerCase())} preference` : ""}</div>
+      ${notesSummary(applicant)}
+      <div class="row2" style="margin-top:9px;">
+        <div><select data-pool-position="${esc(applicant.email)}">
+          <option value="Member" selected>Member</option>
+          ${headOpen ? `<option value="Head">Head</option>` : ""}
+        </select></div>
+        <div class="go"><button type="button" class="btn btn-sm btn-gold" data-assign="${esc(applicant.email)}" data-assign-head="${esc(headId)}">Add</button></div>
+      </div>
+    </div>`;
+}
+
 function poolCard(applicant, heads) {
   const elsewhere = applicant.acceptedStatus && !placementOn(applicant);
   if (elsewhere) {
@@ -850,30 +894,66 @@ function renderTeam() {
   const submittedCount = here.filter((a) => placementOn(a).status === "Submitted").length;
   const sentCount = here.filter((a) => placementOn(a).status === "Yes").length;
 
+  // Ranked highest score first, same ordering the Applicants tab uses —
+  // unscored sinks to the bottom rather than counting as zero.
+  const byScore = (a, b) => {
+    const sa = rankScore(a), sb = rankScore(b);
+    if (sa === null && sb === null) return String(a.fullName).localeCompare(String(b.fullName));
+    if (sa === null) return 1;
+    if (sb === null) return -1;
+    return sb - sa;
+  };
+
+  // Grouped by the role each unplaced candidate actually applied for, so a
+  // role's box shows exactly who is up for it. Anyone whose applied role
+  // is not one of this committee's own heads falls to "Other candidates"
+  // below instead.
+  const unplacedByHead = new Map();
+  const otherUnplaced = [];
+  for (const a of unplaced) {
+    const hid = headIdOf(a);
+    if (hid && heads.some((h) => h.id === hid)) {
+      if (!unplacedByHead.has(hid)) unplacedByHead.set(hid, []);
+      unplacedByHead.get(hid).push(a);
+    } else {
+      otherUnplaced.push(a);
+    }
+  }
+  for (const list of unplacedByHead.values()) list.sort(byScore);
+  otherUnplaced.sort(byScore);
+
   const boxes = heads
     .map((h) => {
       const inRole = here.filter((a) => norm(placementOn(a).role) === norm(h.name));
       const headHolders = inRole.filter((a) => placementOn(a).position === "Head");
       const members = inRole.filter((a) => placementOn(a).position === "Member");
+      const candidates = unplacedByHead.get(h.id) || [];
       return `
         <div class="role-box ${headHolders.length ? "" : "missing"}">
           <div class="role-box-title">${esc(h.name)}</div>
-          <div class="slot-group">
-            <div class="slot-label">Head</div>
-            ${headHolders.length ? headHolders.map(slotChip).join("") : `<div class="note">No head assigned yet.</div>`}
-          </div>
-          <div class="slot-group">
-            <div class="slot-label">Members</div>
-            ${members.length ? members.map(slotChip).join("") : `<div class="note">None yet.</div>`}
+          <div class="role-box-body">
+            <div class="slot-group">
+              <div class="slot-label">Head</div>
+              ${headHolders.length ? headHolders.map(slotChip).join("") : `<div class="note">No head assigned yet.</div>`}
+            </div>
+            <div class="slot-group">
+              <div class="slot-label">Members</div>
+              ${members.length ? members.map(slotChip).join("") : `<div class="note">None yet.</div>`}
+            </div>
+            <div class="slot-group">
+              <div class="slot-label">Candidates${candidates.length ? ` (${candidates.length})` : ""}</div>
+              <div class="candidate-list">
+                ${candidates.length
+                  ? candidates.map((a) => candidateCard(a, h.id, headHolders.length === 0)).join("")
+                  : `<div class="note">Nobody who applied for this role is still unplaced.</div>`}
+              </div>
+            </div>
           </div>
         </div>`;
     })
     .join("");
 
-  const poolCards = [...unplaced, ...elsewhere]
-    .sort((a, b) => String(a.fullName).localeCompare(String(b.fullName)))
-    .map((a) => poolCard(a, heads))
-    .join("");
+  const otherCards = [...otherUnplaced, ...elsewhere].map((a) => poolCard(a, heads)).join("");
 
   el.innerHTML = `
     <div class="team-summary">
@@ -891,20 +971,23 @@ function renderTeam() {
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-8px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
 
     <h2 class="sec2">${esc(display(state.access.department))} — roles</h2>
-    <div class="team-grid">${boxes}</div>
+    <div class="team-roles">${boxes}</div>
 
-    <h2 class="sec2">Candidates</h2>
+    <h2 class="sec2">Other candidates</h2>
+    <div class="note" style="margin-bottom:12px;">Applied elsewhere, or already placed on another committee's
+      diagram — pick a role for them directly if you still want them here.</div>
     <div class="pool-grid">
-      ${poolCards || `<div class="empty">Nobody left to place — everyone in reach is already on the diagram.</div>`}
+      ${otherCards || `<div class="empty">Nobody left outside a role's own list.</div>`}
     </div>`;
 }
 
-async function assignToTeam(email) {
+async function assignToTeam(email, fixedHeadId) {
   const applicant = teamPool().find((a) => norm(a.email) === norm(email));
   if (!applicant) return;
-  const headSelect = document.querySelector(`[data-pool-head="${CSS.escape(email)}"]`);
   const positionSelect = document.querySelector(`[data-pool-position="${CSS.escape(email)}"]`);
-  const headId = headSelect?.value;
+  // A role-scoped candidate card carries its role on the button itself —
+  // only "Other candidates" still needs its own role picker.
+  const headId = fixedHeadId || document.querySelector(`[data-pool-head="${CSS.escape(email)}"]`)?.value;
   const position = positionSelect?.value;
   if (!headId || !position) return;
 
@@ -1111,7 +1194,7 @@ document.getElementById("views").addEventListener("click", (e) => {
 
 document.getElementById("view-team").addEventListener("click", (e) => {
   const assignBtn = e.target.closest("[data-assign]");
-  if (assignBtn) { assignToTeam(assignBtn.dataset.assign); return; }
+  if (assignBtn) { assignToTeam(assignBtn.dataset.assign, assignBtn.dataset.assignHead || null); return; }
   const unassignBtn = e.target.closest("[data-unassign]");
   if (unassignBtn) { unassignFromTeam(unassignBtn.dataset.unassign); return; }
   if (e.target.id === "confirm-team") confirmTeam();
