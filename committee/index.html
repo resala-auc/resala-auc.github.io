@@ -256,7 +256,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="team" aria-selected="false">Team diagram</button>
-      <button class="tab" data-view="slots" aria-selected="false">Add slots</button>
+      <button class="tab" data-view="slots" aria-selected="false">Slots</button>
     </div>
 
     <div id="view-applicants">
@@ -1129,42 +1129,42 @@ async function toggleRelease(applicantEmail, release) {
   }
 }
 
-/* ── add interview slots ───────────────────────────────────────────────── */
+/* ── manage interview slots ────────────────────────────────────────────── */
 
 const SLOT_EXTENSION_START = "2026-08-18";
 const SLOT_EXTENSION_END = "2026-08-23";
 const SLOT_EXTENSION_MIN_PER_DAY = 4;
 
-function slotTimeRowHtml() {
-  return `
-    <div class="row2 slot-time-row" style="margin-bottom:8px;">
-      <div><label style="font-size:11px;color:var(--muted);">Start</label><input type="time" class="slot-start-input"></div>
-      <div><label style="font-size:11px;color:var(--muted);">End</label><input type="time" class="slot-end-input"></div>
-      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
-    </div>`;
-}
-
 function renderSlotsForm() {
   const el = document.getElementById("view-slots");
   if (!state.access) return;
 
-  const rows = Array.from({ length: SLOT_EXTENSION_MIN_PER_DAY }, slotTimeRowHtml).join("");
+  const rows = Array.from({ length: SLOT_EXTENSION_MIN_PER_DAY }, () => `
+    <div class="row2" style="margin-bottom:8px;">
+      <div><input type="time" class="slot-time-input"></div>
+      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
+    </div>`).join("");
 
   el.innerHTML = `
-    <h2 class="sec2">Add interview slots for ${esc(display(state.access.department))}</h2>
+    <h2 class="sec2">Interview slots for ${esc(display(state.access.department))}</h2>
     <div class="note" style="margin-bottom:16px;">
-      Self-service, no need to ask — pick a date between <b>${esc(SLOT_EXTENSION_START)}</b> and
-      <b>${esc(SLOT_EXTENSION_END)}</b>, and at least ${SLOT_EXTENSION_MIN_PER_DAY} different start/end windows for
-      that day. Each window becomes exactly the interview length you set — the calendar event follows it precisely,
-      not a guessed duration. Add slots again for another day.
+      Pick a date to see what's already scheduled and remove anything still unbooked. Adding more is self-service
+      too — between <b>${esc(SLOT_EXTENSION_START)}</b> and <b>${esc(SLOT_EXTENSION_END)}</b>, at least
+      ${SLOT_EXTENSION_MIN_PER_DAY} different times per day. Every slot runs your committee's own established
+      interview length.
     </div>
-    <div class="panel" style="max-width:520px;">
-      <label for="slot-date">Date</label>
-      <input type="date" id="slot-date" min="${esc(SLOT_EXTENSION_START)}" max="${esc(SLOT_EXTENSION_END)}" style="margin-bottom:16px;">
 
-      <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">Start &amp; end times</label>
+    <div class="panel" style="max-width:520px;margin-bottom:20px;">
+      <label for="slot-date">Date</label>
+      <input type="date" id="slot-date">
+      <div class="msg" id="slots-list-msg"></div>
+      <div id="slots-list" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="panel" style="max-width:520px;">
+      <h3 class="sec" style="margin-top:0;padding-top:0;border-top:0;">Add more for this day</h3>
       <div id="slot-times">${rows}</div>
-      <button type="button" class="btn btn-sm btn-ghost" id="add-time-row">+ Add another window</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="add-time-row">+ Add another time</button>
 
       <div class="actions">
         <button class="btn btn-gold" id="add-slots">Add these slots</button>
@@ -1174,7 +1174,47 @@ function renderSlotsForm() {
 }
 
 function addTimeRow() {
-  document.getElementById("slot-times").insertAdjacentHTML("beforeend", slotTimeRowHtml());
+  document.getElementById("slot-times").insertAdjacentHTML("beforeend", `
+    <div class="row2" style="margin-bottom:8px;">
+      <div><input type="time" class="slot-time-input"></div>
+      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
+    </div>`);
+}
+
+async function loadSlotsList() {
+  const date = document.getElementById("slot-date")?.value;
+  const listEl = document.getElementById("slots-list");
+  const msg = document.getElementById("slots-list-msg");
+  if (!date) { listEl.innerHTML = ""; return; }
+
+  msg.className = "msg"; msg.textContent = "Loading…";
+  try {
+    const r = await api({ mode: "heads-list-slots", email: state.access.email, date });
+    msg.textContent = "";
+    listEl.innerHTML = r.slots.length
+      ? r.slots.map((s) => `
+        <div class="slot-chip">
+          <span>${esc(s.startTime)}–${esc(s.endTime)}</span>
+          <span class="chip-status ${!s.active ? "pending" : s.booked ? "sent" : "draft"}">${
+            !s.active ? "Removed" : s.booked ? "Booked" : "Open"
+          }</span>
+          ${s.active && !s.booked ? `<button type="button" class="chip-x" data-remove-slot="${esc(s.id)}" title="Remove">×</button>` : ""}
+        </div>`).join("")
+      : `<div class="note">No slots yet on this date.</div>`;
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  }
+}
+
+async function removeSlot(slotId) {
+  if (!(await confirmDialog("Remove this slot? It has to already be unbooked, and this can't be undone."))) return;
+  try {
+    await api({ mode: "heads-remove-slot", email: state.access.email, slotId });
+    await loadSlotsList();
+  } catch (e) {
+    const msg = document.getElementById("slots-list-msg");
+    msg.className = "msg bad"; msg.textContent = e.message;
+  }
 }
 
 async function addSlots() {
@@ -1182,34 +1222,25 @@ async function addSlots() {
   const msg = document.getElementById("slots-msg");
   const btn = document.getElementById("add-slots");
   const date = dateInput?.value;
-
-  const slots = [...document.querySelectorAll(".slot-time-row")]
-    .map((row) => ({
-      startTime: row.querySelector(".slot-start-input")?.value || "",
-      endTime: row.querySelector(".slot-end-input")?.value || ""
-    }))
-    .filter((s) => s.startTime && s.endTime);
+  const times = [...document.querySelectorAll(".slot-time-input")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
 
   if (!date) { msg.className = "msg bad"; msg.textContent = "Pick a date first."; return; }
-  if (slots.length < SLOT_EXTENSION_MIN_PER_DAY) {
+  if (times.length < SLOT_EXTENSION_MIN_PER_DAY) {
     msg.className = "msg bad";
-    msg.textContent = `Add at least ${SLOT_EXTENSION_MIN_PER_DAY} different start/end windows.`;
-    return;
-  }
-  const backwards = slots.find((s) => s.endTime <= s.startTime);
-  if (backwards) {
-    msg.className = "msg bad";
-    msg.textContent = `${backwards.startTime}–${backwards.endTime} — the end time has to come after the start.`;
+    msg.textContent = `Add at least ${SLOT_EXTENSION_MIN_PER_DAY} different times.`;
     return;
   }
 
-  if (!(await confirmDialog(`Add ${slots.length} interview slots on ${date} for ${display(state.access.department)}?`))) return;
+  if (!(await confirmDialog(`Add ${times.length} interview slots on ${date} for ${display(state.access.department)}?`))) return;
 
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Adding…";
   try {
-    const r = await api({ mode: "heads-add-slots", email: state.access.email, date, slots });
+    const r = await api({ mode: "heads-add-slots", email: state.access.email, date, times });
     msg.className = "msg ok";
     msg.textContent = `Added ${r.added.length}.${r.alreadyExisted.length ? ` ${r.alreadyExisted.length} already existed.` : ""}`;
+    await loadSlotsList();
   } catch (e) {
     msg.className = "msg bad"; msg.textContent = e.message;
   } finally {
@@ -1220,7 +1251,12 @@ async function addSlots() {
 document.getElementById("view-slots").addEventListener("click", (e) => {
   if (e.target.id === "add-time-row") { addTimeRow(); return; }
   if (e.target.closest("[data-remove-time]")) { e.target.closest(".row2").remove(); return; }
-  if (e.target.id === "add-slots") addSlots();
+  if (e.target.id === "add-slots") { addSlots(); return; }
+  const removeBtn = e.target.closest("[data-remove-slot]");
+  if (removeBtn) removeSlot(removeBtn.dataset.removeSlot);
+});
+document.getElementById("view-slots").addEventListener("change", (e) => {
+  if (e.target.id === "slot-date") loadSlotsList();
 });
 
 function readScores() {

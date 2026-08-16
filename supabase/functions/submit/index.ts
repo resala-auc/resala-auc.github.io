@@ -342,8 +342,6 @@ const CORE_DAYS = [
 const HEADS_SLOT_EXTENSION_START = "2026-08-18";
 const HEADS_SLOT_EXTENSION_END = "2026-08-23";
 const HEADS_SLOT_EXTENSION_MIN_PER_DAY = 4;
-const HEADS_SLOT_EXTENSION_MIN_MINUTES = 10;
-const HEADS_SLOT_EXTENSION_MAX_MINUTES = 180;
 
 /**
  * Every head role a committee can accept an applicant into, keyed the same
@@ -1153,7 +1151,27 @@ type HeadsAddSlotsPayload = {
   mode: "heads-add-slots";
   email: string;
   date: string;
-  slots: Array<{ startTime: string; endTime: string }>;
+  times: string[];
+};
+
+/** Reading back a committee's own slots for one date — existing ones to review, before adding more. */
+type HeadsListSlotsPayload = {
+  mode: "heads-list-slots";
+  email: string;
+  date: string;
+};
+
+/**
+ * Deactivating one of the committee's own slots — never a hard delete, the
+ * same "Active" flag the sheet already uses for a slot turned off by hand.
+ * Blocked outright if anyone already booked it: removing a slot out from
+ * under a booked applicant is not something a director should be able to
+ * do by accident from a list.
+ */
+type HeadsRemoveSlotPayload = {
+  mode: "heads-remove-slot";
+  email: string;
+  slotId: string;
 };
 
 /**
@@ -1328,6 +1346,8 @@ type SubmissionPayload =
   | HeadsAssignInterviewerPayload
   | HeadsSwapPreferencesPayload
   | HeadsAddSlotsPayload
+  | HeadsListSlotsPayload
+  | HeadsRemoveSlotPayload
   | HeadsAssignApplicantPayload
   | HeadsUnassignApplicantPayload
   | HeadsSubmitTeamPayload
@@ -1819,6 +1839,18 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await addHeadsSlots(token, payload)) });
     }
 
+    if (isHeadsListSlotsPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await listHeadsSlotsForDate(token, payload)) });
+    }
+
+    if (isHeadsRemoveSlotPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await removeHeadsSlot(token, payload)) });
+    }
+
     if (isHeadsAssignApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2045,6 +2077,12 @@ function isHeadsSwapPreferencesPayload(
 
 function isHeadsAddSlotsPayload(payload: SubmissionPayload): payload is HeadsAddSlotsPayload {
   return (payload as HeadsAddSlotsPayload).mode === "heads-add-slots";
+}
+function isHeadsListSlotsPayload(payload: SubmissionPayload): payload is HeadsListSlotsPayload {
+  return (payload as HeadsListSlotsPayload).mode === "heads-list-slots";
+}
+function isHeadsRemoveSlotPayload(payload: SubmissionPayload): payload is HeadsRemoveSlotPayload {
+  return (payload as HeadsRemoveSlotPayload).mode === "heads-remove-slot";
 }
 function isHeadsAssignApplicantPayload(
   payload: SubmissionPayload
@@ -5881,17 +5919,12 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
  * service — no code change, no deploy. Restricted to the extension window
  * and a minimum of HEADS_SLOT_EXTENSION_MIN_PER_DAY times per call, so this
  * cannot quietly become a one-slot-at-a-time trickle that never actually
- * covers a day. Reuses the committee's own established interview length,
- * so an ad-hoc slot books, calendars, and reminds exactly like every slot
- * that shipped with the cycle.
+ * covers a day. Every added slot runs the committee's own established
+ * interview length — a director sets when it starts, not how long it runs,
+ * so a Tech Director slot is always an hour and an HR slot is always
+ * whatever HR already interviews for, the same as every slot that shipped
+ * with the cycle.
  */
-/** Whole minutes from one 24h "HH:MM" to another, same day only — negative or zero means the pair is not a real window. */
-function minutesBetween24(startTime24: string, endTime24: string): number {
-  const [startHour, startMinute] = startTime24.split(":").map(Number);
-  const [endHour, endMinute] = endTime24.split(":").map(Number);
-  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
-}
-
 async function addHeadsSlots(
   token: string,
   payload: HeadsAddSlotsPayload
@@ -5905,36 +5938,13 @@ async function addHeadsSlots(
     throw new Error(`Slots can only be added between ${HEADS_SLOT_EXTENSION_START} and ${HEADS_SLOT_EXTENSION_END}.`);
   }
 
-  const rawSlots = Array.isArray(payload.slots) ? payload.slots : [];
-  if (rawSlots.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
+  const times = [...new Set((payload.times ?? []).map((t) => normalizeTime24(t)).filter(Boolean))];
+  if (times.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
     throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
   }
 
-  /*
-   * Each slot carries its own start and end — a director's actual interview
-   * length, not a duration guessed from the committee's usual pattern — so
-   * the calendar event this eventually creates runs exactly the window they
-   * meant, same as every other scheduled slot in this system.
-   */
-  const parsed = rawSlots.map((slot) => {
-    const start = normalizeTime24(slot?.startTime);
-    const end = normalizeTime24(slot?.endTime);
-    if (!start || !end) throw new Error("Every slot needs both a start and an end time.");
-    const durationMinutes = minutesBetween24(start, end);
-    if (durationMinutes < HEADS_SLOT_EXTENSION_MIN_MINUTES || durationMinutes > HEADS_SLOT_EXTENSION_MAX_MINUTES) {
-      throw new Error(
-        `${toDisplayTime(start)}–${toDisplayTime(end)} is not a real interview window — each slot must run between ` +
-          `${HEADS_SLOT_EXTENSION_MIN_MINUTES} minutes and ${HEADS_SLOT_EXTENSION_MAX_MINUTES / 60} hours, start before end, same day.`
-      );
-    }
-    return { start, end, durationMinutes };
-  });
-
-  const uniqueByStart = new Map(parsed.map((slot) => [slot.start, slot]));
-  if (uniqueByStart.size < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
-    throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
-  }
-
+  const interview = COMMITTEE_INTERVIEWS[normalizeRole(committee)];
+  const durationMinutes = interview?.durationMinutes ?? 60;
   const slug = normalizeRole(committee).replace(/\s+/g, "-");
 
   await ensureHeadsSlotSheet(token);
@@ -5946,16 +5956,28 @@ async function addHeadsSlots(
   const added: string[] = [];
   const alreadyExisted: string[] = [];
 
-  for (const { start, end, durationMinutes } of uniqueByStart.values()) {
-    const id = `${slug}-${date}-${start.replace(":", "")}`;
-    const startLabel = toDisplayTime(start);
+  for (const time of times) {
+    const id = `${slug}-${date}-${time.replace(":", "")}`;
+    const startLabel = toDisplayTime(time);
     const label = `${date} at ${startLabel}`;
     if (present.has(normalize(id))) {
       alreadyExisted.push(label);
       continue;
     }
     present.add(normalize(id));
-    toAppend.push([id, committee, date, startLabel, toDisplayTime(end), label, durationMinutes, 1, "TRUE", "", ""]);
+    toAppend.push([
+      id,
+      committee,
+      date,
+      startLabel,
+      addMinutesToTime(startLabel, durationMinutes),
+      label,
+      durationMinutes,
+      1,
+      "TRUE",
+      "",
+      ""
+    ]);
     added.push(label);
   }
 
@@ -5969,6 +5991,97 @@ async function addHeadsSlots(
   }
 
   return { committee: displayCommitteeName(committee), date, added, alreadyExisted };
+}
+
+/**
+ * A committee's own slots for one date, with whether each is already
+ * booked — read before adding more, or before deciding one can safely come
+ * down. Not limited to the extension window: a director should be able to
+ * see the cycle's original days for their committee too.
+ */
+async function listHeadsSlotsForDate(
+  token: string,
+  payload: HeadsListSlotsPayload
+): Promise<{
+  committee: string;
+  date: string;
+  slots: Array<{ id: string; label: string; startTime: string; endTime: string; active: boolean; booked: boolean }>;
+}> {
+  const access = await requireCommitteeAccess(token, payload.email);
+  const committee = access.department;
+
+  const date = String(payload.date ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a valid date.");
+
+  await ensureHeadsSlotSheet(token);
+  const [slotResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`)
+  ]);
+  const slotRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const bookedSlotIds = new Set(
+    reservationRows.filter((row) => String(row[4] ?? "").trim()).map((row) => normalize(row[1]))
+  );
+
+  const slots = slotRows
+    .filter((row) => normalizeRole(String(row[1] ?? "")) === normalizeRole(committee) && String(row[2] ?? "").trim() === date)
+    .map((row) => ({
+      id: String(row[0] ?? ""),
+      label: String(row[5] ?? ""),
+      startTime: String(row[3] ?? ""),
+      endTime: String(row[4] ?? ""),
+      active: String(row[8] ?? "").trim().toUpperCase() === "TRUE",
+      booked: bookedSlotIds.has(normalize(row[0]))
+    }))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  return { committee: displayCommitteeName(committee), date, slots };
+}
+
+/**
+ * Turns one of a committee's own slots off — soft, via the Active column,
+ * never a row deletion. Refuses outright if the slot has a booking; the
+ * director has to move that applicant first, this is not the tool for it.
+ */
+async function removeHeadsSlot(
+  token: string,
+  payload: HeadsRemoveSlotPayload
+): Promise<{ slotId: string }> {
+  const access = await requireCommitteeAccess(token, payload.email);
+  const slotId = String(payload.slotId ?? "").trim();
+  if (!slotId) throw new Error("Slot is required.");
+
+  const [slotResponse, reservationResponse] = await Promise.all([
+    sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`),
+    sheetsFetch(token, "GET", `${sheetRange(RESERVATION_SHEET_NAME, "A2:N")}`)
+  ]);
+  const slotRows = ((await slotResponse.json()).values ?? []) as string[][];
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+
+  const index = slotRows.findIndex((row) => normalize(row[0]) === normalize(slotId));
+  if (index === -1) throw new Error("No such slot.");
+
+  if (normalizeRole(String(slotRows[index][1] ?? "")) !== normalizeRole(access.department)) {
+    throw new Error("That slot does not belong to your committee.");
+  }
+
+  const booked = reservationRows.some(
+    (row) => normalize(row[1]) === normalize(slotId) && String(row[4] ?? "").trim()
+  );
+  if (booked) {
+    throw new Error("Someone has already booked this slot — reschedule or withdraw them first, then remove it.");
+  }
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_SLOT_SHEET_NAME, `I${index + 2}`)}?valueInputOption=RAW`,
+    { values: [["FALSE"]] }
+  );
+
+  return { slotId };
 }
 
 /**
