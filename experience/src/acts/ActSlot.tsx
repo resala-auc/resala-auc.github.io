@@ -38,9 +38,14 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
 
     /*
      * Availability is per committee — each one interviews on its own days, for
-     * its own length. The committee's published schedule is the source of
-     * truth; the live endpoint is only consulted to find out which of those
-     * slots are already taken, and it is not fatal if it is unreachable.
+     * its own length. The committee's published schedule is the baseline,
+     * painted immediately so booking never blocks on a network round-trip;
+     * the live endpoint is authoritative once it answers. It is not just
+     * counts — a director can add a slot straight to the sheet from their own
+     * portal, with no code change or deploy, so the live list can carry IDs
+     * the published schedule has never heard of. Those get merged in, not
+     * discarded; a slot missing from live (network hiccup) still falls back
+     * to what was published.
      */
     const published = committee.interviewSlots();
 
@@ -50,20 +55,17 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
     setActiveDate(published[0]?.date ?? null);
 
     fetchInterviewSlots(committee.name)
-      .then((booked) => {
-        if (cancelled || !booked.length) return;
-        const takenById = new Map(booked.map((slot) => [slot.id, slot]));
-        setSlots(
-          published.map((slot) => {
-            const live = takenById.get(slot.id);
-            if (!live) return slot;
-            const reserved = live.reservedCount ?? 0;
-            const remaining = Math.max(0, slot.capacity - reserved);
-            return { ...slot, reservedCount: reserved, remaining, full: remaining <= 0 };
-          })
+      .then((live) => {
+        if (cancelled || !live.length) return;
+        const byId = new Map(published.map((slot) => [slot.id, slot]));
+        for (const slot of live) byId.set(slot.id, slot);
+        const merged = [...byId.values()].sort((a, b) =>
+          (a.startDateTime || a.label).localeCompare(b.startDateTime || b.label)
         );
+        setSlots(merged);
+        setActiveDate((current) => current ?? merged[0]?.date ?? null);
       })
-      // A failure here only means we cannot show live counts; the schedule stands.
+      // A failure here only means the schedule stays at what was published.
       .catch(() => undefined);
 
     return () => {
