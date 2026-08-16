@@ -27,6 +27,10 @@ const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://res
 const HEADS_ONBOARDING_URL = (
   Deno.env.get("HEADS_ONBOARDING_URL") ?? "https://resala-auc.github.io/heads-onboarding/"
 ).replace(/\/*$/, "/");
+/** Where a director signs in to score, build their team diagram, and add their own interview slots. */
+const COMMITTEE_PORTAL_URL = (
+  Deno.env.get("COMMITTEE_PORTAL_URL") ?? "https://resala-auc.github.io/committee/"
+).replace(/\/*$/, "/");
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
@@ -6842,6 +6846,127 @@ export function buildAcceptanceEmailHtml({
                 </table>
 
                 <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Congratulations, and welcome to Resala.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+/**
+ * The extension announcement: which of a committee's own head roles are
+ * still open through the extension window, and that they can now open their
+ * own interview slots for it directly — no request to admin needed. `roles`
+ * is exactly the list the committee should actually keep interviewing for;
+ * this is not "you have empty roles," it is "here is what to still recruit
+ * for," so a role deliberately left unfilled never appears here.
+ */
+export function buildSlotExtensionAnnouncementEmailText({
+  directorName,
+  committee,
+  roles,
+  extensionEnd
+}: {
+  directorName: string;
+  committee: string;
+  roles: string[];
+  extensionEnd: string;
+}): string {
+  return [
+    `Hi ${directorName},`,
+    "",
+    `Recruitment is extending through ${extensionEnd} for ${committee}, specifically to keep interviewing for:`,
+    ...roles.map((role) => `- ${role}`),
+    "",
+    "You can open your own interview slots for these dates directly — no need to ask us. In your committee " +
+      `portal, open the Slots tab: ${COMMITTEE_PORTAL_URL}`,
+    "",
+    "A day starting from nothing needs at least 4 different times in one go; once a day already has that many, " +
+      "add just one more whenever you need it. Every slot runs your committee's own established interview length.",
+    "",
+    "Thanks for keeping this moving.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+}
+
+export function buildSlotExtensionAnnouncementEmailHtml({
+  directorName,
+  committee,
+  roles,
+  extensionEnd
+}: {
+  directorName: string;
+  committee: string;
+  roles: string[];
+  extensionEnd: string;
+}): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:28px 28px 34px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:26px;line-height:1.25;color:#ffffff;font-weight:bold;margin-top:20px;">Recruitment extended through ${escapeHtml(extensionEnd)}</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">${escapeHtml(committee)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(directorName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">
+                  Recruitment is extending through <b>${escapeHtml(extensionEnd)}</b> for ${escapeHtml(committee)}, specifically to keep interviewing for:
+                </p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      ${roles
+                        .map(
+                          (role) =>
+                            `<div style="font-size:16px;line-height:1.6;font-weight:bold;color:#0d2b45;">${escapeHtml(role)}</div>`
+                        )
+                        .join("")}
+                    </td>
+                  </tr>
+                </table>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">You can open these slots yourself</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:14px;">
+                        No need to ask us — in your committee portal, open the <b>Slots</b> tab. A day starting from
+                        nothing needs at least 4 different times in one go; once a day already has that many, add
+                        just one more whenever you need it. Every slot runs your committee's own established
+                        interview length.
+                      </div>
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td style="border-radius:10px;background:#0d2b45;">
+                            <a href="${escapeHtml(COMMITTEE_PORTAL_URL)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Open your committee portal</a>
+                          </td>
+                        </tr>
+                      </table>
+                      <div style="font-size:12.5px;line-height:1.5;color:#667085;margin-top:10px;">${escapeHtml(COMMITTEE_PORTAL_URL)}</div>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Thanks for keeping this moving.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>
             </tr>

@@ -16,7 +16,9 @@ import {
   buildInterviewCancelledEmailHtml,
   buildPreferenceSwapCommitteeNoticeHtml,
   buildPreferenceSwapEmailHtml,
-  buildRescheduleEmailHtml
+  buildRescheduleEmailHtml,
+  buildSlotExtensionAnnouncementEmailHtml,
+  buildSlotExtensionAnnouncementEmailText
 } from "../../supabase/functions/submit/index.ts";
 
 const OUT = Deno.args[0] ?? "email-previews";
@@ -221,6 +223,48 @@ for (const position of ["Head", "Member"] as const) {
     file,
     title: `Acceptance · welcomed in as ${position}`,
     subject: "Resala AUC: welcome to Children’s Day — you're in!"
+  });
+}
+
+/*
+ * One per committee, since each is extending for a different, deliberately
+ * chosen subset of its own empty roles — never "all your empty roles",
+ * only the ones actually still worth recruiting for.
+ */
+await Deno.mkdir(`${OUT}/extension`, { recursive: true });
+const EXTENSION_END = "August 23";
+const EXTENSION_ROLES: Array<{ dir: string; committee: string; director: string; roles: string[] }> = [
+  { dir: "tech-team", committee: "Tech Team", director: "Director", roles: ["The Navigator", "The Scout", "The Builder", "The Verifier", "The Closer", "The Firefighter"] },
+  { dir: "operations", committee: "Operations", director: "Director", roles: ["The Negotiator", "The Coordinator", "The Planner"] },
+  { dir: "branding-media", committee: "Branding / Media", director: "Director", roles: ["Head of Acting & Production"] },
+  { dir: "hr", committee: "HR", director: "Director", roles: ["Engagement Head"] },
+  { dir: "pr-fundraising", committee: "PR / Fundraising", director: "Director", roles: ["Sponsorship Head", "Events Head", "Partnerships Head"] },
+  { dir: "visits", committee: "Visits", director: "Director", roles: ["Storytelling Head", "Execution Head"] },
+  { dir: "childrens-day", committee: "Children's Day", director: "Director", roles: ["Teaching & Organizing Lead"] },
+  { dir: "initiatives", committee: "Initiatives", director: "Director", roles: ["Research Head", "Field Execution Head", "Teaching & Engagement Head"] }
+];
+for (const entry of EXTENSION_ROLES) {
+  const html = buildSlotExtensionAnnouncementEmailHtml({
+    directorName: entry.director,
+    committee: entry.committee,
+    roles: entry.roles,
+    extensionEnd: EXTENSION_END
+  });
+  const text = buildSlotExtensionAnnouncementEmailText({
+    directorName: entry.director,
+    committee: entry.committee,
+    roles: entry.roles,
+    extensionEnd: EXTENSION_END
+  });
+  await Deno.mkdir(`${OUT}/extension/${entry.dir}`, { recursive: true });
+  await Deno.writeTextFile(`${OUT}/extension/${entry.dir}/announcement.html`, html);
+  await Deno.writeTextFile(`${OUT}/extension/${entry.dir}/announcement.txt`, text);
+  written.push({
+    committee: entry.committee,
+    dir: `extension/${entry.dir}`,
+    file: "announcement.html",
+    title: `Extension announcement · ${entry.roles.length} role${entry.roles.length === 1 ? "" : "s"} through ${EXTENSION_END}`,
+    subject: `Recruitment extended through ${EXTENSION_END} — ${entry.committee}`
   });
 }
 
