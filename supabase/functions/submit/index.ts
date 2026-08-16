@@ -23,6 +23,10 @@ const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://res
   /\/*$/,
   "/"
 );
+/** The post-acceptance checklist a newly accepted head fills in themselves. */
+const HEADS_ONBOARDING_URL = (
+  Deno.env.get("HEADS_ONBOARDING_URL") ?? "https://resala-auc.github.io/heads-onboarding/"
+).replace(/\/*$/, "/");
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
@@ -212,7 +216,14 @@ const HEADS_APPLICATION_HEADERS = [
   // kept separate from Accepted By/At above, which stays whoever originally
   // drafted the placement, so the two steps stay distinguishable.
   "Submitted By",
-  "Submitted At"
+  "Submitted At",
+  // The post-acceptance checklist: replying to take the role, then watching
+  // the leadership-vs-management video and writing up what they took from
+  // it. Only ever set for a row that already reached "Yes" above.
+  "Role Confirmed",
+  "Role Confirmed At",
+  "Video Notes",
+  "Video Notes Submitted At"
 ];
 const TASK_LINK_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Link");
 const TASK_SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Task Submitted At");
@@ -229,6 +240,10 @@ const RELEASED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference R
 const RELEASED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("First Preference Released At");
 const SUBMITTED_BY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Submitted By");
 const SUBMITTED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Submitted At");
+const ROLE_CONFIRMED_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Role Confirmed");
+const ROLE_CONFIRMED_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Role Confirmed At");
+const VIDEO_NOTES_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Video Notes");
+const VIDEO_NOTES_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Video Notes Submitted At");
 const SECOND_PREF_AVAILABILITY_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability");
 const SECOND_PREF_AVAILABILITY_NOTE_COLUMN = HEADS_APPLICATION_HEADERS.indexOf("Second Preference Availability Note");
 const SECOND_PREF_AVAILABILITY_SET_AT_COLUMN = HEADS_APPLICATION_HEADERS.indexOf(
@@ -1186,6 +1201,30 @@ type HeadsAdminRejectApplicantPayload = {
 };
 
 /**
+ * The onboarding checklist page reading its own status back, by email —
+ * public, since the applicant is never asked to log in for this, the same
+ * way the task-submission page works. Only ever returns something for a row
+ * that has actually reached Accepted "Yes".
+ */
+type HeadsOnboardingStatusPayload = {
+  mode: "heads-onboarding-status";
+  applicantEmail: string;
+};
+
+/**
+ * The applicant's own checklist submission: confirming they're taking the
+ * role, and/or their notes on the leadership-vs-management video. Either can
+ * arrive alone — the page saves whichever step was just completed — so both
+ * are optional and only what is present gets written.
+ */
+type HeadsOnboardingSubmitPayload = {
+  mode: "heads-onboarding-submit";
+  applicantEmail: string;
+  roleConfirmed?: boolean;
+  videoNotes?: string;
+};
+
+/**
  * Only the applicant's actual first-preference committee can call this — the
  * same authority as requireFirstPreferenceCommittee. Releasing says "we do
  * not want this applicant," which is what lets a second-preference or
@@ -1267,6 +1306,8 @@ type SubmissionPayload =
   | HeadsSubmitTeamPayload
   | HeadsAdminConfirmTeamPayload
   | HeadsAdminRejectApplicantPayload
+  | HeadsOnboardingStatusPayload
+  | HeadsOnboardingSubmitPayload
   | HeadsReleaseFirstPreferencePayload
   | AdminCreateHeadsMeetingPayload
   | AdminShareCalendarPayload
@@ -1775,6 +1816,18 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await rejectHeadsSubmission(token, payload)) });
     }
 
+    if (isHeadsOnboardingStatusPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await loadHeadsOnboardingStatus(token, payload.applicantEmail)) });
+    }
+
+    if (isHeadsOnboardingSubmitPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await submitHeadsOnboarding(token, payload)) });
+    }
+
     if (isHeadsReleaseFirstPreferencePayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -1979,6 +2032,16 @@ function isHeadsAdminRejectApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminRejectApplicantPayload {
   return (payload as HeadsAdminRejectApplicantPayload).mode === "heads-admin-reject-applicant";
+}
+function isHeadsOnboardingStatusPayload(
+  payload: SubmissionPayload
+): payload is HeadsOnboardingStatusPayload {
+  return (payload as HeadsOnboardingStatusPayload).mode === "heads-onboarding-status";
+}
+function isHeadsOnboardingSubmitPayload(
+  payload: SubmissionPayload
+): payload is HeadsOnboardingSubmitPayload {
+  return (payload as HeadsOnboardingSubmitPayload).mode === "heads-onboarding-submit";
 }
 function isHeadsReleaseFirstPreferencePayload(
   payload: SubmissionPayload
@@ -4706,6 +4769,13 @@ async function readHeadsApplicants(token: string): Promise<Array<Record<string, 
         // whoever originally drafted the placement.
         submittedBy: String(row[SUBMITTED_BY_COLUMN] ?? ""),
         submittedAt: String(row[SUBMITTED_AT_COLUMN] ?? ""),
+        // The post-acceptance checklist an applicant fills in themselves,
+        // once Accepted is "Yes" — separate from anything a committee or
+        // admin does.
+        roleConfirmed: String(row[ROLE_CONFIRMED_COLUMN] ?? "").trim() === "Yes",
+        roleConfirmedAt: String(row[ROLE_CONFIRMED_AT_COLUMN] ?? ""),
+        videoNotes: String(row[VIDEO_NOTES_COLUMN] ?? ""),
+        videoNotesAt: String(row[VIDEO_NOTES_AT_COLUMN] ?? ""),
         interviewStatus: statusByEmail.get(normalize(email)) ?? String(row[17] ?? ""),
         meetLink: meetByEmail.get(normalize(email)) ?? "",
         reservationRowIndex: reservationRowByEmail.get(normalize(email)) ?? 0
@@ -6177,6 +6247,104 @@ async function rejectHeadsSubmission(
 }
 
 /**
+ * The onboarding checklist page's own read: is this email actually an
+ * accepted applicant, and if so, where do they stand. No auth beyond that —
+ * the page is reached from a link in their acceptance email, the same way
+ * the task-submission page works.
+ */
+async function loadHeadsOnboardingStatus(
+  token: string,
+  applicantEmailRaw: string
+): Promise<{
+  found: boolean;
+  record?: {
+    fullName: string;
+    committee: string;
+    headRole: string;
+    position: string;
+    roleConfirmed: boolean;
+    roleConfirmedAt: string;
+    videoNotes: string;
+    videoNotesAt: string;
+  };
+}> {
+  const applicantEmail = String(applicantEmailRaw ?? "").trim();
+  if (!applicantEmail) throw new Error("Enter your AUC email.");
+
+  const applicants = await readHeadsApplicants(token);
+  const applicant = applicants.find((a) => normalize(String(a.email ?? "")) === normalize(applicantEmail));
+  if (!applicant || !applicant.accepted) return { found: false };
+
+  return {
+    found: true,
+    record: {
+      fullName: String(applicant.fullName ?? ""),
+      committee: String(applicant.acceptedCommittee ?? ""),
+      headRole: String(applicant.acceptedRole ?? ""),
+      position: String(applicant.acceptedPosition ?? ""),
+      roleConfirmed: Boolean(applicant.roleConfirmed),
+      roleConfirmedAt: String(applicant.roleConfirmedAt ?? ""),
+      videoNotes: String(applicant.videoNotes ?? ""),
+      videoNotesAt: String(applicant.videoNotesAt ?? "")
+    }
+  };
+}
+
+/**
+ * The applicant saving their own checklist progress: confirming the role,
+ * and/or their notes on the video. Either can arrive alone, so only what is
+ * actually present in the payload gets written — a blank notes field on a
+ * role-confirm-only save must never wipe out notes sent in earlier.
+ */
+async function submitHeadsOnboarding(
+  token: string,
+  payload: HeadsOnboardingSubmitPayload
+): Promise<{ applicantEmail: string; roleConfirmed: boolean; videoNotesSaved: boolean }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Enter your AUC email.");
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() !== "Yes") {
+    throw new Error("This checklist opens once your acceptance has actually gone out.");
+  }
+
+  const roleConfirmed = payload.roleConfirmed === true;
+  const videoNotes = typeof payload.videoNotes === "string" ? payload.videoNotes.trim() : "";
+  const now = new Date().toISOString();
+
+  if (roleConfirmed) {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(ROLE_CONFIRMED_COLUMN + 1)}${index + 2}:${columnLetter(ROLE_CONFIRMED_AT_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      { values: [["Yes", now]] }
+    );
+  }
+
+  if (videoNotes) {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(VIDEO_NOTES_COLUMN + 1)}${index + 2}:${columnLetter(VIDEO_NOTES_AT_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      { values: [[videoNotes, now]] }
+    );
+  }
+
+  return { applicantEmail, roleConfirmed, videoNotesSaved: Boolean(videoNotes) };
+}
+
+/**
  * The applicant's first-preference committee saying whether it wants them —
  * the only thing that unblocks a second-preference or assigned committee's
  * draft of the same applicant. `release: false` takes the release back.
@@ -6217,6 +6385,11 @@ async function setFirstPreferenceRelease(
   return { applicantEmail, released: release };
 }
 
+/** Where the checklist in the acceptance email actually sends them. */
+function headsOnboardingUrl(aucEmail: string): string {
+  return `${HEADS_ONBOARDING_URL}?email=${encodeURIComponent(aucEmail)}`;
+}
+
 async function sendAcceptanceEmail({
   fullName,
   aucEmail,
@@ -6234,6 +6407,7 @@ async function sendAcceptanceEmail({
 }): Promise<void> {
   if (!gmailConfigured()) return;
 
+  const onboardingUrl = headsOnboardingUrl(aucEmail);
   const subject = `Resala AUC: welcome to ${committee} — you're in!`;
   const body = [
     `Hi ${fullName},`,
@@ -6242,13 +6416,18 @@ async function sendAcceptanceEmail({
     "",
     "Someone from the committee will reach out with what happens next. For now, this is just the good news.",
     "",
+    "Two things before you start:",
+    "1. Confirm you're taking the role.",
+    "2. Watch a short video on leadership vs. management, and send a few notes on what stuck with you.",
+    `Both take a couple of minutes here: ${onboardingUrl}`,
+    "",
     "Congratulations, and welcome to Resala.",
     "",
     "Best,",
     "Resala AUC"
   ].join("\n");
 
-  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position });
+  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl });
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -6275,12 +6454,14 @@ export function buildAcceptanceEmailHtml({
   fullName,
   committee,
   headName,
-  position
+  position,
+  onboardingUrl
 }: {
   fullName: string;
   committee: string;
   headName: string;
   position: string;
+  onboardingUrl: string;
 }): string {
   return `<!doctype html>
 <html>
@@ -6288,7 +6469,7 @@ export function buildAcceptanceEmailHtml({
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
             <tr>
               <td style="background:#0d2b45;padding:28px 28px 34px;text-align:center;color:#ffffff;">
                 <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
@@ -6298,6 +6479,11 @@ export function buildAcceptanceEmailHtml({
             </tr>
             <tr>
               <td style="padding:26px 28px 8px;">
+                <!--
+                  OPENING STORY — pending: the real opening message goes here,
+                  replacing the line below. Do not invent this copy; it is
+                  supplied, not written from a template.
+                -->
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
@@ -6311,6 +6497,25 @@ export function buildAcceptanceEmailHtml({
                   </tr>
                 </table>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">Someone from the committee will reach out with what happens next. For now, this is just the good news.</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Two things before you start</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1.</b> Confirm you're taking the role.</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:14px;"><b>2.</b> Watch a short video on leadership vs. management, and send a few notes on what stuck with you.</div>
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td style="border-radius:10px;background:#0d2b45;">
+                            <a href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Start your checklist</a>
+                          </td>
+                        </tr>
+                      </table>
+                      <div style="font-size:12.5px;line-height:1.5;color:#667085;margin-top:10px;">Takes a couple of minutes: ${escapeHtml(onboardingUrl)}</div>
+                    </td>
+                  </tr>
+                </table>
+
                 <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Congratulations, and welcome to Resala.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>

@@ -211,7 +211,8 @@ for (const position of ["Head", "Member"] as const) {
       fullName: "Nour Hassan",
       committee: "Children’s Day",
       headName: "Creative Logistics & Visual Identity Lead",
-      position
+      position,
+      onboardingUrl: "https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu"
     })
   );
   written.push({

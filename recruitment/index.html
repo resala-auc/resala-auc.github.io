@@ -173,6 +173,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="teams">Team diagrams</button>
+      <button class="tab" data-view="onboarding">Onboarding</button>
     </div>
 
     <div id="view-applicants">
@@ -196,6 +197,7 @@
     </div>
 
     <div id="view-teams" class="hidden"></div>
+    <div id="view-onboarding" class="hidden"></div>
   </main>
 </div>
 
@@ -244,6 +246,9 @@ const display = (v) => {
 };
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const yesNoBadge = (v) => v === "Yes"
+  ? `<span class="pill done">Yes</span>`
+  : `<span class="pill open">Not yet</span>`;
 
 function confirmDialog(message) {
   return new Promise((resolve) => {
@@ -1000,6 +1005,55 @@ async function rejectSubmission(email, rawCommittee) {
   }
 }
 
+/* ── onboarding checklist status ───────────────────────────────────────── */
+
+function onboardingStatusBadge(a) {
+  if (a.roleConfirmed && a.videoNotes) return `<span class="pill done">Complete</span>`;
+  if (a.roleConfirmed || a.videoNotes) return `<span class="pill part">Partial</span>`;
+  return `<span class="pill bad">Not started</span>`;
+}
+
+function renderOnboarding() {
+  const el = document.getElementById("view-onboarding");
+  if (!state.data) return;
+
+  const accepted = state.data.applicants
+    .filter((a) => a.accepted)
+    .sort((a, b) => String(a.acceptedCommittee).localeCompare(String(b.acceptedCommittee)) || String(a.fullName).localeCompare(String(b.fullName)));
+
+  const complete = accepted.filter((a) => a.roleConfirmed && a.videoNotes).length;
+  const notStarted = accepted.filter((a) => !a.roleConfirmed && !a.videoNotes).length;
+
+  const summary = `
+    <div class="team-summary">
+      <span class="count"><b>${accepted.length}</b> accepted</span>
+      <span class="count"><b>${complete}</b> completed the checklist</span>
+      <span class="count"><b>${notStarted}</b> haven't started</span>
+    </div>`;
+
+  if (!accepted.length) {
+    el.innerHTML = `${summary}<div class="empty">Nobody has been accepted yet — nothing to onboard.</div>`;
+    return;
+  }
+
+  const rows = accepted.map((a) => `
+    <tr>
+      <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.email)}</div></td>
+      <td>${esc(a.acceptedCommittee)}<div class="note">${esc(a.acceptedPosition)} of ${esc(a.acceptedRole)}</div></td>
+      <td>${yesNoBadge(a.roleConfirmed ? "Yes" : "")}</td>
+      <td>${a.videoNotes
+        ? `<span title="${esc(a.videoNotes)}">${esc(a.videoNotes.length > 90 ? a.videoNotes.slice(0, 90) + "…" : a.videoNotes)}</span>`
+        : `<span class="note">Not submitted</span>`}</td>
+      <td>${onboardingStatusBadge(a)}</td>
+    </tr>`).join("");
+
+  el.innerHTML = `${summary}
+    <div class="wrap-x"><table>
+      <thead><tr><th>Applicant</th><th>Role</th><th>Confirmed</th><th>Video notes</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
 /* ── actions ────────────────────────────────────────────────────────────── */
 
 async function load(email, keepDialog) {
@@ -1010,7 +1064,7 @@ async function load(email, keepDialog) {
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("bar-sub").textContent = `${data.admin.name} · ${data.admin.email}`;
-  renderStats(); renderFilters(); renderGroups(); renderTeams();
+  renderStats(); renderFilters(); renderGroups(); renderTeams(); renderOnboarding();
   if (keepDialog && state.selected) {
     const a = state.data.applicants.find((x) => norm(x.email) === norm(state.selected));
     if (a) renderDialog(a);
@@ -1051,10 +1105,12 @@ document.getElementById("views").addEventListener("click", (e) => {
   state.teamMsg = null;
   document.getElementById("view-applicants").classList.toggle("hidden", view.dataset.view !== "applicants");
   document.getElementById("view-teams").classList.toggle("hidden", view.dataset.view !== "teams");
+  document.getElementById("view-onboarding").classList.toggle("hidden", view.dataset.view !== "onboarding");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
     btn.setAttribute("aria-selected", btn.dataset.view === view.dataset.view);
   }
   if (view.dataset.view === "teams") renderTeams();
+  if (view.dataset.view === "onboarding") renderOnboarding();
 });
 
 document.getElementById("view-teams").addEventListener("click", (e) => {

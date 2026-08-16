@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Heads Onboarding | Resala AUC</title>
+    <meta name="description" content="Resala AUC heads onboarding checklist: confirm your role, watch the leadership vs. management video, and share your notes.">
+    <link rel="icon" type="image/png" href="../favicon.png">
+    <link rel="apple-touch-icon" href="../favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../styles.css">
+    <style>
+      .onboarding-main { padding-bottom: 80px; }
+      .onboarding-steps { width: min(100% - 32px, 760px); margin: -36px auto 0; position: relative; z-index: 1; }
+      .onboarding-step {
+        background: var(--color-white);
+        border: 1px solid var(--color-primary-pale);
+        border-radius: var(--radius-large);
+        box-shadow: var(--shadow-soft);
+        padding: 24px;
+        margin-bottom: 18px;
+      }
+      .onboarding-step.done { border-color: #2f9e5c; }
+      .step-title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-family: var(--font-display);
+        font-size: 19px;
+        color: var(--color-ink);
+        margin: 0 0 8px;
+      }
+      .step-number {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--color-primary);
+        color: var(--color-white);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-family: var(--font-sans);
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .step-desc { color: var(--color-muted); font-size: 15px; margin: 0 0 14px; line-height: 1.55; }
+      .checklist-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+      .checklist-row label { font-size: 15px; color: var(--color-ink); }
+      .role-box {
+        background: var(--color-soft-orange);
+        border: 1px solid var(--color-accent-orange);
+        border-radius: var(--radius);
+        padding: 14px 16px;
+        margin-bottom: 14px;
+        font-size: 14px;
+        color: var(--color-ink);
+      }
+      .role-box strong { display: block; margin-bottom: 2px; font-size: 15px; }
+      textarea#videoNotes {
+        width: 100%;
+        min-height: 140px;
+        margin-top: 4px;
+        padding: 12px 14px;
+        border: 1px solid var(--color-primary-pale);
+        border-radius: var(--radius);
+        font: inherit;
+        font-size: 15px;
+        color: var(--color-ink);
+        resize: vertical;
+      }
+      textarea#videoNotes:focus { outline: 2px solid var(--color-accent-orange); outline-offset: 1px; }
+      .notes-hint { font-size: 13px; color: var(--color-muted); margin-top: 6px; }
+      .saved-note { font-size: 13px; color: #2f9e5c; margin-top: 8px; }
+      .onboarding-submit { text-align: center; margin-top: 24px; }
+      .onboarding-notice { text-align: center; font-size: 14px; margin-top: 12px; color: var(--color-muted); }
+      .onboarding-notice.error { color: #c0392b; }
+      .onboarding-notice.success { color: #2f9e5c; }
+      .field-missing-warning {
+        width: min(100% - 32px, 760px);
+        margin: 24px auto;
+        background: var(--color-soft-orange);
+        border: 1px solid var(--color-accent-orange);
+        border-radius: var(--radius);
+        padding: 16px 18px;
+        font-size: 14px;
+        color: var(--color-ink);
+      }
+    </style>
+  </head>
+  <body class="apply-page-body">
+    <main class="apply-page onboarding-main">
+      <section class="apply-hero" aria-labelledby="hero-title">
+        <div class="apply-hero-pattern" aria-hidden="true"></div>
+        <header class="apply-topbar">
+          <a class="apply-logo-link" href="../" aria-label="Resala AUC">
+            <span class="brand-logo-frame brand-logo-frame-large">
+              <img src="../The brand System/logos/Resala Logo - source.svg" alt="Resala AUC logo" width="480" height="270">
+            </span>
+          </a>
+        </header>
+        <div class="container">
+          <div class="apply-hero-copy">
+            <p class="eyebrow">Build the First Step</p>
+            <h1 id="hero-title">Welcome to the team</h1>
+            <p id="hero-subtitle">A couple of short things before you're fully in.</p>
+          </div>
+        </div>
+      </section>
+
+      <div id="missing-params" class="field-missing-warning" hidden>
+        This link is missing your details. Please use the personalized link from your acceptance email, or contact your committee director if it's not working.
+      </div>
+
+      <form id="onboarding-form" class="onboarding-steps" hidden>
+        <div class="role-box" id="role-box">
+          <strong id="role-line">—</strong>
+          <span id="committee-line"></span>
+        </div>
+
+        <div class="onboarding-step" id="step-confirm">
+          <p class="step-title"><span class="step-number">1</span> Confirm you're taking the role</p>
+          <p class="step-desc">A quick, deliberate yes — so your committee knows you're actually in before they build around you.</p>
+          <div class="checklist-row">
+            <input type="checkbox" id="roleConfirmed">
+            <label for="roleConfirmed">I confirm I'm taking this role</label>
+          </div>
+          <p class="saved-note" id="role-saved" hidden></p>
+        </div>
+
+        <div class="onboarding-step" id="step-video">
+          <p class="step-title"><span class="step-number">2</span> Watch: Leadership vs. Management</p>
+          <p class="step-desc">A short watch before you start — then a few lines on what stuck with you.</p>
+          <a class="button button-secondary" id="video-link" href="#" target="_blank" rel="noopener">Watch the video</a>
+          <div style="margin-top:16px;">
+            <label for="videoNotes" style="display:block;font-weight:600;font-size:14px;color:var(--color-ink);margin-bottom:2px;">Your notes</label>
+            <textarea id="videoNotes" placeholder="What was the one distinction that landed for you? How does it change how you'll run your role?"></textarea>
+            <p class="notes-hint">A few honest sentences is enough — this isn't graded, it's read.</p>
+          </div>
+          <p class="saved-note" id="notes-saved" hidden></p>
+        </div>
+
+        <div class="onboarding-submit">
+          <button type="submit" class="button button-primary" id="submit-button">Save my checklist</button>
+          <p class="onboarding-notice" id="form-notice"></p>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+      // TODO: set the real leadership-vs-management video link before this page goes live.
+      const VIDEO_URL = "";
+
+      const params = new URLSearchParams(window.location.search);
+      const email = (params.get("email") || "").trim();
+
+      const missingParams = document.getElementById("missing-params");
+      const form = document.getElementById("onboarding-form");
+      const heroTitle = document.getElementById("hero-title");
+      const heroSubtitle = document.getElementById("hero-subtitle");
+      const roleLine = document.getElementById("role-line");
+      const committeeLine = document.getElementById("committee-line");
+      const roleConfirmedBox = document.getElementById("roleConfirmed");
+      const roleSaved = document.getElementById("role-saved");
+      const videoNotes = document.getElementById("videoNotes");
+      const notesSaved = document.getElementById("notes-saved");
+      const submitButton = document.getElementById("submit-button");
+      const formNotice = document.getElementById("form-notice");
+      const videoLink = document.getElementById("video-link");
+
+      if (VIDEO_URL) {
+        videoLink.href = VIDEO_URL;
+      } else {
+        videoLink.textContent = "Video link coming soon";
+        videoLink.setAttribute("aria-disabled", "true");
+        videoLink.style.pointerEvents = "none";
+        videoLink.style.opacity = "0.6";
+        videoLink.removeAttribute("href");
+      }
+
+      async function apiCall(payload) {
+        const response = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(payload)
+        });
+        const body = await response.json();
+        if (!response.ok || !body.ok) throw new Error(body.error || "Something went wrong.");
+        return body;
+      }
+
+      function fmtWhen(iso) {
+        return iso ? String(iso).slice(0, 16).replace("T", " ") : "";
+      }
+
+      async function init() {
+        if (!email) {
+          missingParams.hidden = false;
+          return;
+        }
+
+        try {
+          const result = await apiCall({ mode: "heads-onboarding-status", applicantEmail: email });
+          if (!result.found) {
+            missingParams.hidden = false;
+            missingParams.textContent = "This checklist opens once your acceptance email has actually gone out. If you already have that email, contact your committee director.";
+            return;
+          }
+
+          const record = result.record;
+          const firstName = (record.fullName || "").split(" ")[0] || "there";
+          heroTitle.textContent = `Welcome, ${firstName}`;
+          heroSubtitle.textContent = `${record.position} of ${record.headRole} — ${record.committee}.`;
+          roleLine.textContent = `${record.position} of ${record.headRole}`;
+          committeeLine.textContent = record.committee;
+
+          if (record.roleConfirmed) {
+            roleConfirmedBox.checked = true;
+            roleSaved.hidden = false;
+            roleSaved.textContent = `Confirmed${record.roleConfirmedAt ? " · " + fmtWhen(record.roleConfirmedAt) : ""}.`;
+          }
+          if (record.videoNotes) {
+            videoNotes.value = record.videoNotes;
+            notesSaved.hidden = false;
+            notesSaved.textContent = `Saved${record.videoNotesAt ? " · " + fmtWhen(record.videoNotesAt) : ""}. Submitting again replaces this.`;
+          }
+
+          form.hidden = false;
+        } catch (error) {
+          missingParams.hidden = false;
+          missingParams.textContent = error.message || "Could not load your checklist.";
+        }
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const payload = { mode: "heads-onboarding-submit", applicantEmail: email };
+        if (roleConfirmedBox.checked) payload.roleConfirmed = true;
+        const notes = videoNotes.value.trim();
+        if (notes) payload.videoNotes = notes;
+
+        if (!payload.roleConfirmed && !notes) {
+          formNotice.textContent = "Check the confirmation box, add your notes, or both, before saving.";
+          formNotice.className = "onboarding-notice error";
+          return;
+        }
+
+        submitButton.disabled = true;
+        formNotice.textContent = "Saving…";
+        formNotice.className = "onboarding-notice";
+
+        try {
+          await apiCall(payload);
+          formNotice.textContent = "Saved. Thank you.";
+          formNotice.className = "onboarding-notice success";
+          if (payload.roleConfirmed) {
+            roleSaved.hidden = false;
+            roleSaved.textContent = "Confirmed just now.";
+          }
+          if (notes) {
+            notesSaved.hidden = false;
+            notesSaved.textContent = "Saved just now. Submitting again replaces this.";
+          }
+        } catch (error) {
+          formNotice.textContent = error.message || "Could not save. Please try again.";
+          formNotice.className = "onboarding-notice error";
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+
+      init();
+    </script>
+  </body>
+</html>
