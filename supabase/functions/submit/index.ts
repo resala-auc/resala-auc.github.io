@@ -334,6 +334,16 @@ const CORE_DAYS = [
 ];
 
 /**
+ * The self-service extension window: a director can add their own committee's
+ * interview slots on any of these dates, at least this many a day. Kept as a
+ * hard window rather than open-ended, so "add slots" cannot drift into
+ * scheduling interviews for a date nobody agreed to.
+ */
+const HEADS_SLOT_EXTENSION_START = "2026-08-18";
+const HEADS_SLOT_EXTENSION_END = "2026-08-23";
+const HEADS_SLOT_EXTENSION_MIN_PER_DAY = 4;
+
+/**
  * Every head role a committee can accept an applicant into, keyed the same
  * way as COMMITTEE_INTERVIEWS. Mirrors src/role-guide-data.mjs by hand, same
  * as every other config in this file — the function cannot import it, since
@@ -1131,6 +1141,20 @@ type HeadsSwapPreferencesPayload = {
 };
 
 /**
+ * A director opening up more interview time for their own committee — self
+ * service, no code change or deploy needed. `committee` is never trusted
+ * from the client: it is always the caller's own department, resolved via
+ * requireCommitteeAccess, so a director can only ever add slots for the
+ * committee they actually run.
+ */
+type HeadsAddSlotsPayload = {
+  mode: "heads-add-slots";
+  email: string;
+  date: string;
+  times: string[];
+};
+
+/**
  * A director placing an applicant onto the committee's team diagram — which
  * head-role team, and whether they join it as its Head or as a Member. Open
  * to whoever can already score this applicant, not only the first-preference
@@ -1301,6 +1325,7 @@ type SubmissionPayload =
   | HeadsConfirmSecondAvailabilityPayload
   | HeadsAssignInterviewerPayload
   | HeadsSwapPreferencesPayload
+  | HeadsAddSlotsPayload
   | HeadsAssignApplicantPayload
   | HeadsUnassignApplicantPayload
   | HeadsSubmitTeamPayload
@@ -1786,6 +1811,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await swapHeadsPreferences(token, payload)) });
     }
 
+    if (isHeadsAddSlotsPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await addHeadsSlots(token, payload)) });
+    }
+
     if (isHeadsAssignApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2010,6 +2041,9 @@ function isHeadsSwapPreferencesPayload(
   return (payload as HeadsSwapPreferencesPayload).mode === "heads-swap-preferences";
 }
 
+function isHeadsAddSlotsPayload(payload: SubmissionPayload): payload is HeadsAddSlotsPayload {
+  return (payload as HeadsAddSlotsPayload).mode === "heads-add-slots";
+}
 function isHeadsAssignApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAssignApplicantPayload {
@@ -5838,6 +5872,83 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
     </table>
   </body>
 </html>`;
+}
+
+/**
+ * A director opening up more interview time for their own committee, self
+ * service — no code change, no deploy. Restricted to the extension window
+ * and a minimum of HEADS_SLOT_EXTENSION_MIN_PER_DAY times per call, so this
+ * cannot quietly become a one-slot-at-a-time trickle that never actually
+ * covers a day. Reuses the committee's own established interview length,
+ * so an ad-hoc slot books, calendars, and reminds exactly like every slot
+ * that shipped with the cycle.
+ */
+async function addHeadsSlots(
+  token: string,
+  payload: HeadsAddSlotsPayload
+): Promise<{ committee: string; date: string; added: string[]; alreadyExisted: string[] }> {
+  const access = await requireCommitteeAccess(token, payload.email);
+  const committee = access.department;
+
+  const date = String(payload.date ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a valid date.");
+  if (date < HEADS_SLOT_EXTENSION_START || date > HEADS_SLOT_EXTENSION_END) {
+    throw new Error(`Slots can only be added between ${HEADS_SLOT_EXTENSION_START} and ${HEADS_SLOT_EXTENSION_END}.`);
+  }
+
+  const times = [...new Set((payload.times ?? []).map((t) => normalizeTime24(t)).filter(Boolean))];
+  if (times.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
+    throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
+  }
+
+  const interview = COMMITTEE_INTERVIEWS[normalizeRole(committee)];
+  const durationMinutes = interview?.durationMinutes ?? 60;
+  const slug = normalizeRole(committee).replace(/\s+/g, "-");
+
+  await ensureHeadsSlotSheet(token);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
+  const existing = ((await response.json()).values ?? []) as string[][];
+  const present = new Set(existing.map((row) => normalize(row[0])));
+
+  const toAppend: Array<Array<string | number>> = [];
+  const added: string[] = [];
+  const alreadyExisted: string[] = [];
+
+  for (const time of times) {
+    const id = `${slug}-${date}-${time.replace(":", "")}`;
+    const startLabel = toDisplayTime(time);
+    const label = `${date} at ${startLabel}`;
+    if (present.has(normalize(id))) {
+      alreadyExisted.push(label);
+      continue;
+    }
+    present.add(normalize(id));
+    toAppend.push([
+      id,
+      committee,
+      date,
+      startLabel,
+      addMinutesToTime(startLabel, durationMinutes),
+      label,
+      durationMinutes,
+      1,
+      "TRUE",
+      "",
+      ""
+    ]);
+    added.push(label);
+  }
+
+  if (toAppend.length) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(HEADS_SLOT_SHEET_NAME, "A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: toAppend }
+    );
+  }
+
+  return { committee: displayCommitteeName(committee), date, added, alreadyExisted };
 }
 
 /**

@@ -256,6 +256,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="team" aria-selected="false">Team diagram</button>
+      <button class="tab" data-view="slots" aria-selected="false">Add slots</button>
     </div>
 
     <div id="view-applicants">
@@ -270,6 +271,7 @@
     </div>
 
     <div id="view-team" class="hidden"></div>
+    <div id="view-slots" class="hidden"></div>
   </main>
 </div>
 
@@ -1127,6 +1129,91 @@ async function toggleRelease(applicantEmail, release) {
   }
 }
 
+/* ── add interview slots ───────────────────────────────────────────────── */
+
+const SLOT_EXTENSION_START = "2026-08-18";
+const SLOT_EXTENSION_END = "2026-08-23";
+const SLOT_EXTENSION_MIN_PER_DAY = 4;
+
+function renderSlotsForm() {
+  const el = document.getElementById("view-slots");
+  if (!state.access) return;
+
+  const rows = Array.from({ length: SLOT_EXTENSION_MIN_PER_DAY }, () => `
+    <div class="row2" style="margin-bottom:8px;">
+      <div><input type="time" class="slot-time-input"></div>
+      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
+    </div>`).join("");
+
+  el.innerHTML = `
+    <h2 class="sec2">Add interview slots for ${esc(display(state.access.department))}</h2>
+    <div class="note" style="margin-bottom:16px;">
+      Self-service, no need to ask — pick a date between <b>${esc(SLOT_EXTENSION_START)}</b> and
+      <b>${esc(SLOT_EXTENSION_END)}</b>, and at least ${SLOT_EXTENSION_MIN_PER_DAY} different times for that day.
+      Each interview runs the same length your committee already uses. Add slots again for another day.
+    </div>
+    <div class="panel" style="max-width:460px;">
+      <label for="slot-date">Date</label>
+      <input type="date" id="slot-date" min="${esc(SLOT_EXTENSION_START)}" max="${esc(SLOT_EXTENSION_END)}" style="margin-bottom:16px;">
+
+      <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">Times</label>
+      <div id="slot-times">${rows}</div>
+      <button type="button" class="btn btn-sm btn-ghost" id="add-time-row">+ Add another time</button>
+
+      <div class="actions">
+        <button class="btn btn-gold" id="add-slots">Add these slots</button>
+        <span class="msg" id="slots-msg"></span>
+      </div>
+    </div>`;
+}
+
+function addTimeRow() {
+  const container = document.getElementById("slot-times");
+  const row = document.createElement("div");
+  row.className = "row2";
+  row.style.marginBottom = "8px";
+  row.innerHTML = `
+    <div><input type="time" class="slot-time-input"></div>
+    <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>`;
+  container.appendChild(row);
+}
+
+async function addSlots() {
+  const dateInput = document.getElementById("slot-date");
+  const msg = document.getElementById("slots-msg");
+  const btn = document.getElementById("add-slots");
+  const date = dateInput?.value;
+  const times = [...document.querySelectorAll(".slot-time-input")]
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+
+  if (!date) { msg.className = "msg bad"; msg.textContent = "Pick a date first."; return; }
+  if (times.length < SLOT_EXTENSION_MIN_PER_DAY) {
+    msg.className = "msg bad";
+    msg.textContent = `Add at least ${SLOT_EXTENSION_MIN_PER_DAY} different times.`;
+    return;
+  }
+
+  if (!(await confirmDialog(`Add ${times.length} interview slots on ${date} for ${display(state.access.department)}?`))) return;
+
+  btn.disabled = true; msg.className = "msg"; msg.textContent = "Adding…";
+  try {
+    const r = await api({ mode: "heads-add-slots", email: state.access.email, date, times });
+    msg.className = "msg ok";
+    msg.textContent = `Added ${r.added.length}.${r.alreadyExisted.length ? ` ${r.alreadyExisted.length} already existed.` : ""}`;
+  } catch (e) {
+    msg.className = "msg bad"; msg.textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("view-slots").addEventListener("click", (e) => {
+  if (e.target.id === "add-time-row") { addTimeRow(); return; }
+  if (e.target.closest("[data-remove-time]")) { e.target.closest(".row2").remove(); return; }
+  if (e.target.id === "add-slots") addSlots();
+});
+
 function readScores() {
   const scores = {};
   for (const input of document.querySelectorAll("[data-criterion]")) {
@@ -1223,10 +1310,12 @@ document.getElementById("views").addEventListener("click", (e) => {
   state.view = view.dataset.view; state.teamMsg = null;
   document.getElementById("view-applicants").classList.toggle("hidden", state.view !== "applicants");
   document.getElementById("view-team").classList.toggle("hidden", state.view !== "team");
+  document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
     btn.setAttribute("aria-selected", btn.dataset.view === state.view);
   }
   if (state.view === "team") renderTeam();
+  if (state.view === "slots") renderSlotsForm();
 });
 
 document.getElementById("view-team").addEventListener("click", (e) => {
