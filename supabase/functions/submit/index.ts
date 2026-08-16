@@ -1175,6 +1175,18 @@ type HeadsRemoveSlotPayload = {
 };
 
 /**
+ * The recruitment admin's view across every committee's slots at once — the
+ * coverage check "does every committee actually have at least
+ * HEADS_SLOT_EXTENSION_MIN_PER_DAY a day". Raw rows; the admin portal
+ * aggregates into committee-by-date counts itself, the same way it already
+ * aggregates applicants into Team diagrams and Onboarding.
+ */
+type HeadsAdminListSlotsPayload = {
+  mode: "heads-admin-list-slots";
+  email: string;
+};
+
+/**
  * A director placing an applicant onto the committee's team diagram — which
  * head-role team, and whether they join it as its Head or as a Member. Open
  * to whoever can already score this applicant, not only the first-preference
@@ -1348,6 +1360,7 @@ type SubmissionPayload =
   | HeadsAddSlotsPayload
   | HeadsListSlotsPayload
   | HeadsRemoveSlotPayload
+  | HeadsAdminListSlotsPayload
   | HeadsAssignApplicantPayload
   | HeadsUnassignApplicantPayload
   | HeadsSubmitTeamPayload
@@ -1851,6 +1864,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await removeHeadsSlot(token, payload)) });
     }
 
+    if (isHeadsAdminListSlotsPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await listAllHeadsSlots(token, payload)) });
+    }
+
     if (isHeadsAssignApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2083,6 +2102,11 @@ function isHeadsListSlotsPayload(payload: SubmissionPayload): payload is HeadsLi
 }
 function isHeadsRemoveSlotPayload(payload: SubmissionPayload): payload is HeadsRemoveSlotPayload {
   return (payload as HeadsRemoveSlotPayload).mode === "heads-remove-slot";
+}
+function isHeadsAdminListSlotsPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminListSlotsPayload {
+  return (payload as HeadsAdminListSlotsPayload).mode === "heads-admin-list-slots";
 }
 function isHeadsAssignApplicantPayload(
   payload: SubmissionPayload
@@ -5916,14 +5940,15 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
 
 /**
  * A director opening up more interview time for their own committee, self
- * service — no code change, no deploy. Restricted to the extension window
- * and a minimum of HEADS_SLOT_EXTENSION_MIN_PER_DAY times per call, so this
- * cannot quietly become a one-slot-at-a-time trickle that never actually
- * covers a day. Every added slot runs the committee's own established
- * interview length — a director sets when it starts, not how long it runs,
- * so a Tech Director slot is always an hour and an HR slot is always
- * whatever HR already interviews for, the same as every slot that shipped
- * with the cycle.
+ * service — no code change, no deploy. Restricted to the extension window,
+ * and a day has to reach HEADS_SLOT_EXTENSION_MIN_PER_DAY active slots
+ * before it counts as covered — but that minimum is per day, not per call:
+ * a day starting from nothing needs the full minimum in one submission,
+ * a day that already has it can take just one more. Every added slot runs
+ * the committee's own established interview length — a director sets when
+ * it starts, not how long it runs, so a Tech Director slot is always an
+ * hour and an HR slot is always whatever HR already interviews for, the
+ * same as every slot that shipped with the cycle.
  */
 async function addHeadsSlots(
   token: string,
@@ -5939,9 +5964,7 @@ async function addHeadsSlots(
   }
 
   const times = [...new Set((payload.times ?? []).map((t) => normalizeTime24(t)).filter(Boolean))];
-  if (times.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
-    throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
-  }
+  if (!times.length) throw new Error("Add at least one time.");
 
   const interview = COMMITTEE_INTERVIEWS[normalizeRole(committee)];
   const durationMinutes = interview?.durationMinutes ?? 60;
@@ -5951,6 +5974,26 @@ async function addHeadsSlots(
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
   const existing = ((await response.json()).values ?? []) as string[][];
   const present = new Set(existing.map((row) => normalize(row[0])));
+
+  /*
+   * The minimum is per day, not per call — once a day already has it, a
+   * director should be able to top up with just one more slot. Only a day
+   * starting from nothing has to arrive with the full minimum in one go.
+   */
+  const activeForDay = existing.filter(
+    (row) =>
+      normalizeRole(String(row[1] ?? "")) === normalizeRole(committee) &&
+      String(row[2] ?? "").trim() === date &&
+      String(row[8] ?? "").trim().toUpperCase() === "TRUE"
+  ).length;
+  if (activeForDay + times.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
+    const need = HEADS_SLOT_EXTENSION_MIN_PER_DAY - activeForDay;
+    throw new Error(
+      activeForDay > 0
+        ? `This day only has ${activeForDay} active slot${activeForDay === 1 ? "" : "s"} so far — add at least ${need} more to reach ${HEADS_SLOT_EXTENSION_MIN_PER_DAY}.`
+        : `Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times to start a new day.`
+    );
+  }
 
   const toAppend: Array<Array<string | number>> = [];
   const added: string[] = [];
@@ -6082,6 +6125,34 @@ async function removeHeadsSlot(
   );
 
   return { slotId };
+}
+
+/**
+ * Every committee's slots, for the admin's own coverage check — raw rows,
+ * so the portal can group them into a committee-by-date grid the same way
+ * it already builds Team diagrams and Onboarding from a flat applicant list.
+ */
+async function listAllHeadsSlots(
+  token: string,
+  payload: HeadsAdminListSlotsPayload
+): Promise<{
+  slots: Array<{ committee: string; date: string; active: boolean }>;
+}> {
+  await requireRecruitmentAdmin(token, payload.email);
+
+  await ensureHeadsSlotSheet(token);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_SLOT_SHEET_NAME, "A2:K")}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const slots = rows
+    .filter((row) => String(row[0] ?? "").trim())
+    .map((row) => ({
+      committee: displayCommitteeName(String(row[1] ?? "")),
+      date: String(row[2] ?? "").trim(),
+      active: String(row[8] ?? "").trim().toUpperCase() === "TRUE"
+    }));
+
+  return { slots };
 }
 
 /**

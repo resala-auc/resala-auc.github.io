@@ -139,6 +139,8 @@
   .chip-status.pending { background: #fdecec; color: var(--bad); }
   .chip-x { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px; flex: 0 0 auto; }
   .chip-x:hover { color: var(--bad); }
+  .cov-ok { background: #e8f6ee; color: var(--good); font-weight: 700; }
+  .cov-short { background: #fdecec; color: var(--bad); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -174,6 +176,7 @@
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="teams">Team diagrams</button>
       <button class="tab" data-view="onboarding">Onboarding</button>
+      <button class="tab" data-view="slots">Slots</button>
     </div>
 
     <div id="view-applicants">
@@ -198,6 +201,7 @@
 
     <div id="view-teams" class="hidden"></div>
     <div id="view-onboarding" class="hidden"></div>
+    <div id="view-slots" class="hidden"></div>
   </main>
 </div>
 
@@ -1054,6 +1058,69 @@ function renderOnboarding() {
     </table></div>`;
 }
 
+/* ── slot coverage ──────────────────────────────────────────────────────── */
+
+const SLOTS_EXTENSION_START = "2026-08-18";
+const SLOTS_EXTENSION_END = "2026-08-23";
+const SLOTS_EXTENSION_MIN_PER_DAY = 4;
+
+async function loadSlotsCoverage() {
+  const el = document.getElementById("view-slots");
+  el.innerHTML = `<div class="empty">Loading…</div>`;
+  try {
+    const r = await api({ mode: "heads-admin-list-slots", email: state.admin.email });
+    renderSlotsCoverage(r.slots);
+  } catch (err) {
+    el.innerHTML = `<div class="msg bad">${esc(err.message)}</div>`;
+  }
+}
+
+/**
+ * One row per committee, one column per date that has any active slot —
+ * the coverage check for "does every committee have at least
+ * SLOTS_EXTENSION_MIN_PER_DAY a day" during the self-service extension
+ * window, at a glance instead of clicking into eight separate portals.
+ */
+function renderSlotsCoverage(slots) {
+  const el = document.getElementById("view-slots");
+  const active = slots.filter((s) => s.active);
+  const dates = [...new Set(active.map((s) => s.date))].filter(Boolean).sort();
+
+  if (!dates.length) {
+    el.innerHTML = `<div class="empty">No interview slots exist yet.</div>`;
+    return;
+  }
+
+  const counts = new Map();
+  for (const s of active) {
+    const key = `${s.committee}|${s.date}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const rows = CYCLE_COMMITTEES.map((c) => {
+    const label = display(c.raw);
+    const cells = dates.map((date) => {
+      const count = counts.get(`${label}|${date}`) ?? 0;
+      const inWindow = date >= SLOTS_EXTENSION_START && date <= SLOTS_EXTENSION_END;
+      const cls = !inWindow ? "" : count < SLOTS_EXTENSION_MIN_PER_DAY ? "cov-short" : "cov-ok";
+      return `<td class="num ${cls}">${count || "—"}</td>`;
+    }).join("");
+    return `<tr><td><b>${esc(label)}</b></td>${cells}</tr>`;
+  }).join("");
+
+  el.innerHTML = `
+    <h2 class="sec2">Slot coverage</h2>
+    <div class="note" style="margin-bottom:14px;">
+      One row per committee, one column per date with any active slot. Green is
+      ${esc(SLOTS_EXTENSION_START)}–${esc(SLOTS_EXTENSION_END)} with at least ${SLOTS_EXTENSION_MIN_PER_DAY};
+      red is inside that window but still short. Dates outside it are shown as a plain count.
+    </div>
+    <div class="wrap-x"><table>
+      <thead><tr><th>Committee</th>${dates.map((d) => `<th>${esc(d.slice(5))}</th>`).join("")}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
 /* ── actions ────────────────────────────────────────────────────────────── */
 
 async function load(email, keepDialog) {
@@ -1106,11 +1173,13 @@ document.getElementById("views").addEventListener("click", (e) => {
   document.getElementById("view-applicants").classList.toggle("hidden", view.dataset.view !== "applicants");
   document.getElementById("view-teams").classList.toggle("hidden", view.dataset.view !== "teams");
   document.getElementById("view-onboarding").classList.toggle("hidden", view.dataset.view !== "onboarding");
+  document.getElementById("view-slots").classList.toggle("hidden", view.dataset.view !== "slots");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
     btn.setAttribute("aria-selected", btn.dataset.view === view.dataset.view);
   }
   if (view.dataset.view === "teams") renderTeams();
   if (view.dataset.view === "onboarding") renderOnboarding();
+  if (view.dataset.view === "slots") loadSlotsCoverage();
 });
 
 document.getElementById("view-teams").addEventListener("click", (e) => {
