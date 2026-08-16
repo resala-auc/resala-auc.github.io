@@ -1155,10 +1155,11 @@ type HeadsAddSlotsPayload = {
 };
 
 /** Reading back a committee's own slots for one date — existing ones to review, before adding more. */
+/** `date` omitted returns every one of the caller's own committee's slots, across all days. */
 type HeadsListSlotsPayload = {
   mode: "heads-list-slots";
   email: string;
-  date: string;
+  date?: string;
 };
 
 /**
@@ -6037,10 +6038,12 @@ async function addHeadsSlots(
 }
 
 /**
- * A committee's own slots for one date, with whether each is already
- * booked — read before adding more, or before deciding one can safely come
- * down. Not limited to the extension window: a director should be able to
- * see the cycle's original days for their committee too.
+ * A committee's own slots, with whether each is already booked — read
+ * before adding more, or before deciding one can safely come down. Omitting
+ * `date` returns every day at once, the overview a director needs to even
+ * know which days have anything on them before picking one to drill into.
+ * Not limited to the extension window: a director should be able to see the
+ * cycle's original days for their committee too.
  */
 async function listHeadsSlotsForDate(
   token: string,
@@ -6048,13 +6051,13 @@ async function listHeadsSlotsForDate(
 ): Promise<{
   committee: string;
   date: string;
-  slots: Array<{ id: string; label: string; startTime: string; endTime: string; active: boolean; booked: boolean }>;
+  slots: Array<{ id: string; date: string; label: string; startTime: string; endTime: string; active: boolean; booked: boolean }>;
 }> {
   const access = await requireCommitteeAccess(token, payload.email);
   const committee = access.department;
 
   const date = String(payload.date ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a valid date.");
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Pick a valid date.");
 
   await ensureHeadsSlotSheet(token);
   const [slotResponse, reservationResponse] = await Promise.all([
@@ -6068,17 +6071,24 @@ async function listHeadsSlotsForDate(
     reservationRows.filter((row) => String(row[4] ?? "").trim()).map((row) => normalize(row[1]))
   );
 
+  // No date means every one of this committee's slots — the overview a
+  // director sees before drilling into a single day.
   const slots = slotRows
-    .filter((row) => normalizeRole(String(row[1] ?? "")) === normalizeRole(committee) && String(row[2] ?? "").trim() === date)
+    .filter(
+      (row) =>
+        normalizeRole(String(row[1] ?? "")) === normalizeRole(committee) &&
+        (!date || String(row[2] ?? "").trim() === date)
+    )
     .map((row) => ({
       id: String(row[0] ?? ""),
+      date: String(row[2] ?? "").trim(),
       label: String(row[5] ?? ""),
       startTime: String(row[3] ?? ""),
       endTime: String(row[4] ?? ""),
       active: String(row[8] ?? "").trim().toUpperCase() === "TRUE",
       booked: bookedSlotIds.has(normalize(row[0]))
     }))
-    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+    .sort((a, b) => (a.date + a.startTime).localeCompare(b.date + b.startTime));
 
   return { committee: displayCommitteeName(committee), date, slots };
 }

@@ -1163,6 +1163,11 @@ function renderSlotsForm() {
     </div>
 
     <div class="panel" style="max-width:520px;margin-bottom:20px;">
+      <h3 class="sec" style="margin-top:0;padding-top:0;border-top:0;">Every day you have slots on</h3>
+      <div id="slots-overview"><div class="note">Loading…</div></div>
+    </div>
+
+    <div class="panel" style="max-width:520px;margin-bottom:20px;">
       <label for="slot-date">Date</label>
       <input type="date" id="slot-date">
       <div class="msg" id="slots-list-msg"></div>
@@ -1180,6 +1185,46 @@ function renderSlotsForm() {
         <span class="msg" id="slots-msg"></span>
       </div>
     </div>`;
+
+  loadSlotsOverview();
+}
+
+/**
+ * Every day this committee has any slot on, with active/booked counts — the
+ * answer to "how many slots exist and on what day" without already having
+ * to know which date to type in. Each row jumps into that date's detail
+ * view below.
+ */
+async function loadSlotsOverview() {
+  const el = document.getElementById("slots-overview");
+  try {
+    const r = await api({ mode: "heads-list-slots", email: state.access.email });
+    if (!r.slots.length) {
+      el.innerHTML = `<div class="note">No interview slots exist yet for your committee.</div>`;
+      return;
+    }
+    const byDate = new Map();
+    for (const s of r.slots) {
+      if (!byDate.has(s.date)) byDate.set(s.date, []);
+      byDate.get(s.date).push(s);
+    }
+    const dates = [...byDate.keys()].sort();
+    el.innerHTML = dates.map((date) => {
+      const day = byDate.get(date);
+      const active = day.filter((s) => s.active);
+      const booked = active.filter((s) => s.booked).length;
+      const short = active.length < SLOT_EXTENSION_MIN_PER_DAY && date >= SLOT_EXTENSION_START && date <= SLOT_EXTENSION_END;
+      return `
+        <button type="button" class="card" data-jump-date="${esc(date)}" style="width:100%;text-align:left;margin-bottom:8px;padding:11px 13px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+            <b>${esc(date)}</b>
+            <span class="chip-status ${short ? "pending" : "sent"}">${active.length} active${booked ? ` · ${booked} booked` : ""}</span>
+          </div>
+        </button>`;
+    }).join("");
+  } catch (e) {
+    el.innerHTML = `<div class="msg bad">${esc(e.message)}</div>`;
+  }
 }
 
 function addTimeRow() {
@@ -1240,6 +1285,7 @@ async function removeSlot(slotId) {
   try {
     await api({ mode: "heads-remove-slot", email: state.access.email, slotId });
     await loadSlotsList();
+    await loadSlotsOverview();
   } catch (e) {
     const msg = document.getElementById("slots-list-msg");
     msg.className = "msg bad"; msg.textContent = e.message;
@@ -1272,6 +1318,7 @@ async function addSlots() {
     msg.className = "msg ok";
     msg.textContent = `Added ${r.added.length}.${r.alreadyExisted.length ? ` ${r.alreadyExisted.length} already existed.` : ""}`;
     await loadSlotsList();
+    await loadSlotsOverview();
   } catch (e) {
     msg.className = "msg bad"; msg.textContent = e.message;
   } finally {
@@ -1284,7 +1331,13 @@ document.getElementById("view-slots").addEventListener("click", (e) => {
   if (e.target.closest("[data-remove-time]")) { e.target.closest(".row2").remove(); return; }
   if (e.target.id === "add-slots") { addSlots(); return; }
   const removeBtn = e.target.closest("[data-remove-slot]");
-  if (removeBtn) removeSlot(removeBtn.dataset.removeSlot);
+  if (removeBtn) { removeSlot(removeBtn.dataset.removeSlot); return; }
+  const jumpBtn = e.target.closest("[data-jump-date]");
+  if (jumpBtn) {
+    document.getElementById("slot-date").value = jumpBtn.dataset.jumpDate;
+    loadSlotsList();
+    document.getElementById("slot-date").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 });
 document.getElementById("view-slots").addEventListener("change", (e) => {
   if (e.target.id === "slot-date") loadSlotsList();
