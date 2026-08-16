@@ -1135,30 +1135,36 @@ const SLOT_EXTENSION_START = "2026-08-18";
 const SLOT_EXTENSION_END = "2026-08-23";
 const SLOT_EXTENSION_MIN_PER_DAY = 4;
 
+function slotTimeRowHtml() {
+  return `
+    <div class="row2 slot-time-row" style="margin-bottom:8px;">
+      <div><label style="font-size:11px;color:var(--muted);">Start</label><input type="time" class="slot-start-input"></div>
+      <div><label style="font-size:11px;color:var(--muted);">End</label><input type="time" class="slot-end-input"></div>
+      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
+    </div>`;
+}
+
 function renderSlotsForm() {
   const el = document.getElementById("view-slots");
   if (!state.access) return;
 
-  const rows = Array.from({ length: SLOT_EXTENSION_MIN_PER_DAY }, () => `
-    <div class="row2" style="margin-bottom:8px;">
-      <div><input type="time" class="slot-time-input"></div>
-      <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>
-    </div>`).join("");
+  const rows = Array.from({ length: SLOT_EXTENSION_MIN_PER_DAY }, slotTimeRowHtml).join("");
 
   el.innerHTML = `
     <h2 class="sec2">Add interview slots for ${esc(display(state.access.department))}</h2>
     <div class="note" style="margin-bottom:16px;">
       Self-service, no need to ask — pick a date between <b>${esc(SLOT_EXTENSION_START)}</b> and
-      <b>${esc(SLOT_EXTENSION_END)}</b>, and at least ${SLOT_EXTENSION_MIN_PER_DAY} different times for that day.
-      Each interview runs the same length your committee already uses. Add slots again for another day.
+      <b>${esc(SLOT_EXTENSION_END)}</b>, and at least ${SLOT_EXTENSION_MIN_PER_DAY} different start/end windows for
+      that day. Each window becomes exactly the interview length you set — the calendar event follows it precisely,
+      not a guessed duration. Add slots again for another day.
     </div>
-    <div class="panel" style="max-width:460px;">
+    <div class="panel" style="max-width:520px;">
       <label for="slot-date">Date</label>
       <input type="date" id="slot-date" min="${esc(SLOT_EXTENSION_START)}" max="${esc(SLOT_EXTENSION_END)}" style="margin-bottom:16px;">
 
-      <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">Times</label>
+      <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:6px;">Start &amp; end times</label>
       <div id="slot-times">${rows}</div>
-      <button type="button" class="btn btn-sm btn-ghost" id="add-time-row">+ Add another time</button>
+      <button type="button" class="btn btn-sm btn-ghost" id="add-time-row">+ Add another window</button>
 
       <div class="actions">
         <button class="btn btn-gold" id="add-slots">Add these slots</button>
@@ -1168,14 +1174,7 @@ function renderSlotsForm() {
 }
 
 function addTimeRow() {
-  const container = document.getElementById("slot-times");
-  const row = document.createElement("div");
-  row.className = "row2";
-  row.style.marginBottom = "8px";
-  row.innerHTML = `
-    <div><input type="time" class="slot-time-input"></div>
-    <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-remove-time>Remove</button></div>`;
-  container.appendChild(row);
+  document.getElementById("slot-times").insertAdjacentHTML("beforeend", slotTimeRowHtml());
 }
 
 async function addSlots() {
@@ -1183,22 +1182,32 @@ async function addSlots() {
   const msg = document.getElementById("slots-msg");
   const btn = document.getElementById("add-slots");
   const date = dateInput?.value;
-  const times = [...document.querySelectorAll(".slot-time-input")]
-    .map((input) => input.value.trim())
-    .filter(Boolean);
+
+  const slots = [...document.querySelectorAll(".slot-time-row")]
+    .map((row) => ({
+      startTime: row.querySelector(".slot-start-input")?.value || "",
+      endTime: row.querySelector(".slot-end-input")?.value || ""
+    }))
+    .filter((s) => s.startTime && s.endTime);
 
   if (!date) { msg.className = "msg bad"; msg.textContent = "Pick a date first."; return; }
-  if (times.length < SLOT_EXTENSION_MIN_PER_DAY) {
+  if (slots.length < SLOT_EXTENSION_MIN_PER_DAY) {
     msg.className = "msg bad";
-    msg.textContent = `Add at least ${SLOT_EXTENSION_MIN_PER_DAY} different times.`;
+    msg.textContent = `Add at least ${SLOT_EXTENSION_MIN_PER_DAY} different start/end windows.`;
+    return;
+  }
+  const backwards = slots.find((s) => s.endTime <= s.startTime);
+  if (backwards) {
+    msg.className = "msg bad";
+    msg.textContent = `${backwards.startTime}–${backwards.endTime} — the end time has to come after the start.`;
     return;
   }
 
-  if (!(await confirmDialog(`Add ${times.length} interview slots on ${date} for ${display(state.access.department)}?`))) return;
+  if (!(await confirmDialog(`Add ${slots.length} interview slots on ${date} for ${display(state.access.department)}?`))) return;
 
   btn.disabled = true; msg.className = "msg"; msg.textContent = "Adding…";
   try {
-    const r = await api({ mode: "heads-add-slots", email: state.access.email, date, times });
+    const r = await api({ mode: "heads-add-slots", email: state.access.email, date, slots });
     msg.className = "msg ok";
     msg.textContent = `Added ${r.added.length}.${r.alreadyExisted.length ? ` ${r.alreadyExisted.length} already existed.` : ""}`;
   } catch (e) {

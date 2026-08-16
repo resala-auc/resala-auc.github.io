@@ -342,6 +342,8 @@ const CORE_DAYS = [
 const HEADS_SLOT_EXTENSION_START = "2026-08-18";
 const HEADS_SLOT_EXTENSION_END = "2026-08-23";
 const HEADS_SLOT_EXTENSION_MIN_PER_DAY = 4;
+const HEADS_SLOT_EXTENSION_MIN_MINUTES = 10;
+const HEADS_SLOT_EXTENSION_MAX_MINUTES = 180;
 
 /**
  * Every head role a committee can accept an applicant into, keyed the same
@@ -1151,7 +1153,7 @@ type HeadsAddSlotsPayload = {
   mode: "heads-add-slots";
   email: string;
   date: string;
-  times: string[];
+  slots: Array<{ startTime: string; endTime: string }>;
 };
 
 /**
@@ -5883,6 +5885,13 @@ export function buildPreferenceSwapCommitteeNoticeHtml({
  * so an ad-hoc slot books, calendars, and reminds exactly like every slot
  * that shipped with the cycle.
  */
+/** Whole minutes from one 24h "HH:MM" to another, same day only — negative or zero means the pair is not a real window. */
+function minutesBetween24(startTime24: string, endTime24: string): number {
+  const [startHour, startMinute] = startTime24.split(":").map(Number);
+  const [endHour, endMinute] = endTime24.split(":").map(Number);
+  return endHour * 60 + endMinute - (startHour * 60 + startMinute);
+}
+
 async function addHeadsSlots(
   token: string,
   payload: HeadsAddSlotsPayload
@@ -5896,13 +5905,36 @@ async function addHeadsSlots(
     throw new Error(`Slots can only be added between ${HEADS_SLOT_EXTENSION_START} and ${HEADS_SLOT_EXTENSION_END}.`);
   }
 
-  const times = [...new Set((payload.times ?? []).map((t) => normalizeTime24(t)).filter(Boolean))];
-  if (times.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
+  const rawSlots = Array.isArray(payload.slots) ? payload.slots : [];
+  if (rawSlots.length < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
     throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
   }
 
-  const interview = COMMITTEE_INTERVIEWS[normalizeRole(committee)];
-  const durationMinutes = interview?.durationMinutes ?? 60;
+  /*
+   * Each slot carries its own start and end — a director's actual interview
+   * length, not a duration guessed from the committee's usual pattern — so
+   * the calendar event this eventually creates runs exactly the window they
+   * meant, same as every other scheduled slot in this system.
+   */
+  const parsed = rawSlots.map((slot) => {
+    const start = normalizeTime24(slot?.startTime);
+    const end = normalizeTime24(slot?.endTime);
+    if (!start || !end) throw new Error("Every slot needs both a start and an end time.");
+    const durationMinutes = minutesBetween24(start, end);
+    if (durationMinutes < HEADS_SLOT_EXTENSION_MIN_MINUTES || durationMinutes > HEADS_SLOT_EXTENSION_MAX_MINUTES) {
+      throw new Error(
+        `${toDisplayTime(start)}–${toDisplayTime(end)} is not a real interview window — each slot must run between ` +
+          `${HEADS_SLOT_EXTENSION_MIN_MINUTES} minutes and ${HEADS_SLOT_EXTENSION_MAX_MINUTES / 60} hours, start before end, same day.`
+      );
+    }
+    return { start, end, durationMinutes };
+  });
+
+  const uniqueByStart = new Map(parsed.map((slot) => [slot.start, slot]));
+  if (uniqueByStart.size < HEADS_SLOT_EXTENSION_MIN_PER_DAY) {
+    throw new Error(`Add at least ${HEADS_SLOT_EXTENSION_MIN_PER_DAY} different times for the day.`);
+  }
+
   const slug = normalizeRole(committee).replace(/\s+/g, "-");
 
   await ensureHeadsSlotSheet(token);
@@ -5914,28 +5946,16 @@ async function addHeadsSlots(
   const added: string[] = [];
   const alreadyExisted: string[] = [];
 
-  for (const time of times) {
-    const id = `${slug}-${date}-${time.replace(":", "")}`;
-    const startLabel = toDisplayTime(time);
+  for (const { start, end, durationMinutes } of uniqueByStart.values()) {
+    const id = `${slug}-${date}-${start.replace(":", "")}`;
+    const startLabel = toDisplayTime(start);
     const label = `${date} at ${startLabel}`;
     if (present.has(normalize(id))) {
       alreadyExisted.push(label);
       continue;
     }
     present.add(normalize(id));
-    toAppend.push([
-      id,
-      committee,
-      date,
-      startLabel,
-      addMinutesToTime(startLabel, durationMinutes),
-      label,
-      durationMinutes,
-      1,
-      "TRUE",
-      "",
-      ""
-    ]);
+    toAppend.push([id, committee, date, startLabel, toDisplayTime(end), label, durationMinutes, 1, "TRUE", "", ""]);
     added.push(label);
   }
 
