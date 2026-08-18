@@ -368,12 +368,7 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
     { id: "procurement", name: "The Negotiator" },
     { id: "logistics", name: "The Coordinator" }
   ],
-  "branding media": [
-    { id: "projects", name: "Head of Projects" },
-    { id: "production", name: "Head of Acting & Production" },
-    { id: "design", name: "Head of Graphic Design" },
-    { id: "editing", name: "Head of Video Editing" }
-  ],
+  "branding media": [{ id: "production", name: "Head of Acting & Production" }],
   hr: [{ id: "engagement-inclusion", name: "Engagement & Inclusion Head" }],
   "pr fundraising": [
     { id: "sponsorship", name: "Sponsorship Head" },
