@@ -166,6 +166,19 @@ export const rubrics = {
   hr: {
     source: "HR Recruitment Task §2.4",
     byRole: {
+      // Engagement and Inclusion merged into one role; kept as the current
+      // head's rubric. "engagement", "inclusion", and "tracking" below stay
+      // for applicants already scored against the old three-role split —
+      // never delete a rubric a real score references.
+      "engagement-inclusion": {
+        label: "Engagement & Inclusion Head",
+        criteria: [
+          { name: "Ownership", lookFor: "initiative, accountability, commitment", ...pair(20, "Takes initiative without being asked, follows through on commitments, takes responsibility when things go wrong, and is willing to advocate for members as readily as they plan for them.", "Waits for instructions, gives excuses, or only contributes when specifically assigned a task.") },
+          { name: "Leadership", lookFor: "communication, motivating others, teamwork, confidence", ...pair(30, "Communicates confidently and respectfully, motivates others, resolves conflicts maturely, earns people's trust across different committees, and creates an environment where every member feels included and valued.", "Struggles to communicate, avoids taking charge or difficult conversations, or has difficulty working with different personalities.") },
+          { name: "Self-awareness & Commitment", lookFor: "reflection, empathy, maturity, coachability", ...pair(20, "Recognizes personal strengths, weaknesses, and biases; accepts feedback positively; demonstrates empathy and active listening; and realistically explains the time they can commit.", "Cannot reflect on their own performance, becomes defensive, makes assumptions about others, or overcommits without justification.") },
+          { name: "Role-Specific Skills", lookFor: "creativity, planning, inclusion mindset, member experience", ...pair(30, "Generates creative engagement ideas, understands how to increase participation, identifies participation barriers, proposes practical accommodations, and thinks proactively about building a community where everyone belongs.", "Provides generic ideas, focuses only on logistics, makes assumptions about people's needs, or struggles to propose realistic inclusive practices.") }
+        ]
+      },
       engagement: {
         label: "Engagement Head",
         criteria: [

@@ -195,6 +195,12 @@ const alsoAskedBuilders: Record<string, AlsoAskedBuilder> = {
   ],
   hr: (role) =>
     ({
+      "engagement-inclusion": [
+        "Live: with a limited budget, what engagement activity would you run to bring members closer together?",
+        "Live: a visually impaired volunteer wants to join an event that was not designed with accessibility in mind. How would you approach it?"
+      ],
+      // Retired roles from an earlier cycle structure — kept in case a legacy
+      // applicant record still points at one of these ids.
       engagement: ["Live: with a limited budget, what engagement activity would you run to bring members closer together?"],
       inclusion: ["Live: a visually impaired volunteer wants to join an event that was not designed with accessibility in mind. How would you approach it?"],
       tracking: ["Live: walk us through how you would organize a messy spreadsheet with hundreds of inconsistent entries."],

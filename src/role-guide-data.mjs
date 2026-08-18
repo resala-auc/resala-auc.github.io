@@ -356,25 +356,11 @@ export const roleGuides = [
     preparation: "Draft a plan for keeping people engaged through engagement events and retreats.",
     heads: [
       {
-        id: "engagement",
-        name: "Engagement Head",
+        id: "engagement-inclusion",
+        name: "Engagement & Inclusion Head",
         subtitle: "The Connector",
         description:
-          "Plans and leads activities that help volunteers build friendships, stay engaged, and enjoy being a part of Resala. Organizes team-building initiatives, gathers member feedback, and works with other committees to strengthen participation and build a strong sense of community."
-      },
-      {
-        id: "inclusion",
-        name: "Inclusion Head",
-        subtitle: "The Advocate",
-        description:
-          "Ensures that every volunteer feels welcomed, supported, and able to participate fully in Resala. Coordinates accessibility and inclusion initiatives, supports visually impaired and international students, and works with committees to remove barriers to participation."
-      },
-      {
-        id: "tracking",
-        name: "Tracking System Head",
-        subtitle: "The Organizer",
-        description:
-          "Keeps Resala's HR data accurate and usable. Owns the volunteer database and attendance tracking system, works hand-in-hand with the Tech Team to keep it running, and turns raw data into reports that make the club's decisions, like VOM and COM, actually fair."
+          "Plans and leads activities that help volunteers build friendships, stay engaged, and enjoy being a part of Resala, while making sure every volunteer feels welcomed, supported, and able to participate fully. Organizes team-building initiatives, gathers member feedback, coordinates accessibility and inclusion efforts, supports visually impaired and international students, and works with other committees to strengthen participation and remove barriers to it."
       }
     ],
     whyChoose: "Resala's main asset is its people. HR keeps the community alive through engagement, belonging, inclusion, culture, recognition, feedback, and accountability.",
