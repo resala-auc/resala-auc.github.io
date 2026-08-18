@@ -224,25 +224,11 @@ export const roleGuides = [
     preparation: "Draft a plan for how you would manage logistics, tracking, and event setup.",
     heads: [
       {
-        id: "planning",
-        name: "The Planner",
-        subtitle: "Request & Planning",
-        description:
-          "Receives and reviews requests from committees, clarifies requirements, develops timelines, and coordinates with stakeholders to ensure every request is fully prepared before execution."
-      },
-      {
         id: "inventory",
         name: "The Organizer",
         subtitle: "Inventory & Storage",
         description:
           "Manages the inventory system by tracking equipment, organizing storage, maintaining accurate records, and ensuring all items are available and ready for events."
-      },
-      {
-        id: "procurement",
-        name: "The Negotiator",
-        subtitle: "Procurement & Vendors",
-        description:
-          "Sources vendors, compares quotations, negotiates prices, coordinates purchases, and maintains strong supplier relationships while keeping procurement within budget."
       },
       {
         id: "logistics",
