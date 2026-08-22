@@ -132,6 +132,7 @@
   .slot-group:last-child { margin-bottom: 0; }
   .slot-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
   .slot-chip { display: flex; align-items: center; gap: 7px; background: var(--soft); border-radius: 9px; padding: 6px 9px; margin-bottom: 6px; font-size: 13px; }
+  .chip-check { flex: 0 0 auto; margin: 0; accent-color: var(--blue); }
   .chip-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 1px 7px; border-radius: 999px; flex: 0 0 auto; }
   .chip-status.draft { background: #fdf4e0; color: var(--warn); }
   .chip-status.submitted { background: #e8effd; color: var(--blue); }
@@ -894,10 +895,12 @@ function adminChip(a, rawCommittee) {
   const pending = isHeldForFirstPreference(a, rawCommittee);
   const label = a.acceptedStatus === "Yes" ? "Sent" : a.acceptedStatus === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
   const cls = a.acceptedStatus === "Yes" ? "sent" : a.acceptedStatus === "Submitted" ? "submitted" : pending ? "pending" : "draft";
+  const selectable = a.acceptedStatus === "Submitted";
   return `<div class="slot-chip">
+    ${selectable ? `<input type="checkbox" class="chip-check" data-select="${esc(a.email)}" data-select-committee="${esc(rawCommittee)}" checked title="Include in the acceptance send">` : ""}
     <span>${esc(a.fullName)}</span>
     <span class="chip-status ${cls}">${label}</span>
-    ${a.acceptedStatus === "Submitted" ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Reject — sends it back to Draft on their diagram">↺</button>` : ""}
+    ${selectable ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Reject — sends it back to Draft on their diagram">↺</button>` : ""}
   </div>`;
 }
 
@@ -912,11 +915,14 @@ function renderTeamCommittee(rawCommittee, guideId) {
   const boxes = heads.map((h) => {
     const inRole = applicants.filter((a) => norm(a.acceptedRole) === norm(h.name));
     const headHolders = inRole.filter((a) => a.acceptedPosition === "Head");
+    const coHeadHolders = inRole.filter((a) => a.acceptedPosition === "Co-Head");
     const members = inRole.filter((a) => a.acceptedPosition === "Member");
     return `<div class="role-box ${headHolders.length ? "" : "missing"}">
       <div class="role-box-title">${esc(h.name)}</div>
       <div class="slot-group"><div class="slot-label">Head</div>
         ${headHolders.length ? headHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">No head assigned yet.</div>`}</div>
+      <div class="slot-group"><div class="slot-label">Co-Head</div>
+        ${coHeadHolders.length ? coHeadHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
       <div class="slot-group"><div class="slot-label">Members</div>
         ${members.length ? members.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
     </div>`;
@@ -956,16 +962,16 @@ function renderTeams() {
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-6px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}`;
 
   const sections = results.map((r) => `
-    <section class="committee">
+    <section class="committee" data-committee="${esc(r.raw)}">
       <h2>${esc(r.label)}
         <span class="c">${r.sentCount} sent · ${r.submittedCount} awaiting approval${r.pendingCount ? ` · ${r.pendingCount} pending first preference` : ""}</span>
       </h2>
       ${r.missing.length ? `<div class="note" style="margin-bottom:8px;">Still missing a Head for: ${r.missing.map(esc).join(", ")}.</div>` : ""}
       <div class="team-grid">${r.boxes}</div>
       <div class="row2" style="align-items:center;">
-        <div class="note">${r.submittedCount ? `${r.submittedCount} submitted by the committee, ready for your approval.` : "Nothing submitted yet."}</div>
+        <div class="note">${r.submittedCount ? "Uncheck anyone you don't want emailed yet — checked ones send." : "Nothing submitted yet."}</div>
         <div style="flex:0 0 auto;">
-          <button class="btn btn-sm btn-gold" data-approve="${esc(r.raw)}"${r.submittedCount ? "" : " disabled"}>Approve & send${r.submittedCount ? ` (${r.submittedCount})` : ""}</button>
+          <button class="btn btn-sm btn-gold" data-approve="${esc(r.raw)}"${r.submittedCount ? "" : " disabled"}>Send selected acceptance emails</button>
         </div>
       </div>
     </section>`).join("");
@@ -975,12 +981,16 @@ function renderTeams() {
 
 async function approveTeam(rawCommittee, btn) {
   const label = display(rawCommittee);
-  const count = btn.textContent.match(/\((\d+)\)/)?.[1] ?? "these";
-  if (!(await confirmDialog(`Approve and send acceptance emails for ${count} applicant(s) in ${label}?\n\nThis emails them immediately, cc the committee and HR.`))) return;
+  const section = btn.closest("section[data-committee]");
+  const checked = [...section.querySelectorAll(`[data-select-committee="${CSS.escape(rawCommittee)}"]:checked`)]
+    .map((c) => c.dataset.select);
+  if (!checked.length) return;
+
+  if (!(await confirmDialog(`Approve and send acceptance emails for ${checked.length} applicant(s) in ${label}?\n\nThis emails them immediately, cc the committee and HR.`))) return;
 
   btn.disabled = true; btn.textContent = "Sending…";
   try {
-    const r = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: rawCommittee });
+    const r = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: rawCommittee, applicantEmails: checked });
     state.teamMsg = {
       type: "ok",
       text: `${label}: sent ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}`

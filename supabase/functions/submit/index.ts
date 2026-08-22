@@ -1198,7 +1198,7 @@ type HeadsAssignApplicantPayload = {
   applicantEmail: string;
   committee: string;
   headId: string;
-  position: "Head" | "Member";
+  position: "Head" | "Co-Head" | "Member";
 };
 
 /** Pulls an applicant back off the diagram before the committee has confirmed it. */
@@ -1234,6 +1234,8 @@ type HeadsAdminConfirmTeamPayload = {
   mode: "heads-admin-confirm-team";
   email: string;
   committee: string;
+  /** Send only these Submitted applicants (by email) instead of the whole committee. Omit or empty to send everyone Submitted, as before. */
+  applicantEmails?: string[];
 };
 
 /**
@@ -6177,7 +6179,7 @@ async function assignHeadsApplicant(
   const applicantEmail = String(payload.applicantEmail ?? "").trim();
   const committee = String(payload.committee ?? "").trim();
   const headId = String(payload.headId ?? "").trim();
-  const position = payload.position === "Member" ? "Member" : "Head";
+  const position = payload.position === "Member" ? "Member" : payload.position === "Co-Head" ? "Co-Head" : "Head";
   if (!applicantEmail || !committee || !headId) {
     throw new Error("Applicant, committee and role are all required.");
   }
@@ -6223,21 +6225,22 @@ async function assignHeadsApplicant(
     throw new Error(`Already drafted onto ${currentHolder || "another committee"}'s diagram.`);
   }
 
-  // Only one Head per role. A different applicant already holding it has to
-  // be pulled off the diagram first — replacing them silently would be too
-  // easy to do by accident from a role's candidate list.
-  if (position === "Head") {
-    const existingHeadIndex = rows.findIndex(
+  // Only one Head, and separately only one Co-Head, per role. A different
+  // applicant already holding the same position has to be pulled off the
+  // diagram first — replacing them silently would be too easy to do by
+  // accident from a role's candidate list.
+  if (position === "Head" || position === "Co-Head") {
+    const existingIndex = rows.findIndex(
       (row, rowIndex) =>
         rowIndex !== index &&
         normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
         normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")) === normalizeRole(head.name) &&
-        String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head" &&
+        String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === position &&
         ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim())
     );
-    if (existingHeadIndex !== -1) {
-      const existingHeadName = String(rows[existingHeadIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
-      throw new Error(`${existingHeadName || "Someone else"} is already Head of ${head.name}. Remove them from the diagram first to replace them.`);
+    if (existingIndex !== -1) {
+      const existingName = String(rows[existingIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
+      throw new Error(`${existingName || "Someone else"} is already ${position} of ${head.name}. Remove them from the diagram first to replace them.`);
     }
   }
 
@@ -6469,12 +6472,17 @@ async function sendHeadsTeamAcceptances(
   const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
   const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
 
+  const onlyEmails = new Set(
+    (payload.applicantEmails ?? []).map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean)
+  );
+
   const submitted = rows
     .map((row, index) => ({ row, index }))
     .filter(
       ({ row }) =>
         String(row[ACCEPTED_COLUMN] ?? "").trim() === "Submitted" &&
-        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)
+        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+        (onlyEmails.size === 0 || onlyEmails.has(String(row[emailColumn] ?? "").trim().toLowerCase()))
     );
 
   const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
@@ -6730,7 +6738,7 @@ async function sendAcceptanceEmail({
   const body = [
     `Hi ${fullName},`,
     "",
-    `You are in. Welcome to ${committee}, as ${position === "Head" ? "the Head of" : "a Member of"} ${headName}.`,
+    `You are in. Welcome to ${committee}, as ${position === "Head" ? "the Head of" : position === "Co-Head" ? "a Co-Head of" : "a Member of"} ${headName}.`,
     "",
     "Someone from the committee will reach out with what happens next. For now, this is just the good news.",
     "",
@@ -6808,7 +6816,7 @@ export function buildAcceptanceEmailHtml({
                     <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
                       <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">You are in</div>
                       <div style="font-size:20px;line-height:1.35;font-weight:bold;color:#0d2b45;">${
-                        position === "Head" ? "Head of" : "Member of"
+                        position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of"
                       } ${escapeHtml(headName)}</div>
                       <div style="font-size:14px;line-height:1.5;color:#4b5563;margin-top:4px;">${escapeHtml(committee)}</div>
                     </td>

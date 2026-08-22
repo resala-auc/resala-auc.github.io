@@ -830,9 +830,9 @@ function notesSummary(applicant) {
 
 /* A candidate shown under the specific role they applied for — the role is
    implicit (the box it's in), so there is no role picker here, only whether
-   they join as Head or Member. `headOpen` hides the Head option once the
-   role already has one, since only one Head per role is allowed. */
-function candidateCard(applicant, headId, headOpen) {
+   they join as Head, Co-Head or Member. `headOpen`/`coHeadOpen` hide those
+   options once the role already has one, since each is capped at one per role. */
+function candidateCard(applicant, headId, headOpen, coHeadOpen) {
   return `
     <div class="pool-card">
       <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
@@ -842,6 +842,7 @@ function candidateCard(applicant, headId, headOpen) {
         <div><select data-pool-position="${esc(applicant.email)}">
           <option value="Member" selected>Member</option>
           ${headOpen ? `<option value="Head">Head</option>` : ""}
+          ${coHeadOpen ? `<option value="Co-Head">Co-Head</option>` : ""}
         </select></div>
         <div class="go"><button type="button" class="btn btn-sm btn-gold" data-assign="${esc(applicant.email)}" data-assign-head="${esc(headId)}">Add</button></div>
       </div>
@@ -849,10 +850,10 @@ function candidateCard(applicant, headId, headOpen) {
 }
 
 /* Pulls in anyone from the whole unplaced pool, not just people who applied
-   for this specific role — the deliberate way to make someone Head (or
-   Member) of a role they never applied for, as opposed to candidateCard
+   for this specific role — the deliberate way to make someone Head, Co-Head
+   (or Member) of a role they never applied for, as opposed to candidateCard
    above, which only ever offers people who did apply for it. */
-function reallocatePicker(headId, headOpen, candidates) {
+function reallocatePicker(headId, headOpen, coHeadOpen, candidates) {
   if (!candidates.length) return "";
   const options = candidates
     .map((a) => `<option value="${esc(a.email)}">${esc(a.fullName)} — applied for ${esc(a.headName || display(a.roleAppliedFor))}</option>`)
@@ -871,6 +872,7 @@ function reallocatePicker(headId, headOpen, candidates) {
           <select data-realloc-position="${esc(headId)}">
             <option value="Member" selected>Member</option>
             ${headOpen ? `<option value="Head">Head</option>` : ""}
+            ${coHeadOpen ? `<option value="Co-Head">Co-Head</option>` : ""}
           </select>
         </div>
         <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-realloc-add="${esc(headId)}">Add</button></div>
@@ -902,6 +904,7 @@ function poolCard(applicant, heads) {
         <div><select data-pool-position="${esc(applicant.email)}">
           <option value="Member" selected>Member</option>
           <option value="Head">Head</option>
+          <option value="Co-Head">Co-Head</option>
         </select></div>
         <div class="go"><button type="button" class="btn btn-sm btn-gold" data-assign="${esc(applicant.email)}">Add</button></div>
       </div>
@@ -960,9 +963,11 @@ function renderTeam() {
     .map((h) => {
       const inRole = here.filter((a) => norm(placementOn(a).role) === norm(h.name));
       const headHolders = inRole.filter((a) => placementOn(a).position === "Head");
+      const coHeadHolders = inRole.filter((a) => placementOn(a).position === "Co-Head");
       const members = inRole.filter((a) => placementOn(a).position === "Member");
       const candidates = unplacedByHead.get(h.id) || [];
       const headOpen = headHolders.length === 0;
+      const coHeadOpen = coHeadHolders.length === 0;
       // Everyone else unplaced, for reallocating in someone who applied for
       // a different role entirely.
       const reallocatable = unplaced.filter((a) => headIdOf(a) !== h.id).sort(byScore);
@@ -975,6 +980,10 @@ function renderTeam() {
               ${headHolders.length ? headHolders.map(slotChip).join("") : `<div class="note">No head assigned yet.</div>`}
             </div>
             <div class="slot-group">
+              <div class="slot-label">Co-Head</div>
+              ${coHeadHolders.length ? coHeadHolders.map(slotChip).join("") : `<div class="note">None yet.</div>`}
+            </div>
+            <div class="slot-group">
               <div class="slot-label">Members</div>
               ${members.length ? members.map(slotChip).join("") : `<div class="note">None yet.</div>`}
             </div>
@@ -982,10 +991,10 @@ function renderTeam() {
               <div class="slot-label">Candidates${candidates.length ? ` (${candidates.length})` : ""}</div>
               <div class="candidate-list">
                 ${candidates.length
-                  ? candidates.map((a) => candidateCard(a, h.id, headOpen)).join("")
+                  ? candidates.map((a) => candidateCard(a, h.id, headOpen, coHeadOpen)).join("")
                   : `<div class="note">Nobody who applied for this role is still unplaced.</div>`}
               </div>
-              ${reallocatePicker(h.id, headOpen, reallocatable)}
+              ${reallocatePicker(h.id, headOpen, coHeadOpen, reallocatable)}
             </div>
           </div>
         </div>`;
@@ -1075,11 +1084,12 @@ async function confirmTeam() {
   const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft" && !isHeldForFirstPreference(a));
   if (!drafts.length) return;
   const headCount = drafts.filter((a) => placementOn(a).position === "Head").length;
-  const memberCount = drafts.length - headCount;
+  const coHeadCount = drafts.filter((a) => placementOn(a).position === "Co-Head").length;
+  const memberCount = drafts.length - headCount - coHeadCount;
 
   if (!(await confirmDialog(
     `Submit ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
-    `(${headCount} as Head, ${memberCount} as Member) for admin approval?\n\n` +
+    `(${headCount} as Head, ${coHeadCount} as Co-Head, ${memberCount} as Member) for admin approval?\n\n` +
     "This does not email anyone yet — the recruitment admin reviews the roster and sends the acceptance emails."
   ))) return;
 
