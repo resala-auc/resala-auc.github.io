@@ -133,6 +133,11 @@
   .slot-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
   .slot-chip { display: flex; align-items: center; gap: 7px; background: var(--soft); border-radius: 9px; padding: 6px 9px; margin-bottom: 6px; font-size: 13px; }
   .chip-check { flex: 0 0 auto; margin: 0; accent-color: var(--blue); }
+  .add-row { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 9px; border-top: 1px dashed var(--line); }
+  .add-row select { flex: 1 1 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--soft); color: var(--ink); }
+  .add-row select[data-add-position] { flex: 1 1 0; min-width: 0; }
+  .add-row button { flex: 0 0 auto; }
   .chip-status { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; padding: 1px 7px; border-radius: 999px; flex: 0 0 auto; }
   .chip-status.draft { background: #fdf4e0; color: var(--warn); }
   .chip-status.submitted { background: #e8effd; color: var(--blue); }
@@ -896,12 +901,58 @@ function adminChip(a, rawCommittee) {
   const label = a.acceptedStatus === "Yes" ? "Sent" : a.acceptedStatus === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
   const cls = a.acceptedStatus === "Yes" ? "sent" : a.acceptedStatus === "Submitted" ? "submitted" : pending ? "pending" : "draft";
   const selectable = a.acceptedStatus === "Submitted";
+  const sent = a.acceptedStatus === "Yes";
   return `<div class="slot-chip">
     ${selectable ? `<input type="checkbox" class="chip-check" data-select="${esc(a.email)}" data-select-committee="${esc(rawCommittee)}" checked title="Include in the acceptance send">` : ""}
     <span>${esc(a.fullName)}</span>
     <span class="chip-status ${cls}">${label}</span>
-    ${selectable ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Reject — sends it back to Draft on their diagram">↺</button>` : ""}
+    ${selectable ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Send back to the committee as a Draft">↺</button>` : ""}
+    ${sent ? "" : `<button type="button" class="chip-x" data-unassign="${esc(a.email)}" title="Take them out of this role">×</button>`}
   </div>`;
+}
+
+/* Anyone not already placed on some committee's diagram. The admin can put any
+   of them into any role — including a role, or a committee, they never applied
+   to — which is the whole point of being able to fill a team from here rather
+   than waiting on the committee to submit one. */
+function unplacedApplicants() {
+  return state.data.applicants
+    .filter((a) => !a.acceptedStatus)
+    .sort((x, y) => {
+      const sx = panelAverage(x), sy = panelAverage(y);
+      if (sx === null && sy === null) return String(x.fullName).localeCompare(String(y.fullName));
+      if (sx === null) return 1;
+      if (sy === null) return -1;
+      return sy - sx;
+    });
+}
+
+/* One picker per role: who to add, and as what. Candidates who applied to this
+   very committee are floated to the top of the list, since they are usually
+   the intended answer, but the rest stay reachable in the same control. */
+function adminRolePicker(rawCommittee, head, headOpen, coHeadOpen, candidates) {
+  if (!candidates.length) return `<div class="note">Nobody left unplaced to add.</div>`;
+  const mine = candidates.filter((a) => normRole(a.roleAppliedFor) === normRole(rawCommittee));
+  const others = candidates.filter((a) => normRole(a.roleAppliedFor) !== normRole(rawCommittee));
+  const opt = (a) => {
+    const score = panelAverage(a);
+    return `<option value="${esc(a.email)}">${esc(a.fullName)}${score === null ? "" : ` · ${Math.round(score)}/100`} — ${esc(a.headName || display(a.roleAppliedFor))}</option>`;
+  };
+  const key = `${rawCommittee}|${head.id}`;
+  return `
+    <div class="add-row">
+      <select data-add-email="${esc(key)}">
+        <option value="" selected disabled>Add someone…</option>
+        ${mine.length ? `<optgroup label="Applied to ${esc(display(rawCommittee))}">${mine.map(opt).join("")}</optgroup>` : ""}
+        ${others.length ? `<optgroup label="Applied elsewhere">${others.map(opt).join("")}</optgroup>` : ""}
+      </select>
+      <select data-add-position="${esc(key)}">
+        ${headOpen ? `<option value="Head">Head</option>` : ""}
+        ${coHeadOpen ? `<option value="Co-Head">Co-Head</option>` : ""}
+        <option value="Member"${headOpen ? "" : " selected"}>Member</option>
+      </select>
+      <button type="button" class="btn btn-sm btn-ghost" data-add-go="${esc(key)}">Add</button>
+    </div>`;
 }
 
 function renderTeamCommittee(rawCommittee, guideId) {
@@ -911,6 +962,8 @@ function renderTeamCommittee(rawCommittee, guideId) {
   const submitted = applicants.filter((a) => a.acceptedStatus === "Submitted");
   const sent = applicants.filter((a) => a.acceptedStatus === "Yes");
   const pending = applicants.filter((a) => isHeldForFirstPreference(a, rawCommittee));
+
+  const candidates = unplacedApplicants();
 
   const boxes = heads.map((h) => {
     const inRole = applicants.filter((a) => norm(a.acceptedRole) === norm(h.name));
@@ -925,6 +978,9 @@ function renderTeamCommittee(rawCommittee, guideId) {
         ${coHeadHolders.length ? coHeadHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
       <div class="slot-group"><div class="slot-label">Members</div>
         ${members.length ? members.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
+      <div class="slot-group">
+        ${adminRolePicker(rawCommittee, h, headHolders.length === 0, coHeadHolders.length === 0, candidates)}
+      </div>
     </div>`;
   }).join("");
 
@@ -995,6 +1051,48 @@ async function approveTeam(rawCommittee, btn) {
       type: "ok",
       text: `${label}: sent ${r.sent.length}.${r.missingHeadRoles.length ? ` Still no Head for: ${r.missingHeadRoles.join(", ")}.` : ""}`
     };
+    await load(state.admin.email);
+    renderTeams();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    renderTeams();
+  }
+}
+
+async function adminAddToRole(key) {
+  const [rawCommittee, headId] = key.split("|");
+  const email = document.querySelector(`[data-add-email="${CSS.escape(key)}"]`)?.value;
+  const position = document.querySelector(`[data-add-position="${CSS.escape(key)}"]`)?.value;
+  if (!email || !position) return;
+  const who = state.data.applicants.find((a) => norm(a.email) === norm(email));
+
+  state.teamMsg = null;
+  try {
+    const r = await api({
+      mode: "heads-admin-assign-applicant",
+      email: state.admin.email,
+      applicantEmail: email,
+      committee: rawCommittee,
+      headId,
+      position
+    });
+    state.teamMsg = { type: "ok", text: `${who?.fullName || email} added as ${r.position} of ${r.headName}. Tick them below and send when ready.` };
+    await load(state.admin.email);
+    renderTeams();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    renderTeams();
+  }
+}
+
+async function adminRemoveFromRole(email) {
+  const who = state.data.applicants.find((a) => norm(a.email) === norm(email));
+  if (!(await confirmDialog(`Take ${who?.fullName || "this applicant"} out of their role?\n\nNothing has been emailed to them yet, and they go back to the unplaced list.`))) return;
+
+  state.teamMsg = null;
+  try {
+    await api({ mode: "heads-admin-unassign-applicant", email: state.admin.email, applicantEmail: email });
+    state.teamMsg = { type: "ok", text: `${who?.fullName || "Applicant"} removed.` };
     await load(state.admin.email);
     renderTeams();
   } catch (err) {
@@ -1197,6 +1295,10 @@ document.getElementById("view-teams").addEventListener("click", (e) => {
   if (approveBtn) { approveTeam(approveBtn.dataset.approve, approveBtn); return; }
   const rejectBtn = e.target.closest("[data-reject]");
   if (rejectBtn) { rejectSubmission(rejectBtn.dataset.reject, rejectBtn.dataset.rejectCommittee); return; }
+  const addBtn = e.target.closest("[data-add-go]");
+  if (addBtn) { adminAddToRole(addBtn.dataset.addGo); return; }
+  const unassignBtn = e.target.closest("[data-unassign]");
+  if (unassignBtn) { adminRemoveFromRole(unassignBtn.dataset.unassign); return; }
 });
 
 document.getElementById("refresh").addEventListener("click", () => load(state.admin.email));

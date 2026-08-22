@@ -1261,6 +1261,31 @@ type HeadsAdminRejectApplicantPayload = {
 };
 
 /**
+ * The recruitment admin placing someone into a role themselves, without
+ * waiting for that committee to build and submit a diagram. Lands straight on
+ * Submitted rather than Draft: the admin is the one who sends, so there is
+ * nobody left to hand it to, and it should be immediately selectable in the
+ * send list. Unlike the committee's own placement this ignores the
+ * first-preference claim — the admin sees every committee at once and is the
+ * tiebreaker that rule exists to avoid needing.
+ */
+type HeadsAdminAssignApplicantPayload = {
+  mode: "heads-admin-assign-applicant";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+  headId: string;
+  position: "Head" | "Co-Head" | "Member";
+};
+
+/** The recruitment admin pulling a placement back off, before it is emailed. */
+type HeadsAdminUnassignApplicantPayload = {
+  mode: "heads-admin-unassign-applicant";
+  email: string;
+  applicantEmail: string;
+};
+
+/**
  * The onboarding checklist page reading its own status back, by email —
  * public, since the applicant is never asked to log in for this, the same
  * way the task-submission page works. Only ever returns something for a row
@@ -1370,6 +1395,8 @@ type SubmissionPayload =
   | HeadsSubmitTeamPayload
   | HeadsAdminConfirmTeamPayload
   | HeadsAdminRejectApplicantPayload
+  | HeadsAdminAssignApplicantPayload
+  | HeadsAdminUnassignApplicantPayload
   | HeadsOnboardingStatusPayload
   | HeadsOnboardingSubmitPayload
   | HeadsReleaseFirstPreferencePayload
@@ -1904,6 +1931,18 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await rejectHeadsSubmission(token, payload)) });
     }
 
+    if (isHeadsAdminAssignApplicantPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await adminAssignHeadsApplicant(token, payload)) });
+    }
+
+    if (isHeadsAdminUnassignApplicantPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await adminUnassignHeadsApplicant(token, payload)) });
+    }
+
     if (isHeadsOnboardingStatusPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2134,6 +2173,18 @@ function isHeadsAdminRejectApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminRejectApplicantPayload {
   return (payload as HeadsAdminRejectApplicantPayload).mode === "heads-admin-reject-applicant";
+}
+
+function isHeadsAdminAssignApplicantPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminAssignApplicantPayload {
+  return (payload as HeadsAdminAssignApplicantPayload).mode === "heads-admin-assign-applicant";
+}
+
+function isHeadsAdminUnassignApplicantPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminUnassignApplicantPayload {
+  return (payload as HeadsAdminUnassignApplicantPayload).mode === "heads-admin-unassign-applicant";
 }
 function isHeadsOnboardingStatusPayload(
   payload: SubmissionPayload
@@ -6237,20 +6288,7 @@ async function assignHeadsApplicant(
   // applicant already holding the same position has to be pulled off the
   // diagram first — replacing them silently would be too easy to do by
   // accident from a role's candidate list.
-  if (position === "Head" || position === "Co-Head") {
-    const existingIndex = rows.findIndex(
-      (row, rowIndex) =>
-        rowIndex !== index &&
-        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
-        normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")) === normalizeRole(head.name) &&
-        String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === position &&
-        ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim())
-    );
-    if (existingIndex !== -1) {
-      const existingName = String(rows[existingIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
-      throw new Error(`${existingName || "Someone else"} is already ${position} of ${head.name}. Remove them from the diagram first to replace them.`);
-    }
-  }
+  assertRoleSlotFree(rows, index, committee, head.name, position);
 
   const draftedAt = new Date().toISOString();
 
@@ -6292,6 +6330,139 @@ async function assignHeadsApplicant(
   }
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
+}
+
+/**
+ * Only one Head, and separately only one Co-Head, per role — whoever is doing
+ * the placing. Shared by the committee's own diagram and the admin's direct
+ * placement so the two can never disagree about what a role can hold.
+ * Members are uncapped and never checked here.
+ */
+function assertRoleSlotFree(
+  rows: string[][],
+  skipIndex: number,
+  committee: string,
+  headName: string,
+  position: string
+): void {
+  if (position !== "Head" && position !== "Co-Head") return;
+  const takenIndex = rows.findIndex(
+    (row, rowIndex) =>
+      rowIndex !== skipIndex &&
+      normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+      normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")) === normalizeRole(headName) &&
+      String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === position &&
+      ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim())
+  );
+  if (takenIndex === -1) return;
+  const takenBy = String(rows[takenIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
+  throw new Error(
+    `${takenBy || "Someone else"} is already ${position} of ${headName}. Remove them first to replace them.`
+  );
+}
+
+/**
+ * The recruitment admin placing someone into a role directly, without waiting
+ * for that committee to build a diagram — which is the only way a committee
+ * that has not submitted anything can still have its roles filled and sent.
+ *
+ * Lands on Submitted, not Draft: the admin is the one who sends, so there is
+ * nobody left to hand a draft to, and it should show up immediately in the
+ * send list. The first-preference claim is deliberately not enforced here —
+ * that rule exists to stop two committees fighting over an applicant, and the
+ * admin seeing all of them at once is the tiebreaker it was standing in for.
+ */
+async function adminAssignHeadsApplicant(
+  token: string,
+  payload: HeadsAdminAssignApplicantPayload
+): Promise<{ applicantEmail: string; committee: string; headName: string; position: string }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  const headId = String(payload.headId ?? "").trim();
+  const position = payload.position === "Member" ? "Member" : payload.position === "Co-Head" ? "Co-Head" : "Head";
+  if (!applicantEmail || !committee || !headId) {
+    throw new Error("Applicant, committee and role are all required.");
+  }
+
+  const admin = await requireRecruitmentAdmin(token, payload.email);
+
+  const heads = COMMITTEE_HEADS[normalizeRole(committee)];
+  const head = heads?.find((h) => h.id === headId);
+  if (!head) {
+    throw new Error(`${displayCommitteeName(committee)} has no role called that. Pick one from the list.`);
+  }
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+    throw new Error("Already confirmed and emailed — remove them first if this needs to change.");
+  }
+
+  assertRoleSlotFree(rows, index, committee, head.name, position);
+
+  const now = new Date().toISOString();
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    {
+      // Eleven columns, in sheet order: Accepted, Role, Position, Accepted
+      // By/At, Accepted Committee, the three First Preference Released
+      // columns, then Submitted By/At.
+      //
+      // Accepted By/At and Submitted By/At are both the admin: they are the
+      // only person who touched this placement, and the trail should say so
+      // rather than leaving those columns misleadingly blank. The three
+      // release columns are cleared — a release is meaningless once the admin
+      // has decided, and a stale one would outlive its reason.
+      values: [
+        ["Submitted", head.name, position, admin.email, now, displayCommitteeName(committee), "", "", "", admin.email, now]
+      ]
+    }
+  );
+
+  return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
+}
+
+/** The recruitment admin pulling a placement back off entirely. Blocked once it has been emailed. */
+async function adminUnassignHeadsApplicant(
+  token: string,
+  payload: HeadsAdminUnassignApplicantPayload
+): Promise<{ applicantEmail: string }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Applicant is required.");
+
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+    throw new Error("Their acceptance email has already gone out — this cannot be undone from here.");
+  }
+
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    // Same eleven columns the placement above writes, all cleared.
+    { values: [["", "", "", "", "", "", "", "", "", "", ""]] }
+  );
+
+  return { applicantEmail };
 }
 
 /** Pulls a draft placement back off the diagram. Blocked once the committee has already confirmed and emailed it. */
