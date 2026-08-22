@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="x-apple-disable-message-reformatting">
     <!-- Declaring both schemes stops Apple Mail and Outlook running their own
-         blind inversion, which is what turns navy-on-cream into unreadable
+         blind inversion, which is what turns navy-on-sand into unreadable
          near-black on near-black. The dark palette below is deliberate instead. -->
     <meta name="color-scheme" content="light dark">
     <meta name="supported-color-schemes" content="light dark">
     <title>You're in — welcome to Children’s Day</title>
     <!--[if mso]>
     <style>
+      .serif, .stepnum, .stepttl, .hero, .rolename, .datewhen { font-family: Georgia, serif !important; }
       .ink, .navy, .muted, .faint { font-family: Arial, sans-serif !important; }
     </style>
     <![endif]-->
@@ -20,186 +21,205 @@
 
       /* Phones: the card sheds its side padding first, then the display sizes
          step down — so the role name and the three dates keep their weight
-         instead of every line collapsing into the same grey block. */
+         instead of every line collapsing into one grey block. */
       @media only screen and (max-width: 480px) {
-        .pad      { padding-left: 20px !important; padding-right: 20px !important; }
-        .hero     { font-size: 24px !important; }
-        .rolename { font-size: 18px !important; }
-        .stepttl  { font-size: 16.5px !important; }
-        .p        { font-size: 15.5px !important; }
-        .datewhen { font-size: 16px !important; }
+        .pad      { padding-left: 22px !important; padding-right: 22px !important; }
+        .hero     { font-size: 30px !important; }
+        .rolename { font-size: 21px !important; }
+        .stepttl  { font-size: 18px !important; }
+        .p        { font-size: 16px !important; }
+        .datewhen { font-size: 17px !important; }
         .cta-td   { display: block !important; width: 100% !important; }
         .cta-link { display: block !important; text-align: center !important; }
       }
 
+      /* Warm dark palette: the sand ground goes to a warm near-black rather
+         than a blue one, so the gold stays the same object in both themes. */
       @media (prefers-color-scheme: dark) {
-        .wrap    { background: #0f1620 !important; }
-        .card    { background: #182231 !important; border-color: #2b3648 !important; }
-        .footer  { background: #131c28 !important; border-top-color: #2b3648 !important; }
-        .ink     { color: #f2ede4 !important; }
-        .navy    { color: #a9cdea !important; }
-        .muted   { color: #c2cad6 !important; }
-        .faint   { color: #93a0b4 !important; }
-        .rolebox { background: #2a2415 !important; border-color: #5c4a22 !important; }
-        .goldlbl { color: #f0c473 !important; }
-        .stepnum { color: #f0c473 !important; }
-        .datebox { background: #1e2939 !important; border-color: #33425a !important; }
-        .rule    { border-top-color: #2b3648 !important; }
+        .wrap    { background: #14110e !important; }
+        .card    { background: #1e1a16 !important; border-color: #352f27 !important; }
+        .footer  { background: #191511 !important; border-top-color: #352f27 !important; }
+        .ink     { color: #f2ece1 !important; }
+        .navy    { color: #9fc6e4 !important; }
+        .muted   { color: #c4b8a8 !important; }
+        .faint   { color: #968b7c !important; }
+        .tint    { background: #262019 !important; border-color: #443b2e !important; }
+        .goldlbl { color: #e8bf72 !important; }
+        .stepnum { color: #e8bf72 !important; }
+        .goldrule{ background: #c99433 !important; }
+        .rule    { border-top-color: #352f27 !important; }
       }
 
       /* Outlook.com and the Gmail app repaint colours instead of honouring the
          query above, and tag whatever they touched with these attributes. They
          are the only hook available for putting the contrast back. */
-      [data-ogsc] .ink     { color: #f2ede4 !important; }
-      [data-ogsc] .navy    { color: #a9cdea !important; }
-      [data-ogsc] .muted   { color: #c2cad6 !important; }
-      [data-ogsc] .faint   { color: #93a0b4 !important; }
-      [data-ogsc] .goldlbl { color: #f0c473 !important; }
-      [data-ogsc] .stepnum { color: #f0c473 !important; }
-      [data-ogsb] .card    { background: #182231 !important; }
-      [data-ogsb] .rolebox { background: #2a2415 !important; }
-      [data-ogsb] .datebox { background: #1e2939 !important; }
+      [data-ogsc] .ink     { color: #f2ece1 !important; }
+      [data-ogsc] .navy    { color: #9fc6e4 !important; }
+      [data-ogsc] .muted   { color: #c4b8a8 !important; }
+      [data-ogsc] .faint   { color: #968b7c !important; }
+      [data-ogsc] .goldlbl { color: #e8bf72 !important; }
+      [data-ogsc] .stepnum { color: #e8bf72 !important; }
+      [data-ogsb] .card    { background: #1e1a16 !important; }
+      [data-ogsb] .tint    { background: #262019 !important; }
       /* The CTA must never be repainted: charcoal on gold is the one pair that
          holds on any ground, and an inverted version costs us the only button. */
-      [data-ogsb] .cta      { background: #f5a623 !important; }
-      [data-ogsc] .cta-link { color: #1b1f23 !important; }
+      [data-ogsb] .cta      { background: #e0a33a !important; }
+      [data-ogsc] .cta-link { color: #241f1a !important; }
     </style>
   </head>
-  <body class="wrap" style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
-    <!-- Preheader: what the inbox shows, and the two things that are actually due. -->
+  <body class="wrap" style="margin:0;padding:0;background:#f4efe4;color:#241f1a;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+    <!-- Preheader: what the inbox shows, and the two things actually due. -->
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You're in. Reply within 24 hours, and keep 30 Aug, 31 Aug and 1 Sep free.</div>
 
-    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:20px 0;">
+    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4efe4;margin:0;padding:22px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
-          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#fffdf9;border:1px solid #e6dcc8;border-radius:16px;overflow:hidden;">
 
-            <!-- Masthead -->
+            <!-- Masthead. The gold rule under it is the club's one flourish and
+                 the only place the accent appears at full strength up top. -->
             <tr>
-              <td class="pad" style="background:#0d2b45;padding:26px 28px 30px;text-align:center;">
-                <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="Resala AUC" width="112" style="display:block;width:112px;max-width:112px;height:auto;border:0;margin:0 auto;">
-                <div class="hero" style="font-size:28px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:18px;">You're in.</div>
-                <div style="font-size:14.5px;line-height:1.5;color:#c9dcea;margin-top:7px;">Welcome to Children’s Day.</div>
+              <td class="pad" style="background:#0d2b45;padding:30px 30px 26px;text-align:center;">
+                <img src="https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png" alt="Resala AUC" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;margin:0 auto;">
+                <div class="hero serif" style="font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.15;color:#ffffff;margin-top:18px;">You&rsquo;re in.</div>
+                <div style="font-size:14px;line-height:1.5;color:#b8cfe0;margin-top:8px;letter-spacing:0.3px;">Welcome to Children’s Day</div>
               </td>
             </tr>
+            <tr><td class="goldrule" style="background:#e0a33a;height:4px;font-size:0;line-height:0;">&nbsp;</td></tr>
 
             <!-- The story, then the role itself -->
             <tr>
-              <td class="pad" style="padding:26px 28px 0;">
-                <p class="ink p" style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#172033;">Hi Nour Hassan,</p>
-                <p class="muted p" style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#5a6675;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
-                <p class="ink p" style="margin:0 0 20px;font-size:16px;line-height:1.65;color:#172033;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
+              <td class="pad" style="padding:30px 30px 0;">
+                <p class="ink p" style="margin:0 0 18px;font-size:17px;line-height:1.6;color:#241f1a;">Hi Nour Hassan,</p>
+                <p class="muted p" style="margin:0 0 18px;font-size:17px;line-height:1.7;color:#6b6055;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
+                <p class="ink p" style="margin:0 0 24px;font-size:17px;line-height:1.7;color:#241f1a;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
 
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
                   <tr>
-                    <td class="rolebox" style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px 20px;">
-                      <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:8px;">You have been selected as</div>
-                      <div class="rolename navy" style="font-size:21px;line-height:1.3;font-weight:bold;color:#0d2b45;">Head of Creative Logistics &amp; Visual Identity Lead</div>
-                      <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:5px;">Children’s Day</div>
+                    <td class="tint" style="background:#faf4e8;border:1px solid #ecdfc4;border-radius:14px;padding:22px 24px;">
+                      <div class="goldlbl" style="font-size:11px;color:#a5731b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:10px;">You have been selected as</div>
+                      <div class="rolename serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;color:#0d2b45;">Head of Creative Logistics &amp; Visual Identity Lead</div>
+                      <div class="muted" style="font-size:14.5px;line-height:1.5;color:#6b6055;margin-top:7px;">Children’s Day</div>
                     </td>
                   </tr>
                 </table>
 
-                <p class="muted p" style="margin:0;font-size:16px;line-height:1.65;color:#5a6675;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
+                <p class="muted p" style="margin:0;font-size:17px;line-height:1.7;color:#6b6055;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
               </td>
             </tr>
 
-            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+            <tr><td class="pad" style="padding:28px 30px 0;"><div class="rule" style="border-top:1px solid #eee4d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
 
             <!-- Step 1 -->
             <tr>
-              <td class="pad" style="padding:22px 28px 0;">
+              <td class="pad" style="padding:26px 30px 0;">
                 
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 12px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 14px;">
                   <tr>
-                    <td width="28" valign="top" style="width:28px;padding:0;">
-                      <div class="stepnum" style="font-size:19px;line-height:1.25;font-weight:bold;color:#c07f12;">1</div>
+                    <td width="34" valign="top" style="width:34px;padding:0;">
+                      <div class="stepnum" style="font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1;color:#c99433;">1</div>
                     </td>
-                    <td valign="top" style="padding:0;">
-                      <div class="stepttl navy" style="font-size:18px;line-height:1.3;font-weight:bold;color:#0d2b45;">Reply to this email within 24 hours</div>
+                    <td valign="top" style="padding:2px 0 0;">
+                      <div class="stepttl serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.3;color:#0d2b45;">Reply to this email within 24 hours</div>
                     </td>
                   </tr>
                 </table>
-                <div class="muted" style="font-size:15px;line-height:1.6;color:#5a6675;margin:0 0 10px;">Just hit reply and confirm both:</div>
-                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:6px;">You&rsquo;re <b>Nour Hassan</b>, and you&rsquo;re taking this role.</div>
-                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;">You can attend <b>all three dates</b> below.</div>
+                <div class="muted" style="font-size:15.5px;line-height:1.6;color:#6b6055;margin:0 0 12px;">Just hit reply and confirm both:</div>
+                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:7px;">You&rsquo;re <b>Nour Hassan</b>, and you&rsquo;re taking this role.</div>
+                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;">You can attend <b>all three dates</b> below.</div>
               </td>
             </tr>
 
-            <!-- The three dates -->
+            <!-- The three dates. Each one gets its own gold rule so the block
+                 reads as three separate commitments, not one paragraph. -->
             <tr>
-              <td class="pad" style="padding:18px 28px 0;">
+              <td class="pad" style="padding:20px 30px 0;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                   <tr>
-                    <td class="datebox" style="background:#f6f9fc;border:1px solid #dde7f0;border-radius:14px;padding:18px 20px;">
-                      <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:14px;">All three are mandatory</div>
+                    <td class="tint" style="background:#faf4e8;border:1px solid #ecdfc4;border-radius:14px;padding:22px 24px;">
+                      <div class="goldlbl" style="font-size:11px;color:#a5731b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:18px;">All three are mandatory</div>
                       
-                      <div style="margin:0 0 14px;">
-                        <div class="datewhen navy" style="font-size:16.5px;line-height:1.35;font-weight:bold;color:#0d2b45;">Sunday 30 August</div>
-                        <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:2px;">4:30 – 7:00 PM · Onboarding meeting, offline and in person</div>
-                      </div>
-                      <div style="margin:0 0 14px;">
-                        <div class="datewhen navy" style="font-size:16.5px;line-height:1.35;font-weight:bold;color:#0d2b45;">Monday 31 August</div>
-                        <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:2px;">Engagement Fair — day 1</div>
-                      </div>
-                      <div style="margin:0 0 0;">
-                        <div class="datewhen navy" style="font-size:16.5px;line-height:1.35;font-weight:bold;color:#0d2b45;">Tuesday 1 September</div>
-                        <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:2px;">Engagement Fair — day 2</div>
-                      </div>
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+                        <tr>
+                          <td width="3" style="width:3px;background:#e0a33a;font-size:0;line-height:0;">&nbsp;</td>
+                          <td style="padding-left:14px;">
+                            <div class="datewhen serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.35;color:#0d2b45;">Sunday 30 August</div>
+                            <div class="muted" style="font-size:14px;line-height:1.5;color:#6b6055;margin-top:3px;">4:30 &ndash; 7:00 PM &middot; Onboarding meeting, offline and in person</div>
+                          </td>
+                        </tr>
+                      </table>
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 16px;">
+                        <tr>
+                          <td width="3" style="width:3px;background:#e0a33a;font-size:0;line-height:0;">&nbsp;</td>
+                          <td style="padding-left:14px;">
+                            <div class="datewhen serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.35;color:#0d2b45;">Monday 31 August</div>
+                            <div class="muted" style="font-size:14px;line-height:1.5;color:#6b6055;margin-top:3px;">Engagement Fair &middot; day one</div>
+                          </td>
+                        </tr>
+                      </table>
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 0;">
+                        <tr>
+                          <td width="3" style="width:3px;background:#e0a33a;font-size:0;line-height:0;">&nbsp;</td>
+                          <td style="padding-left:14px;">
+                            <div class="datewhen serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.35;color:#0d2b45;">Tuesday 1 September</div>
+                            <div class="muted" style="font-size:14px;line-height:1.5;color:#6b6055;margin-top:3px;">Engagement Fair &middot; day two</div>
+                          </td>
+                        </tr>
+                      </table>
                     </td>
                   </tr>
                 </table>
-                <div class="faint" style="font-size:13px;line-height:1.55;color:#7a8595;margin-top:10px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
+                <div class="faint" style="font-size:13.5px;line-height:1.6;color:#928678;margin-top:12px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
               </td>
             </tr>
 
-            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+            <tr><td class="pad" style="padding:28px 30px 0;"><div class="rule" style="border-top:1px solid #eee4d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
 
             <!-- Step 2 -->
             <tr>
-              <td class="pad" style="padding:22px 28px 0;">
+              <td class="pad" style="padding:26px 30px 0;">
                 
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 12px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 14px;">
                   <tr>
-                    <td width="28" valign="top" style="width:28px;padding:0;">
-                      <div class="stepnum" style="font-size:19px;line-height:1.25;font-weight:bold;color:#c07f12;">2</div>
+                    <td width="34" valign="top" style="width:34px;padding:0;">
+                      <div class="stepnum" style="font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1;color:#c99433;">2</div>
                     </td>
-                    <td valign="top" style="padding:0;">
-                      <div class="stepttl navy" style="font-size:18px;line-height:1.3;font-weight:bold;color:#0d2b45;">Finish your onboarding checklist</div>
+                    <td valign="top" style="padding:2px 0 0;">
+                      <div class="stepttl serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.3;color:#0d2b45;">Finish your onboarding checklist</div>
                     </td>
                   </tr>
                 </table>
-                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:5px;">Confirm you&rsquo;re taking the role.</div>
-                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:5px;">Watch a short video on leadership vs. management.</div>
-                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:16px;">Send us a few notes on what stuck with you.</div>
+                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:6px;">Confirm you&rsquo;re taking the role.</div>
+                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:6px;">Watch a short video on leadership vs. management.</div>
+                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:20px;">Send us a few notes on what stuck with you.</div>
 
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 10px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                   <tr>
-                    <td class="cta cta-td" align="center" style="border-radius:10px;background:#f5a623;">
-                      <a class="cta-link" href="https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu" target="_blank" rel="noopener" style="display:inline-block;padding:13px 24px;font-size:15.5px;font-weight:bold;color:#1b1f23;text-decoration:none;border-radius:10px;">Open my onboarding checklist &rarr;</a>
+                    <td class="cta cta-td" align="center" style="border-radius:10px;background:#e0a33a;">
+                      <a class="cta-link" href="https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu" target="_blank" rel="noopener" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:bold;color:#241f1a;text-decoration:none;border-radius:10px;">Open my onboarding checklist &rarr;</a>
                     </td>
                   </tr>
                 </table>
-                <div class="faint" style="font-size:12.5px;line-height:1.5;color:#7a8595;word-break:break-all;">Takes a couple of minutes: https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu</div>
               </td>
             </tr>
+
             <!-- Sign-off -->
             <tr>
-              <td class="pad" style="padding:26px 28px 28px;">
-                <p class="ink" style="margin:0 0 4px;font-size:16.5px;line-height:1.5;color:#172033;font-weight:bold;">Welcome to the team.</p>
-                <p class="muted" style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#5a6675;">Let&rsquo;s build something real this year.</p>
-                <p class="ink" style="margin:0;font-size:16px;line-height:1.6;color:#172033;">Best,<br>Resala AUC</p>
+              <td class="pad" style="padding:30px 30px 30px;">
+                <p class="ink serif" style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.4;color:#241f1a;">Welcome to the team.</p>
+                <p class="muted" style="margin:0 0 18px;font-size:16.5px;line-height:1.6;color:#6b6055;">Let&rsquo;s build something real this year.</p>
+                <p class="ink" style="margin:0;font-size:16px;line-height:1.6;color:#241f1a;">Best,<br>Resala AUC</p>
               </td>
             </tr>
 
             <!-- Fine print, deliberately last: it is true and it matters, but it
                  must not compete with the two things this email actually asks for. -->
             <tr>
-              <td class="footer pad" style="background:#f6f2e9;padding:16px 28px 18px;border-top:1px solid #eadfca;">
-                <div class="faint" style="font-size:12px;line-height:1.6;color:#7a8595;">
+              <td class="footer pad" style="background:#f7f1e5;padding:18px 30px 20px;border-top:1px solid #e6dcc8;">
+                <div class="faint" style="font-size:12px;line-height:1.65;color:#928678;">
                   <b>Please note:</b> this email is not proof of contribution. It only confirms your selection &mdash; not any work done for the club yet &mdash; and cannot be used as documentation now or later. Real proof comes at the end of the semester, based on what you actually contribute.
                 </div>
-                <div class="faint" style="font-size:12px;line-height:1.5;color:#7a8595;margin-top:12px;text-align:center;">Resala AUC &middot; Build the First Step</div>
+                <div class="faint" style="font-size:12px;line-height:1.5;color:#928678;margin-top:14px;text-align:center;letter-spacing:0.4px;">Resala AUC &middot; Build the First Step</div>
               </td>
             </tr>
 
