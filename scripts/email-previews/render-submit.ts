@@ -203,11 +203,9 @@ for (const [file, booking, movedAway] of [
   });
 }
 
-/* One as Head, one as Co-Head, one as Member — the position and whether a
-   committee Director exists to be "your partner" are the only things the
-   copy actually changes on. */
+/* One as Head, one as Co-Head, one as Member — the position is the only thing
+   the copy actually changes on. */
 await Deno.mkdir(`${OUT}/acceptance`, { recursive: true });
-const samplePartner = { name: "Fatima Nageh", positionType: "Director", email: "fatimanageh@aucegypt.edu", phone: "+201024029437" };
 for (const position of ["Head", "Co-Head", "Member"] as const) {
   const file = `${position.toLowerCase()}.html`;
   await Deno.writeTextFile(
@@ -217,15 +215,14 @@ for (const position of ["Head", "Co-Head", "Member"] as const) {
       committee: "Children’s Day",
       headName: "Creative Logistics & Visual Identity Lead",
       position,
-      onboardingUrl: "https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu",
-      partner: position === "Member" ? null : samplePartner
+      onboardingUrl: "https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu"
     })
   );
   written.push({
     committee: "",
     dir: "acceptance",
     file,
-    title: `Acceptance · welcomed in as ${position}${position === "Member" ? " (no Director on file, partner card omitted)" : ""}`,
+    title: `Acceptance · welcomed in as ${position}`,
     subject: "Resala AUC: welcome to Children’s Day — you're in!"
   });
 }

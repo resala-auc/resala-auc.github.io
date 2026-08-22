@@ -6507,7 +6507,6 @@ async function sendHeadsTeamAcceptances(
     try {
       const cc = await buildApplicantCc(token, committee, applicantEmail);
       await sendAcceptanceEmail({
-        token,
         fullName,
         aucEmail: applicantEmail,
         committee: displayCommitteeName(committee),
@@ -6718,7 +6717,6 @@ function headsOnboardingUrl(aucEmail: string): string {
 }
 
 async function sendAcceptanceEmail({
-  token,
   fullName,
   aucEmail,
   committee,
@@ -6726,7 +6724,6 @@ async function sendAcceptanceEmail({
   position,
   cc
 }: {
-  token: string;
   fullName: string;
   aucEmail: string;
   committee: string;
@@ -6737,7 +6734,6 @@ async function sendAcceptanceEmail({
   if (!gmailConfigured()) return;
 
   const onboardingUrl = headsOnboardingUrl(aucEmail);
-  const partner = await getCommitteePartnerContact(token, committee);
   const positionPhrase = position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
   const subject = `Resala AUC: welcome to ${committee} — you're in!`;
   const body = [
@@ -6784,19 +6780,6 @@ async function sendAcceptanceEmail({
     "",
     `Open your checklist: ${onboardingUrl}`,
     "",
-    ...(partner
-      ? [
-          "",
-          "YOUR PARTNER FOR THIS ROLE",
-          "",
-          `  ${partner.name}`,
-          `  ${partner.positionType} - ${committee}`,
-          `  ${partner.email}${partner.phone ? `\n  ${partner.phone}` : ""}`,
-          "",
-          "Reach out to them before the onboarding meeting.",
-          ""
-        ]
-      : []),
     "",
     "Welcome to the team. Let's build something real this year.",
     "",
@@ -6812,7 +6795,7 @@ async function sendAcceptanceEmail({
     "Resala AUC - Build the First Step"
   ].join("\n");
 
-  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl, partner });
+  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl });
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -6840,15 +6823,13 @@ export function buildAcceptanceEmailHtml({
   committee,
   headName,
   position,
-  onboardingUrl,
-  partner
+  onboardingUrl
 }: {
   fullName: string;
   committee: string;
   headName: string;
   position: string;
   onboardingUrl: string;
-  partner?: { name: string; positionType: string; email: string; phone: string } | null;
 }): string {
   const roleLine = position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of";
 
@@ -7037,30 +7018,6 @@ export function buildAcceptanceEmailHtml({
                 <div class="faint" style="font-size:12.5px;line-height:1.5;color:#7a8595;word-break:break-all;">Takes a couple of minutes: ${escapeHtml(onboardingUrl)}</div>
               </td>
             </tr>
-${
-  partner
-    ? `
-            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
-
-            <!-- Who to actually talk to -->
-            <tr>
-              <td class="pad" style="padding:22px 28px 0;">
-                <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:10px;">Your partner for this role</div>
-                <div class="ink" style="font-size:16.5px;line-height:1.4;color:#172033;font-weight:bold;">${escapeHtml(partner.name)}</div>
-                <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-bottom:9px;">${escapeHtml(partner.positionType)} &middot; ${escapeHtml(committee)}</div>
-                <div style="font-size:14px;line-height:1.75;">
-                  <a class="navy" href="mailto:${escapeHtml(partner.email)}" style="color:#0d2b45;text-decoration:none;">&#9993;&nbsp; ${escapeHtml(partner.email)}</a>${
-        partner.phone
-          ? `<br><a class="navy" href="tel:${escapeHtml(partner.phone.replace(/[^\d+]/g, ""))}" style="color:#0d2b45;text-decoration:none;">&#9742;&nbsp; ${escapeHtml(partner.phone)}</a>`
-          : ""
-      }
-                </div>
-                <div class="faint" style="font-size:13px;line-height:1.55;color:#7a8595;margin-top:9px;">Reach out to them before the onboarding meeting.</div>
-              </td>
-            </tr>`
-    : ""
-}
-
             <!-- Sign-off -->
             <tr>
               <td class="pad" style="padding:26px 28px 28px;">
@@ -8558,38 +8515,6 @@ async function getCommitteePanel(
     // A hierarchy problem must never block an application from being booked.
     console.error(`Could not load committee panel: ${error instanceof Error ? error.message : error}`);
     return [];
-  }
-}
-
-/**
- * The one person a newly accepted Head deals with directly — the committee's
- * own Director, preferred over a Vice-Director when both exist. Named and
- * reachable in the acceptance email so "someone will reach out" has an actual
- * face on it, the same way the director-track welcome email does.
- */
-async function getCommitteePartnerContact(
-  token: string,
-  committee: string
-): Promise<{ name: string; positionType: string; email: string; phone: string } | null> {
-  try {
-    const { entries } = await loadHierarchy(token);
-    const wanted = normalizeRole(committee);
-    const inCommittee = entries.filter(
-      (entry) => normalizeRole(entry.department) === wanted && isValidAucEmail(entry.aucEmail)
-    );
-    const pick =
-      inCommittee.find((entry) => normalize(entry.positionType) === "director") ??
-      inCommittee.find((entry) => normalize(entry.positionType).includes("director"));
-    if (!pick) return null;
-    return {
-      name: String(pick.name).trim(),
-      positionType: String(pick.positionType).trim(),
-      email: String(pick.aucEmail).trim(),
-      phone: String(pick.phone ?? "").trim()
-    };
-  } catch (error) {
-    console.error(`Could not load committee partner contact: ${error instanceof Error ? error.message : error}`);
-    return null;
   }
 }
 
