@@ -6507,6 +6507,7 @@ async function sendHeadsTeamAcceptances(
     try {
       const cc = await buildApplicantCc(token, committee, applicantEmail);
       await sendAcceptanceEmail({
+        token,
         fullName,
         aucEmail: applicantEmail,
         committee: displayCommitteeName(committee),
@@ -6717,6 +6718,7 @@ function headsOnboardingUrl(aucEmail: string): string {
 }
 
 async function sendAcceptanceEmail({
+  token,
   fullName,
   aucEmail,
   committee,
@@ -6724,6 +6726,7 @@ async function sendAcceptanceEmail({
   position,
   cc
 }: {
+  token: string;
   fullName: string;
   aucEmail: string;
   committee: string;
@@ -6734,26 +6737,48 @@ async function sendAcceptanceEmail({
   if (!gmailConfigured()) return;
 
   const onboardingUrl = headsOnboardingUrl(aucEmail);
+  const partner = await getCommitteePartnerContact(token, committee);
+  const positionPhrase = position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
   const subject = `Resala AUC: welcome to ${committee} — you're in!`;
   const body = [
     `Hi ${fullName},`,
     "",
-    `You are in. Welcome to ${committee}, as ${position === "Head" ? "the Head of" : position === "Co-Head" ? "a Co-Head of" : "a Member of"} ${headName}.`,
+    `"Ana maly." Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt. One reason, carried forward every year by one more person who decides it is their problem.`,
     "",
-    "Someone from the committee will reach out with what happens next. For now, this is just the good news.",
+    `This year, that person is you. Build the First Step was our call, and you answered it. You've been selected as ${positionPhrase} of ${headName}, ${committee}.`,
     "",
-    "Two things before you start:",
-    "1. Confirm you're taking the role.",
-    "2. Watch a short video on leadership vs. management, and send a few notes on what stuck with you.",
-    `Both take a couple of minutes here: ${onboardingUrl}`,
+    "It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.",
     "",
-    "Congratulations, and welcome to Resala.",
+    "Before anything else: this email is not proof of contribution. It only confirms your selection. It doesn't confirm any actual work done for the club yet, and can't be used as documentation now or later. Real proof comes at the end of the semester, based on the contributions you actually make.",
+    "",
+    "Step 1: Reply within 24 hours",
+    "Reply directly to this email confirming:",
+    `1) You're ${fullName} and confirming this role.`,
+    "2) Your availability for the mandatory offline onboarding meeting on 30 August, 4:30–7:00 PM.",
+    "",
+    ...(partner
+      ? [
+          "Your partner for this role",
+          partner.name,
+          `${partner.positionType} · ${committee}`,
+          `${partner.email}${partner.phone ? ` · ${partner.phone}` : ""}`,
+          "Reach out before your onboarding meeting.",
+          ""
+        ]
+      : []),
+    "Step 2: Your onboarding checklist",
+    "1. Attend the mandatory offline onboarding meeting on 30 August (4:30–7:00 PM), and the Engagement Fair on 31 August & 1 September — all three dates are mandatory.",
+    "2. Confirm you're taking the role.",
+    "3. Watch a short video on leadership vs. management, and send a few notes on what stuck with you.",
+    `Open your checklist here: ${onboardingUrl}`,
+    "",
+    "Welcome to the team. Let's build something real this year.",
     "",
     "Best,",
     "Resala AUC"
   ].join("\n");
 
-  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl });
+  const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl, partner });
   const accessToken = await getGmailAccessToken();
   const rawMessage = buildRawEmailMessage({
     from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -6781,14 +6806,17 @@ export function buildAcceptanceEmailHtml({
   committee,
   headName,
   position,
-  onboardingUrl
+  onboardingUrl,
+  partner
 }: {
   fullName: string;
   committee: string;
   headName: string;
   position: string;
   onboardingUrl: string;
+  partner?: { name: string; positionType: string; email: string; phone: string } | null;
 }): string {
+  const positionPhrase = position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
   return `<!doctype html>
 <html>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
@@ -6805,12 +6833,9 @@ export function buildAcceptanceEmailHtml({
             </tr>
             <tr>
               <td style="padding:26px 28px 8px;">
-                <!--
-                  OPENING STORY — pending: the real opening message goes here,
-                  replacing the line below. Do not invent this copy; it is
-                  supplied, not written from a template.
-                -->
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">"Ana maly." Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt. One reason, carried forward every year by one more person who decides it is their problem.</p>
+
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
@@ -6822,18 +6847,59 @@ export function buildAcceptanceEmailHtml({
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">Someone from the committee will reach out with what happens next. For now, this is just the good news.</p>
+
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">This year, that person is you. Build the First Step was our call, and you answered it. You've been selected as ${positionPhrase} of ${escapeHtml(headName)}, ${escapeHtml(committee)}.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px 18px;">
+                      <div style="font-size:12.5px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Before anything else</div>
+                      <div style="font-size:14px;line-height:1.6;color:#4b5563;">This email is not proof of contribution. It only confirms your selection. It doesn't confirm any actual work done for the club yet, and can't be used as documentation now or later. Real proof comes at the end of the semester, based on the contributions you actually make.</div>
+                    </td>
+                  </tr>
+                </table>
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
                   <tr>
                     <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Two things before you start</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1.</b> Confirm you're taking the role.</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:14px;"><b>2.</b> Watch a short video on leadership vs. management, and send a few notes on what stuck with you.</div>
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Step 1: Reply within 24 hours</div>
+                      <div style="font-size:14px;line-height:1.6;color:#172033;margin-bottom:8px;">Reply directly to this email confirming:</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1)</b> You're ${escapeHtml(fullName)} and confirming this role.</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;">${
+                        "<b>2)</b> Your availability for the mandatory offline onboarding meeting on 30 August, 4:30–7:00 PM."
+                      }</div>
+                    </td>
+                  </tr>
+                </table>
+
+                ${
+                  partner
+                    ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Your partner for this role</div>
+                      <div style="font-size:15px;line-height:1.5;color:#172033;font-weight:bold;">${escapeHtml(partner.name)}</div>
+                      <div style="font-size:13.5px;line-height:1.5;color:#4b5563;margin-bottom:8px;">${escapeHtml(partner.positionType)} · ${escapeHtml(committee)}</div>
+                      <div style="font-size:13.5px;line-height:1.6;color:#4b5563;">✉ ${escapeHtml(partner.email)}${partner.phone ? `<br>☎ ${escapeHtml(partner.phone)}` : ""}</div>
+                      <div style="font-size:12.5px;line-height:1.5;color:#667085;margin-top:8px;">Reach out before your onboarding meeting.</div>
+                    </td>
+                  </tr>
+                </table>`
+                    : ""
+                }
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Step 2: Your onboarding checklist</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1.</b> Attend the mandatory offline onboarding meeting on 30 August (4:30–7:00 PM), and the Engagement Fair on 31 August & 1 September — all three dates are mandatory.</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>2.</b> Confirm you're taking the role.</div>
+                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:14px;"><b>3.</b> Watch a short video on leadership vs. management, and send a few notes on what stuck with you.</div>
                       <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                         <tr>
                           <td style="border-radius:10px;background:#0d2b45;">
-                            <a href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Start your checklist</a>
+                            <a href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Open my onboarding checklist →</a>
                           </td>
                         </tr>
                       </table>
@@ -6842,7 +6908,7 @@ export function buildAcceptanceEmailHtml({
                   </tr>
                 </table>
 
-                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Congratulations, and welcome to Resala.</p>
+                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Welcome to the team. Let's build something real this year.</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>
             </tr>
@@ -8328,6 +8394,38 @@ async function getCommitteePanel(
     // A hierarchy problem must never block an application from being booked.
     console.error(`Could not load committee panel: ${error instanceof Error ? error.message : error}`);
     return [];
+  }
+}
+
+/**
+ * The one person a newly accepted Head deals with directly — the committee's
+ * own Director, preferred over a Vice-Director when both exist. Named and
+ * reachable in the acceptance email so "someone will reach out" has an actual
+ * face on it, the same way the director-track welcome email does.
+ */
+async function getCommitteePartnerContact(
+  token: string,
+  committee: string
+): Promise<{ name: string; positionType: string; email: string; phone: string } | null> {
+  try {
+    const { entries } = await loadHierarchy(token);
+    const wanted = normalizeRole(committee);
+    const inCommittee = entries.filter(
+      (entry) => normalizeRole(entry.department) === wanted && isValidAucEmail(entry.aucEmail)
+    );
+    const pick =
+      inCommittee.find((entry) => normalize(entry.positionType) === "director") ??
+      inCommittee.find((entry) => normalize(entry.positionType).includes("director"));
+    if (!pick) return null;
+    return {
+      name: String(pick.name).trim(),
+      positionType: String(pick.positionType).trim(),
+      email: String(pick.aucEmail).trim(),
+      phone: String(pick.phone ?? "").trim()
+    };
+  } catch (error) {
+    console.error(`Could not load committee partner contact: ${error instanceof Error ? error.message : error}`);
+    return null;
   }
 }
 
