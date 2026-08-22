@@ -6845,18 +6845,18 @@ export function buildAcceptanceEmailHtml({
   ];
 
   /*
-   * A step opens on a serif numeral in the margin rather than a filled box.
-   * Boxes are spent on the two things that must not be skimmed — the role and
-   * the dates — so the steps stay quiet and the page keeps its air.
+   * A step opens on a Royal Blue numeral in the margin rather than a filled
+   * box. Boxes are spent on the two things that must not be skimmed — the role
+   * and the dates — so the steps stay quiet and the card keeps its air.
    */
   const stepHeading = (n: string, title: string) => `
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 14px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 13px;">
                   <tr>
-                    <td width="34" valign="top" style="width:34px;padding:0;">
-                      <div class="stepnum" style="font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1;color:#c99433;">${n}</div>
+                    <td width="36" valign="top" style="width:36px;padding:0;">
+                      <div class="stepnum" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:28px;line-height:1;font-weight:900;color:#0c2c80;">${n}</div>
                     </td>
-                    <td valign="top" style="padding:2px 0 0;">
-                      <div class="stepttl serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.3;color:#0d2b45;">${title}</div>
+                    <td valign="top" style="padding:3px 0 0;">
+                      <div class="stepttl blue" style="font-size:19px;line-height:1.3;font-weight:bold;color:#0c2c80;">${title}</div>
                     </td>
                   </tr>
                 </table>`;
@@ -6868,138 +6868,154 @@ export function buildAcceptanceEmailHtml({
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="x-apple-disable-message-reformatting">
     <!-- Declaring both schemes stops Apple Mail and Outlook running their own
-         blind inversion, which is what turns navy-on-sand into unreadable
-         near-black on near-black. The dark palette below is deliberate instead. -->
+         blind inversion, which is what turns Royal-Blue-on-white into near-black
+         on near-black. The dark palette below is a deliberate design instead. -->
     <meta name="color-scheme" content="light dark">
     <meta name="supported-color-schemes" content="light dark">
     <title>You're in — welcome to ${escapeHtml(committee)}</title>
     <!--[if mso]>
     <style>
-      .serif, .stepnum, .stepttl, .hero, .rolename, .datewhen { font-family: Georgia, serif !important; }
-      .ink, .navy, .muted, .faint { font-family: Arial, sans-serif !important; }
+      .hero, .stepnum { font-family: Arial Black, Arial, sans-serif !important; }
+      .body-text, .ink, .blue, .muted, .faint { font-family: Arial, sans-serif !important; }
     </style>
     <![endif]-->
     <style>
       :root { color-scheme: light dark; supported-color-schemes: light dark; }
 
       /* Phones: the card sheds its side padding first, then the display sizes
-         step down — so the role name and the three dates keep their weight
-         instead of every line collapsing into one grey block. */
+         step down — so the statement, the role and the three dates keep their
+         weight instead of every line collapsing into one grey block. */
       @media only screen and (max-width: 480px) {
-        .pad      { padding-left: 22px !important; padding-right: 22px !important; }
-        .hero     { font-size: 30px !important; }
-        .rolename { font-size: 21px !important; }
-        .stepttl  { font-size: 18px !important; }
+        .pad      { padding-left: 24px !important; padding-right: 24px !important; }
+        .hero     { font-size: 40px !important; letter-spacing: -1.5px !important; }
+        .rolename { font-size: 20px !important; }
+        .stepttl  { font-size: 17.5px !important; }
         .p        { font-size: 16px !important; }
-        .datewhen { font-size: 17px !important; }
+        .datewhen { font-size: 16.5px !important; }
         .cta-td   { display: block !important; width: 100% !important; }
-        .cta-link { display: block !important; text-align: center !important; }
+        .cta-text { display: block !important; text-align: center !important; }
       }
 
-      /* Warm dark palette: the sand ground goes to a warm near-black rather
-         than a blue one, so the gold stays the same object in both themes. */
+      /* Dark mode. Royal Blue is a *light-ground* colour: on a dark card it
+         falls to roughly 1.5:1 and vanishes, so every blue mark moves to Sky
+         Blue. Sunshine with Charcoal text already passes on either ground, so
+         the CTA is left untouched and stays the same object in both themes. */
       @media (prefers-color-scheme: dark) {
-        .wrap    { background: #14110e !important; }
-        .card    { background: #1e1a16 !important; border-color: #352f27 !important; }
-        .footer  { background: #191511 !important; border-top-color: #352f27 !important; }
-        .ink     { color: #f2ece1 !important; }
-        .navy    { color: #9fc6e4 !important; }
-        .muted   { color: #c4b8a8 !important; }
-        .faint   { color: #968b7c !important; }
-        .tint    { background: #262019 !important; border-color: #443b2e !important; }
-        .goldlbl { color: #e8bf72 !important; }
-        .stepnum { color: #e8bf72 !important; }
-        .goldrule{ background: #c99433 !important; }
-        .rule    { border-top-color: #352f27 !important; }
+        .wrap     { background: #0d111c !important; }
+        .card     { background: #161c2b !important; border-color: #2a3348 !important; }
+        .masthead { background: #101833 !important; }
+        .footer   { background: #101833 !important; }
+        .ink      { color: #f4efe6 !important; }
+        .blue,
+        .stepnum,
+        .hero,
+        .eyebrow,
+        .goldlbl,
+        .foot-b   { color: #a7d4f2 !important; }
+        .muted    { color: #c3cbd9 !important; }
+        .faint    { color: #93a0b4 !important; }
+        .askbox   { background: #1c2439 !important; border-left-color: #a7d4f2 !important; }
+        .rule     { border-top-color: #2a3348 !important; }
+        .foot-a   { color: #ffffff !important; }
       }
 
       /* Outlook.com and the Gmail app repaint colours instead of honouring the
          query above, and tag whatever they touched with these attributes. They
          are the only hook available for putting the contrast back. */
-      [data-ogsc] .ink     { color: #f2ece1 !important; }
-      [data-ogsc] .navy    { color: #9fc6e4 !important; }
-      [data-ogsc] .muted   { color: #c4b8a8 !important; }
-      [data-ogsc] .faint   { color: #968b7c !important; }
-      [data-ogsc] .goldlbl { color: #e8bf72 !important; }
-      [data-ogsc] .stepnum { color: #e8bf72 !important; }
-      [data-ogsb] .card    { background: #1e1a16 !important; }
-      [data-ogsb] .tint    { background: #262019 !important; }
-      /* The CTA must never be repainted: charcoal on gold is the one pair that
-         holds on any ground, and an inverted version costs us the only button. */
-      [data-ogsb] .cta      { background: #e0a33a !important; }
-      [data-ogsc] .cta-link { color: #241f1a !important; }
+      [data-ogsc] .ink     { color: #f4efe6 !important; }
+      [data-ogsc] .blue,
+      [data-ogsc] .stepnum,
+      [data-ogsc] .hero,
+      [data-ogsc] .eyebrow,
+      [data-ogsc] .goldlbl,
+      [data-ogsc] .foot-b  { color: #a7d4f2 !important; }
+      [data-ogsc] .muted   { color: #c3cbd9 !important; }
+      [data-ogsc] .faint   { color: #93a0b4 !important; }
+      [data-ogsb] .card    { background: #161c2b !important; }
+      [data-ogsb] .askbox  { background: #1c2439 !important; }
+      /* The CTA must never be repainted: charcoal on Sunshine is the one pair
+         that holds on any ground, and an inverted version costs us the button. */
+      [data-ogsb] .cta      { background: #eac262 !important; }
+      [data-ogsc] .cta-text { color: #1b1f23 !important; }
     </style>
   </head>
-  <body class="wrap" style="margin:0;padding:0;background:#f4efe4;color:#241f1a;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+  <body class="wrap" style="margin:0;padding:0;background:#fdf9f3;color:#1b1f23;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
     <!-- Preheader: what the inbox shows, and the two things actually due. -->
     <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You're in. Reply within 24 hours, and keep 30 Aug, 31 Aug and 1 Sep free.</div>
 
-    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4efe4;margin:0;padding:22px 0;">
+    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fdf9f3;margin:0;padding:18px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
-          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#fffdf9;border:1px solid #e6dcc8;border-radius:16px;overflow:hidden;">
+          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #ece2d2;border-radius:20px;overflow:hidden;">
 
-            <!-- Masthead. The gold rule under it is the club's one flourish and
-                 the only place the accent appears at full strength up top. -->
+            <!-- Masthead. The eyebrow is text, not part of the logo, so a client
+                 with remote images turned off still shows a branded header
+                 rather than an anonymous blue bar. -->
             <tr>
-              <td class="pad" style="background:#0d2b45;padding:30px 30px 26px;text-align:center;">
-                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;margin:0 auto;">
-                <div class="hero serif" style="font-family:Georgia,'Times New Roman',serif;font-size:34px;line-height:1.15;color:#ffffff;margin-top:18px;">You&rsquo;re in.</div>
-                <div style="font-size:14px;line-height:1.5;color:#b8cfe0;margin-top:8px;letter-spacing:0.3px;">Welcome to ${escapeHtml(committee)}</div>
+              <td class="masthead" align="center" style="background:#0c2c80;padding:20px 28px 16px;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="72" style="display:block;width:72px;max-width:72px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto 9px;">
+                <div class="eyebrow" style="font-size:11px;line-height:1.4;letter-spacing:2.4px;text-transform:uppercase;color:#a7d4f2;font-weight:bold;">Heads Recruitment &middot; 2026</div>
               </td>
             </tr>
-            <tr><td class="goldrule" style="background:#e0a33a;height:4px;font-size:0;line-height:0;">&nbsp;</td></tr>
 
-            <!-- The story, then the role itself -->
+            <!-- The statement, carried on the card the way the announcement
+                 carries its pyramid — the masthead stays brand only. -->
             <tr>
-              <td class="pad" style="padding:30px 30px 0;">
-                <p class="ink p" style="margin:0 0 18px;font-size:17px;line-height:1.6;color:#241f1a;">Hi ${escapeHtml(fullName)},</p>
-                <p class="muted p" style="margin:0 0 18px;font-size:17px;line-height:1.7;color:#6b6055;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
-                <p class="ink p" style="margin:0 0 24px;font-size:17px;line-height:1.7;color:#241f1a;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
+              <td class="pad" style="padding:26px 40px 0;">
+                <p class="body-text ink p" style="margin:0 0 16px;font-size:17px;line-height:1.6;color:#1b1f23;">Hi ${escapeHtml(fullName)},</p>
+                <div class="hero" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:52px;line-height:1.02;font-weight:900;color:#0c2c80;letter-spacing:-2px;">You&rsquo;re in.</div>
+              </td>
+            </tr>
 
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
+            <!-- Story -->
+            <tr>
+              <td class="pad" style="padding:20px 40px 0;">
+                <p class="body-text muted p" style="margin:0 0 16px;font-size:17px;line-height:1.65;color:#3f4650;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
+                <p class="body-text ink p" style="margin:0 0 22px;font-size:17px;line-height:1.65;color:#1b1f23;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
                   <tr>
-                    <td class="tint" style="background:#faf4e8;border:1px solid #ecdfc4;border-radius:14px;padding:22px 24px;">
-                      <div class="goldlbl" style="font-size:11px;color:#a5731b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:10px;">You have been selected as</div>
-                      <div class="rolename serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.3;color:#0d2b45;">${roleLine} ${escapeHtml(headName)}</div>
-                      <div class="muted" style="font-size:14.5px;line-height:1.5;color:#6b6055;margin-top:7px;">${escapeHtml(committee)}</div>
+                    <td class="askbox" style="background:#fdf9f3;border-left:5px solid #0c2c80;border-radius:4px;padding:17px 20px;">
+                      <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:9px;">You have been selected as</div>
+                      <div class="rolename ink" style="font-size:22px;line-height:1.3;font-weight:bold;color:#1b1f23;">${roleLine} ${escapeHtml(headName)}</div>
+                      <div class="muted" style="font-size:14.5px;line-height:1.5;color:#3f4650;margin-top:6px;">${escapeHtml(committee)}</div>
                     </td>
                   </tr>
                 </table>
 
-                <p class="muted p" style="margin:0;font-size:17px;line-height:1.7;color:#6b6055;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
+                <p class="body-text muted p" style="margin:0;font-size:17px;line-height:1.65;color:#3f4650;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
               </td>
             </tr>
 
-            <tr><td class="pad" style="padding:28px 30px 0;"><div class="rule" style="border-top:1px solid #eee4d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+            <tr><td class="pad" style="padding:26px 40px 0;"><div class="rule" style="border-top:1px solid #ece2d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
 
             <!-- Step 1 -->
             <tr>
-              <td class="pad" style="padding:26px 30px 0;">
+              <td class="pad" style="padding:24px 40px 0;">
                 ${stepHeading("1", "Reply to this email within 24 hours")}
-                <div class="muted" style="font-size:15.5px;line-height:1.6;color:#6b6055;margin:0 0 12px;">Just hit reply and confirm both:</div>
-                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:7px;">You&rsquo;re <b>${escapeHtml(fullName)}</b>, and you&rsquo;re taking this role.</div>
-                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;">You can attend <b>all three dates</b> below.</div>
+                <div class="body-text muted" style="font-size:15.5px;line-height:1.6;color:#3f4650;margin:0 0 11px;">Just hit reply and confirm both:</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:6px;">You&rsquo;re <b>${escapeHtml(fullName)}</b>, and you&rsquo;re taking this role.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;">You can attend <b>all three dates</b> below.</div>
               </td>
             </tr>
 
-            <!-- The three dates. Each one gets its own gold rule so the block
+            <!-- The three dates. Each gets its own Sunshine rule so the block
                  reads as three separate commitments, not one paragraph. -->
             <tr>
-              <td class="pad" style="padding:20px 30px 0;">
+              <td class="pad" style="padding:18px 40px 0;">
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                   <tr>
-                    <td class="tint" style="background:#faf4e8;border:1px solid #ecdfc4;border-radius:14px;padding:22px 24px;">
-                      <div class="goldlbl" style="font-size:11px;color:#a5731b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:18px;">All three are mandatory</div>
+                    <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:17px 20px;">
+                      <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:15px;">All three are mandatory</div>
                       ${dates
                         .map(
                           (d, i) => `
-                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 ${i === dates.length - 1 ? "0" : "16px"};">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 ${i === dates.length - 1 ? "0" : "14px"};">
                         <tr>
-                          <td width="3" style="width:3px;background:#e0a33a;font-size:0;line-height:0;">&nbsp;</td>
-                          <td style="padding-left:14px;">
-                            <div class="datewhen serif navy" style="font-family:Georgia,'Times New Roman',serif;font-size:18px;line-height:1.35;color:#0d2b45;">${d.when}</div>
-                            <div class="muted" style="font-size:14px;line-height:1.5;color:#6b6055;margin-top:3px;">${d.detail}</div>
+                          <td width="3" style="width:3px;background:#eac262;font-size:0;line-height:0;">&nbsp;</td>
+                          <td style="padding-left:13px;">
+                            <div class="datewhen blue" style="font-size:17.5px;line-height:1.35;font-weight:bold;color:#0c2c80;">${d.when}</div>
+                            <div class="muted" style="font-size:14px;line-height:1.5;color:#3f4650;margin-top:3px;">${d.detail}</div>
                           </td>
                         </tr>
                       </table>`
@@ -7008,24 +7024,24 @@ export function buildAcceptanceEmailHtml({
                     </td>
                   </tr>
                 </table>
-                <div class="faint" style="font-size:13.5px;line-height:1.6;color:#928678;margin-top:12px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
+                <div class="faint" style="font-size:13.5px;line-height:1.6;color:#6b7280;margin-top:11px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
               </td>
             </tr>
 
-            <tr><td class="pad" style="padding:28px 30px 0;"><div class="rule" style="border-top:1px solid #eee4d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+            <tr><td class="pad" style="padding:26px 40px 0;"><div class="rule" style="border-top:1px solid #ece2d2;font-size:0;line-height:0;">&nbsp;</div></td></tr>
 
             <!-- Step 2 -->
             <tr>
-              <td class="pad" style="padding:26px 30px 0;">
+              <td class="pad" style="padding:24px 40px 0;">
                 ${stepHeading("2", "Finish your onboarding checklist")}
-                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:6px;">Confirm you&rsquo;re taking the role.</div>
-                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:6px;">Watch a short video on leadership vs. management.</div>
-                <div class="ink" style="font-size:16px;line-height:1.65;color:#241f1a;margin-bottom:20px;">Send us a few notes on what stuck with you.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:5px;">Confirm you&rsquo;re taking the role.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:5px;">Watch a short video on leadership vs. management.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:18px;">Send us a few notes on what stuck with you.</div>
 
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                   <tr>
-                    <td class="cta cta-td" align="center" style="border-radius:10px;background:#e0a33a;">
-                      <a class="cta-link" href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:14px 28px;font-size:16px;font-weight:bold;color:#241f1a;text-decoration:none;border-radius:10px;">Open my onboarding checklist &rarr;</a>
+                    <td class="cta cta-td" align="center" style="background:#eac262;border-radius:12px;">
+                      <a class="cta-text" href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:15px 36px;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;letter-spacing:.3px;color:#1b1f23;text-decoration:none;">Open my onboarding checklist</a>
                     </td>
                   </tr>
                 </table>
@@ -7034,21 +7050,29 @@ export function buildAcceptanceEmailHtml({
 
             <!-- Sign-off -->
             <tr>
-              <td class="pad" style="padding:30px 30px 30px;">
-                <p class="ink serif" style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:1.4;color:#241f1a;">Welcome to the team.</p>
-                <p class="muted" style="margin:0 0 18px;font-size:16.5px;line-height:1.6;color:#6b6055;">Let&rsquo;s build something real this year.</p>
-                <p class="ink" style="margin:0;font-size:16px;line-height:1.6;color:#241f1a;">Best,<br>Resala AUC</p>
+              <td class="pad" style="padding:28px 40px 0;">
+                <p class="body-text ink" style="margin:0 0 4px;font-size:17px;line-height:1.5;color:#1b1f23;font-weight:bold;">Welcome to the team.</p>
+                <p class="body-text muted" style="margin:0 0 16px;font-size:17px;line-height:1.6;color:#3f4650;">Let&rsquo;s build something real this year.</p>
+                <p class="body-text ink" style="margin:0;font-size:17px;line-height:1.6;color:#1b1f23;">Best,<br>Resala AUC</p>
               </td>
             </tr>
 
-            <!-- Fine print, deliberately last: it is true and it matters, but it
-                 must not compete with the two things this email actually asks for. -->
+            <!-- Fine print, deliberately last on the card: it is true and it
+                 matters, but it must not compete with the two things asked for. -->
             <tr>
-              <td class="footer pad" style="background:#f7f1e5;padding:18px 30px 20px;border-top:1px solid #e6dcc8;">
-                <div class="faint" style="font-size:12px;line-height:1.65;color:#928678;">
+              <td class="pad" style="padding:24px 40px 26px;">
+                <div class="rule" style="border-top:1px solid #ece2d2;font-size:0;line-height:0;margin-bottom:14px;">&nbsp;</div>
+                <div class="faint" style="font-size:12px;line-height:1.65;color:#6b7280;">
                   <b>Please note:</b> this email is not proof of contribution. It only confirms your selection &mdash; not any work done for the club yet &mdash; and cannot be used as documentation now or later. Real proof comes at the end of the semester, based on what you actually contribute.
                 </div>
-                <div class="faint" style="font-size:12px;line-height:1.5;color:#928678;margin-top:14px;text-align:center;letter-spacing:0.4px;">Resala AUC &middot; Build the First Step</div>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td class="footer" align="center" style="background:#0c2c80;padding:16px 28px;">
+                <p class="foot-a" style="margin:0 0 4px;font-size:15px;line-height:1.5;color:#ffffff;font-weight:bold;">beyond Ana Maly</p>
+                <p class="foot-b" style="margin:0;font-size:12px;line-height:1.6;letter-spacing:1.2px;text-transform:uppercase;color:#a7d4f2;">Build the First Step &middot; @resalaauc</p>
               </td>
             </tr>
 
