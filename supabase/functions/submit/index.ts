@@ -6745,37 +6745,71 @@ async function sendAcceptanceEmail({
     "",
     `"Ana maly." Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt. One reason, carried forward every year by one more person who decides it is their problem.`,
     "",
-    `This year, that person is you. Build the First Step was our call, and you answered it. You've been selected as ${positionPhrase} of ${headName}, ${committee}.`,
+    `This year, that person is you. Build the First Step was our call, and you answered it.`,
+    "",
+    "-----------------------------------------------",
+    `YOU ARE IN: ${positionPhrase.toUpperCase()} OF ${headName.toUpperCase()}`,
+    committee,
+    "-----------------------------------------------",
     "",
     "It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.",
     "",
-    "Before anything else: this email is not proof of contribution. It only confirms your selection. It doesn't confirm any actual work done for the club yet, and can't be used as documentation now or later. Real proof comes at the end of the semester, based on the contributions you actually make.",
     "",
-    "Step 1: Reply within 24 hours",
-    "Reply directly to this email confirming:",
-    `1) You're ${fullName} and confirming this role.`,
-    "2) Your availability for the mandatory offline onboarding meeting on 30 August, 4:30–7:00 PM.",
+    "STEP 1 — REPLY TO THIS EMAIL WITHIN 24 HOURS",
+    "",
+    "Reply directly to this email confirming both:",
+    `  1) You're ${fullName}, and you're taking this role.`,
+    "  2) You can attend all three dates below.",
+    "",
+    "",
+    "THREE DATES — ATTENDANCE AT ALL THREE IS MANDATORY",
+    "",
+    "  Sunday 30 August, 4:30-7:00 PM",
+    "  Onboarding meeting (offline, in person)",
+    "",
+    "  Monday 31 August",
+    "  Engagement Fair - day 1",
+    "",
+    "  Tuesday 1 September",
+    "  Engagement Fair - day 2",
+    "",
+    "Put all three in your calendar now. If any of them is a problem, say so in your reply.",
+    "",
+    "",
+    "STEP 2 — YOUR ONBOARDING CHECKLIST",
+    "",
+    "  1. Confirm you're taking the role.",
+    "  2. Watch a short video on leadership vs. management.",
+    "  3. Send us a few notes on what stuck with you.",
+    "",
+    `Open your checklist: ${onboardingUrl}`,
     "",
     ...(partner
       ? [
-          "Your partner for this role",
-          partner.name,
-          `${partner.positionType} · ${committee}`,
-          `${partner.email}${partner.phone ? ` · ${partner.phone}` : ""}`,
-          "Reach out before your onboarding meeting.",
+          "",
+          "YOUR PARTNER FOR THIS ROLE",
+          "",
+          `  ${partner.name}`,
+          `  ${partner.positionType} - ${committee}`,
+          `  ${partner.email}${partner.phone ? `\n  ${partner.phone}` : ""}`,
+          "",
+          "Reach out to them before the onboarding meeting.",
           ""
         ]
       : []),
-    "Step 2: Your onboarding checklist",
-    "1. Attend the mandatory offline onboarding meeting on 30 August (4:30–7:00 PM), and the Engagement Fair on 31 August & 1 September — all three dates are mandatory.",
-    "2. Confirm you're taking the role.",
-    "3. Watch a short video on leadership vs. management, and send a few notes on what stuck with you.",
-    `Open your checklist here: ${onboardingUrl}`,
     "",
     "Welcome to the team. Let's build something real this year.",
     "",
     "Best,",
-    "Resala AUC"
+    "Resala AUC",
+    "",
+    "-----------------------------------------------",
+    "Please note: this email is not proof of contribution. It only",
+    "confirms your selection, not any work done for the club yet, and",
+    "can't be used as documentation now or later. Real proof comes at",
+    "the end of the semester, based on what you actually contribute.",
+    "",
+    "Resala AUC - Build the First Step"
   ].join("\n");
 
   const html = buildAcceptanceEmailHtml({ fullName, committee, headName, position, onboardingUrl, partner });
@@ -6816,107 +6850,237 @@ export function buildAcceptanceEmailHtml({
   onboardingUrl: string;
   partner?: { name: string; positionType: string; email: string; phone: string } | null;
 }): string {
-  const positionPhrase = position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
+  const roleLine = position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of";
+
+  /*
+   * The three dates are the one thing in this email that costs someone their
+   * place if they skim past it, so they get their own block with the date
+   * itself carrying the weight — never buried inside a checklist sentence.
+   */
+  const dates = [
+    { when: "Sunday 30 August", detail: "4:30 – 7:00 PM · Onboarding meeting, offline and in person" },
+    { when: "Monday 31 August", detail: "Engagement Fair — day 1" },
+    { when: "Tuesday 1 September", detail: "Engagement Fair — day 2" }
+  ];
+
+  /** One step heading: a gold numeral beside the step's own title, no box. */
+  const stepHeading = (n: string, title: string) => `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 12px;">
+                  <tr>
+                    <td width="28" valign="top" style="width:28px;padding:0;">
+                      <div class="stepnum" style="font-size:19px;line-height:1.25;font-weight:bold;color:#c07f12;">${n}</div>
+                    </td>
+                    <td valign="top" style="padding:0;">
+                      <div class="stepttl navy" style="font-size:18px;line-height:1.3;font-weight:bold;color:#0d2b45;">${title}</div>
+                    </td>
+                  </tr>
+                </table>`;
+
   return `<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <!-- Declaring both schemes stops Apple Mail and Outlook running their own
+         blind inversion, which is what turns navy-on-cream into unreadable
+         near-black on near-black. The dark palette below is deliberate instead. -->
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>You're in — welcome to ${escapeHtml(committee)}</title>
+    <!--[if mso]>
+    <style>
+      .ink, .navy, .muted, .faint { font-family: Arial, sans-serif !important; }
+    </style>
+    <![endif]-->
+    <style>
+      :root { color-scheme: light dark; supported-color-schemes: light dark; }
+
+      /* Phones: the card sheds its side padding first, then the display sizes
+         step down — so the role name and the three dates keep their weight
+         instead of every line collapsing into the same grey block. */
+      @media only screen and (max-width: 480px) {
+        .pad      { padding-left: 20px !important; padding-right: 20px !important; }
+        .hero     { font-size: 24px !important; }
+        .rolename { font-size: 18px !important; }
+        .stepttl  { font-size: 16.5px !important; }
+        .p        { font-size: 15.5px !important; }
+        .datewhen { font-size: 16px !important; }
+        .cta-td   { display: block !important; width: 100% !important; }
+        .cta-link { display: block !important; text-align: center !important; }
+      }
+
+      @media (prefers-color-scheme: dark) {
+        .wrap    { background: #0f1620 !important; }
+        .card    { background: #182231 !important; border-color: #2b3648 !important; }
+        .footer  { background: #131c28 !important; border-top-color: #2b3648 !important; }
+        .ink     { color: #f2ede4 !important; }
+        .navy    { color: #a9cdea !important; }
+        .muted   { color: #c2cad6 !important; }
+        .faint   { color: #93a0b4 !important; }
+        .rolebox { background: #2a2415 !important; border-color: #5c4a22 !important; }
+        .goldlbl { color: #f0c473 !important; }
+        .stepnum { color: #f0c473 !important; }
+        .datebox { background: #1e2939 !important; border-color: #33425a !important; }
+        .rule    { border-top-color: #2b3648 !important; }
+      }
+
+      /* Outlook.com and the Gmail app repaint colours instead of honouring the
+         query above, and tag whatever they touched with these attributes. They
+         are the only hook available for putting the contrast back. */
+      [data-ogsc] .ink     { color: #f2ede4 !important; }
+      [data-ogsc] .navy    { color: #a9cdea !important; }
+      [data-ogsc] .muted   { color: #c2cad6 !important; }
+      [data-ogsc] .faint   { color: #93a0b4 !important; }
+      [data-ogsc] .goldlbl { color: #f0c473 !important; }
+      [data-ogsc] .stepnum { color: #f0c473 !important; }
+      [data-ogsb] .card    { background: #182231 !important; }
+      [data-ogsb] .rolebox { background: #2a2415 !important; }
+      [data-ogsb] .datebox { background: #1e2939 !important; }
+      /* The CTA must never be repainted: charcoal on gold is the one pair that
+         holds on any ground, and an inverted version costs us the only button. */
+      [data-ogsb] .cta      { background: #f5a623 !important; }
+      [data-ogsc] .cta-link { color: #1b1f23 !important; }
+    </style>
+  </head>
+  <body class="wrap" style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+    <!-- Preheader: what the inbox shows, and the two things that are actually due. -->
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You're in. Reply within 24 hours, and keep 30 Aug, 31 Aug and 1 Sep free.</div>
+
+    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:20px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+
+            <!-- Masthead -->
             <tr>
-              <td style="background:#0d2b45;padding:28px 28px 34px;text-align:center;color:#ffffff;">
-                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
-                <div style="font-size:28px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:20px;">You're in!</div>
-                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:8px;">Welcome to ${escapeHtml(committee)}.</div>
+              <td class="pad" style="background:#0d2b45;padding:26px 28px 30px;text-align:center;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="112" style="display:block;width:112px;max-width:112px;height:auto;border:0;margin:0 auto;">
+                <div class="hero" style="font-size:28px;line-height:1.2;color:#ffffff;font-weight:bold;margin-top:18px;">You're in.</div>
+                <div style="font-size:14.5px;line-height:1.5;color:#c9dcea;margin-top:7px;">Welcome to ${escapeHtml(committee)}.</div>
               </td>
             </tr>
+
+            <!-- The story, then the role itself -->
             <tr>
-              <td style="padding:26px 28px 8px;">
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(fullName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">"Ana maly." Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt. One reason, carried forward every year by one more person who decides it is their problem.</p>
+              <td class="pad" style="padding:26px 28px 0;">
+                <p class="ink p" style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#172033;">Hi ${escapeHtml(fullName)},</p>
+                <p class="muted p" style="margin:0 0 16px;font-size:16px;line-height:1.65;color:#5a6675;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
+                <p class="ink p" style="margin:0 0 20px;font-size:16px;line-height:1.65;color:#172033;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
-                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">You are in</div>
-                      <div style="font-size:20px;line-height:1.35;font-weight:bold;color:#0d2b45;">${
-                        position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of"
-                      } ${escapeHtml(headName)}</div>
-                      <div style="font-size:14px;line-height:1.5;color:#4b5563;margin-top:4px;">${escapeHtml(committee)}</div>
+                    <td class="rolebox" style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px 20px;">
+                      <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:8px;">You have been selected as</div>
+                      <div class="rolename navy" style="font-size:21px;line-height:1.3;font-weight:bold;color:#0d2b45;">${roleLine} ${escapeHtml(headName)}</div>
+                      <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:5px;">${escapeHtml(committee)}</div>
                     </td>
                   </tr>
                 </table>
 
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">This year, that person is you. Build the First Step was our call, and you answered it. You've been selected as ${positionPhrase} of ${escapeHtml(headName)}, ${escapeHtml(committee)}.</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#4b5563;">It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.</p>
-
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
-                  <tr>
-                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px 18px;">
-                      <div style="font-size:12.5px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Before anything else</div>
-                      <div style="font-size:14px;line-height:1.6;color:#4b5563;">This email is not proof of contribution. It only confirms your selection. It doesn't confirm any actual work done for the club yet, and can't be used as documentation now or later. Real proof comes at the end of the semester, based on the contributions you actually make.</div>
-                    </td>
-                  </tr>
-                </table>
-
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
-                  <tr>
-                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Step 1: Reply within 24 hours</div>
-                      <div style="font-size:14px;line-height:1.6;color:#172033;margin-bottom:8px;">Reply directly to this email confirming:</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1)</b> You're ${escapeHtml(fullName)} and confirming this role.</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;">${
-                        "<b>2)</b> Your availability for the mandatory offline onboarding meeting on 30 August, 4:30–7:00 PM."
-                      }</div>
-                    </td>
-                  </tr>
-                </table>
-
-                ${
-                  partner
-                    ? `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
-                  <tr>
-                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Your partner for this role</div>
-                      <div style="font-size:15px;line-height:1.5;color:#172033;font-weight:bold;">${escapeHtml(partner.name)}</div>
-                      <div style="font-size:13.5px;line-height:1.5;color:#4b5563;margin-bottom:8px;">${escapeHtml(partner.positionType)} · ${escapeHtml(committee)}</div>
-                      <div style="font-size:13.5px;line-height:1.6;color:#4b5563;">✉ ${escapeHtml(partner.email)}${partner.phone ? `<br>☎ ${escapeHtml(partner.phone)}` : ""}</div>
-                      <div style="font-size:12.5px;line-height:1.5;color:#667085;margin-top:8px;">Reach out before your onboarding meeting.</div>
-                    </td>
-                  </tr>
-                </table>`
-                    : ""
-                }
-
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
-                  <tr>
-                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:10px;">Step 2: Your onboarding checklist</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>1.</b> Attend the mandatory offline onboarding meeting on 30 August (4:30–7:00 PM), and the Engagement Fair on 31 August & 1 September — all three dates are mandatory.</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:4px;"><b>2.</b> Confirm you're taking the role.</div>
-                      <div style="font-size:15px;line-height:1.6;color:#172033;margin-bottom:14px;"><b>3.</b> Watch a short video on leadership vs. management, and send a few notes on what stuck with you.</div>
-                      <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                        <tr>
-                          <td style="border-radius:10px;background:#0d2b45;">
-                            <a href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Open my onboarding checklist →</a>
-                          </td>
-                        </tr>
-                      </table>
-                      <div style="font-size:12.5px;line-height:1.5;color:#667085;margin-top:10px;">Takes a couple of minutes: ${escapeHtml(onboardingUrl)}</div>
-                    </td>
-                  </tr>
-                </table>
-
-                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Welcome to the team. Let's build something real this year.</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+                <p class="muted p" style="margin:0;font-size:16px;line-height:1.65;color:#5a6675;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
               </td>
             </tr>
+
+            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+
+            <!-- Step 1 -->
             <tr>
-              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
-                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
+              <td class="pad" style="padding:22px 28px 0;">
+                ${stepHeading("1", "Reply to this email within 24 hours")}
+                <div class="muted" style="font-size:15px;line-height:1.6;color:#5a6675;margin:0 0 10px;">Just hit reply and confirm both:</div>
+                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:6px;">You&rsquo;re <b>${escapeHtml(fullName)}</b>, and you&rsquo;re taking this role.</div>
+                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;">You can attend <b>all three dates</b> below.</div>
               </td>
             </tr>
+
+            <!-- The three dates -->
+            <tr>
+              <td class="pad" style="padding:18px 28px 0;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td class="datebox" style="background:#f6f9fc;border:1px solid #dde7f0;border-radius:14px;padding:18px 20px;">
+                      <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:14px;">All three are mandatory</div>
+                      ${dates
+                        .map(
+                          (d, i) => `
+                      <div style="margin:0 0 ${i === dates.length - 1 ? "0" : "14px"};">
+                        <div class="datewhen navy" style="font-size:16.5px;line-height:1.35;font-weight:bold;color:#0d2b45;">${d.when}</div>
+                        <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-top:2px;">${d.detail}</div>
+                      </div>`
+                        )
+                        .join("")}
+                    </td>
+                  </tr>
+                </table>
+                <div class="faint" style="font-size:13px;line-height:1.55;color:#7a8595;margin-top:10px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
+              </td>
+            </tr>
+
+            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+
+            <!-- Step 2 -->
+            <tr>
+              <td class="pad" style="padding:22px 28px 0;">
+                ${stepHeading("2", "Finish your onboarding checklist")}
+                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:5px;">Confirm you&rsquo;re taking the role.</div>
+                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:5px;">Watch a short video on leadership vs. management.</div>
+                <div class="ink" style="font-size:15.5px;line-height:1.6;color:#172033;margin-bottom:16px;">Send us a few notes on what stuck with you.</div>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 10px;">
+                  <tr>
+                    <td class="cta cta-td" align="center" style="border-radius:10px;background:#f5a623;">
+                      <a class="cta-link" href="${escapeHtml(onboardingUrl)}" target="_blank" rel="noopener" style="display:inline-block;padding:13px 24px;font-size:15.5px;font-weight:bold;color:#1b1f23;text-decoration:none;border-radius:10px;">Open my onboarding checklist &rarr;</a>
+                    </td>
+                  </tr>
+                </table>
+                <div class="faint" style="font-size:12.5px;line-height:1.5;color:#7a8595;word-break:break-all;">Takes a couple of minutes: ${escapeHtml(onboardingUrl)}</div>
+              </td>
+            </tr>
+${
+  partner
+    ? `
+            <tr><td class="pad" style="padding:24px 28px 0;"><div class="rule" style="border-top:1px solid #ece4d6;font-size:0;line-height:0;">&nbsp;</div></td></tr>
+
+            <!-- Who to actually talk to -->
+            <tr>
+              <td class="pad" style="padding:22px 28px 0;">
+                <div class="goldlbl" style="font-size:11.5px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:10px;">Your partner for this role</div>
+                <div class="ink" style="font-size:16.5px;line-height:1.4;color:#172033;font-weight:bold;">${escapeHtml(partner.name)}</div>
+                <div class="muted" style="font-size:14px;line-height:1.5;color:#5a6675;margin-bottom:9px;">${escapeHtml(partner.positionType)} &middot; ${escapeHtml(committee)}</div>
+                <div style="font-size:14px;line-height:1.75;">
+                  <a class="navy" href="mailto:${escapeHtml(partner.email)}" style="color:#0d2b45;text-decoration:none;">&#9993;&nbsp; ${escapeHtml(partner.email)}</a>${
+        partner.phone
+          ? `<br><a class="navy" href="tel:${escapeHtml(partner.phone.replace(/[^\d+]/g, ""))}" style="color:#0d2b45;text-decoration:none;">&#9742;&nbsp; ${escapeHtml(partner.phone)}</a>`
+          : ""
+      }
+                </div>
+                <div class="faint" style="font-size:13px;line-height:1.55;color:#7a8595;margin-top:9px;">Reach out to them before the onboarding meeting.</div>
+              </td>
+            </tr>`
+    : ""
+}
+
+            <!-- Sign-off -->
+            <tr>
+              <td class="pad" style="padding:26px 28px 28px;">
+                <p class="ink" style="margin:0 0 4px;font-size:16.5px;line-height:1.5;color:#172033;font-weight:bold;">Welcome to the team.</p>
+                <p class="muted" style="margin:0 0 16px;font-size:16px;line-height:1.6;color:#5a6675;">Let&rsquo;s build something real this year.</p>
+                <p class="ink" style="margin:0;font-size:16px;line-height:1.6;color:#172033;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+
+            <!-- Fine print, deliberately last: it is true and it matters, but it
+                 must not compete with the two things this email actually asks for. -->
+            <tr>
+              <td class="footer pad" style="background:#f6f2e9;padding:16px 28px 18px;border-top:1px solid #eadfca;">
+                <div class="faint" style="font-size:12px;line-height:1.6;color:#7a8595;">
+                  <b>Please note:</b> this email is not proof of contribution. It only confirms your selection &mdash; not any work done for the club yet &mdash; and cannot be used as documentation now or later. Real proof comes at the end of the semester, based on what you actually contribute.
+                </div>
+                <div class="faint" style="font-size:12px;line-height:1.5;color:#7a8595;margin-top:12px;text-align:center;">Resala AUC &middot; Build the First Step</div>
+              </td>
+            </tr>
+
           </table>
         </td>
       </tr>
