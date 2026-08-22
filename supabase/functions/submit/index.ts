@@ -10,8 +10,16 @@ const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
 const GMAIL_REFRESH_TOKEN = Deno.env.get("GMAIL_REFRESH_TOKEN") ?? "";
 const GMAIL_SENDER_EMAIL = Deno.env.get("GMAIL_SENDER_EMAIL") ?? "";
 const GMAIL_SENDER_NAME = Deno.env.get("GMAIL_SENDER_NAME") ?? "Resala AUC";
+/*
+ * Served from the site rather than the storage bucket: the bucket object is
+ * named "Resala Logo - source.png", so its URL only resolves with the spaces
+ * encoded exactly as %20 — the plus form answers 400. Any hop that re-encodes
+ * a src on the way to the reader (proxies and older Outlook builds both do)
+ * turns the logo into a broken image, and an email src is handled by far more
+ * intermediaries than a browser one. This path has no characters to mangle.
+ */
 const EMAIL_LOGO_URL =
-  Deno.env.get("EMAIL_LOGO_URL") ?? "https://upnmxdgqdkvgzfwqaicb.supabase.co/storage/v1/object/public/resala-logo/Resala%20Logo%20-%20source.png";
+  Deno.env.get("EMAIL_LOGO_URL") ?? "https://resala-auc.github.io/join/resala-logo.png";
 const ROLE_GUIDE_BASE_URL = (Deno.env.get("ROLE_GUIDE_BASE_URL") ?? "https://resala-auc.github.io/guides").replace(/\/+$/, "");
 /** Generated task sheets, published with the site by scripts/build-task-files.mjs. */
 const TASK_FILE_BASE_URL = (Deno.env.get("TASK_FILE_BASE_URL") ?? "https://resala-auc.github.io/task-files").replace(
