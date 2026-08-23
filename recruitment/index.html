@@ -1229,6 +1229,12 @@ function renderHierarchy() {
       ${r.stranded.length ? `
         <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
+      <div class="row2" style="align-items:center;margin-bottom:10px;">
+        <div class="note">${r.staged.length ? `${r.staged.length} ready to be emailed for ${esc(r.label)}.` : "Nothing staged for this committee yet."}</div>
+        <div style="flex:0 0 auto;">
+          <button class="btn btn-sm btn-gold" data-send-committee="${esc(r.raw)}"${r.staged.length ? "" : " disabled"}>Send ${esc(r.label)} only${r.staged.length ? ` (${r.staged.length})` : ""}</button>
+        </div>
+      </div>
       <div class="team-grid">
         ${r.roles.map((x) => `
           <div class="role-box ${x.headHolders.length || x.head.retired ? "" : "missing"}">
@@ -1265,6 +1271,29 @@ function renderHierarchy() {
       </div>` : ""}
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-6px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
     ${sections}`;
+}
+
+/* Sending one committee on its own, without waiting for the rest of the board
+   to be finished. Same endpoint the all-at-once button walks in a loop. */
+async function sendOneCommittee(rawCommittee, btn) {
+  const row = hierarchyRows().find((r) => norm(r.raw) === norm(rawCommittee));
+  if (!row || !row.staged.length) return;
+
+  if (!(await confirmDialog(
+    `Send the acceptance email to ${row.staged.length} ${row.staged.length === 1 ? "person" : "people"} in ${row.label}?\n\n` +
+    row.staged.map((a) => `${a.fullName} — ${a.acceptedPosition} of ${a.acceptedRole}`).join("\n") +
+    `\n\nThis emails them immediately, cc the committee and HR. It cannot be undone.`
+  ))) return;
+
+  btn.disabled = true; btn.textContent = "Sending…";
+  try {
+    const res = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: rawCommittee });
+    state.teamMsg = { type: "ok", text: `${row.label}: sent ${res.sent.length}.` };
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: `${row.label}: ${err.message}` };
+  }
+  await load(state.admin.email);
+  renderHierarchy();
 }
 
 /* One send for the whole board. Runs committee by committee because that is
@@ -1499,6 +1528,8 @@ document.getElementById("views").addEventListener("click", (e) => {
 document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   const sendAll = e.target.closest("#send-all");
   if (sendAll) { sendAllAcceptances(sendAll); return; }
+  const sendOne = e.target.closest("[data-send-committee]");
+  if (sendOne) { sendOneCommittee(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
   if (moveBtn) { adminMoveStranded(moveBtn.dataset.moveGo, renderHierarchy, e.currentTarget); return; }
   const addBtn = e.target.closest("[data-add-go]");

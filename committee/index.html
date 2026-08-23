@@ -1060,6 +1060,15 @@ function renderTeam() {
 
   const otherCards = [...otherUnplaced, ...elsewhere].map((a) => poolCard(a, heads)).join("");
 
+  /* Roles still being recruited for that have nobody as Head. A committee is
+     allowed to submit with these open — that is how it reports "we found
+     nobody for this one" — so they are shown rather than blocking the button.
+     Closed roles are not vacancies and are excluded. */
+  const emptyRoles = heads
+    .filter((h) => !h.retired)
+    .filter((h) => !here.some((a) => placementOn(a).position === "Head" && norm(placementOn(a).role) === norm(h.name)))
+    .map((h) => h.name);
+
   el.innerHTML = `
     <div class="team-summary">
       <span class="count"><b>${readyCount}</b> ready to submit</span>
@@ -1067,12 +1076,13 @@ function renderTeam() {
       <span class="count"><b>${submittedCount}</b> awaiting admin approval</span>
       <span class="count"><b>${sentCount}</b> approved and sent</span>
       <span class="count"><b>${unplaced.length}</b> not yet placed</span>
+      ${emptyRoles.length ? `<span class="count"><b>${emptyRoles.length}</b> ${emptyRoles.length === 1 ? "role" : "roles"} still empty</span>` : ""}
       <div class="go">
-        <button class="btn btn-gold" id="confirm-team"${readyCount ? "" : " disabled"}>Submit for admin approval</button>
+        <button class="btn btn-gold" id="confirm-team"${readyCount || emptyRoles.length ? "" : " disabled"}>Submit for admin approval</button>
       </div>
     </div>
     <div class="note" style="margin:-10px 0 18px;">Submitting does not email anyone — the recruitment admin reviews it
-      and sends the acceptance emails from their own portal.</div>
+      and sends the acceptance emails from their own portal.${emptyRoles.length ? ` You can submit with ${emptyRoles.length === 1 ? "a role" : "roles"} still empty — ${esc(emptyRoles.join(", "))} ${emptyRoles.length === 1 ? "is" : "are"} reported as unfilled for this cycle.` : ""}</div>
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-8px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
 
     ${stranded.length ? `
@@ -1146,15 +1156,36 @@ async function confirmTeam() {
   // backend excludes it, so the confirm dialog's count matches what really
   // goes to the admin.
   const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft" && !isHeldForFirstPreference(a));
-  if (!drafts.length) return;
   const headCount = drafts.filter((a) => placementOn(a).position === "Head").length;
   const coHeadCount = drafts.filter((a) => placementOn(a).position === "Co-Head").length;
   const memberCount = drafts.length - headCount - coHeadCount;
 
+  /* Roles this committee is still recruiting for that have nobody as Head.
+     Submitting with these open is allowed and is the point — it is how the
+     committee says "we found nobody for this one" rather than being stuck
+     unable to submit until every seat is filled. Closed roles are excluded:
+     they are not vacancies. */
+  const empty = (getAllHeadsForHierarchy(myGuideId()) ?? [])
+    .filter((h) => !h.retired)
+    .filter((h) => !teamPool().some((a) => {
+      const p = placementOn(a);
+      return p && p.position === "Head" && norm(p.role) === norm(h.name);
+    }))
+    .map((h) => h.name);
+
+  if (!drafts.length && !empty.length) return;
+
+  const roster = drafts.length
+    ? `Submit ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
+      `(${headCount} as Head, ${coHeadCount} as Co-Head, ${memberCount} as Member) for admin approval?`
+    : "Submit this committee with nobody placed?";
+  const emptyNote = empty.length
+    ? `\n\nThese roles will be reported as still empty for this cycle:\n  ${empty.join("\n  ")}`
+    : "";
+
   if (!(await confirmDialog(
-    `Submit ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
-    `(${headCount} as Head, ${coHeadCount} as Co-Head, ${memberCount} as Member) for admin approval?\n\n` +
-    "This does not email anyone yet — the recruitment admin reviews the roster and sends the acceptance emails."
+    roster + emptyNote +
+    "\n\nThis does not email anyone yet — the recruitment admin reviews the roster and sends the acceptance emails."
   ))) return;
 
   const btn = document.getElementById("confirm-team");
