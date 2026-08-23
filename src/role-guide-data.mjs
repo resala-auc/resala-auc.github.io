@@ -551,12 +551,6 @@ export const roleGuides = [
     preparation: "Draft an initiative that supports visually impaired people across campus and makes daily life easier.",
     heads: [
       {
-        id: "research",
-        name: "Research Head",
-        description:
-          "Researches community needs and evaluates past initiatives to design evidence-based improvements that maximize long-term impact."
-      },
-      {
         id: "execution-management",
         name: "Execution Management Head",
         description:
@@ -642,11 +636,7 @@ export function getRoleGuideByName(name) {
  * when building the hierarchy, and only there. Keyed by role-guide id.
  */
 export const retiredHeads = {
-  hr: [
-    { id: "engagement", name: "Engagement Head" },
-    { id: "inclusion", name: "Inclusion Head" },
-    { id: "tracking", name: "Tracking System Head" }
-  ],
+  hr: [{ id: "tracking", name: "Tracking System Head" }],
   "branding-media": [
     { id: "projects", name: "Head of Projects" },
     { id: "design", name: "Head of Graphic Design" },
@@ -656,7 +646,7 @@ export const retiredHeads = {
     { id: "planning", name: "The Planner" },
     { id: "procurement", name: "The Negotiator" }
   ],
-  visits: [{ id: "impact", name: "Impact Head" }]
+  visits: []
 };
 
 /** Current roles first, then retired ones — every position the board can hold. */

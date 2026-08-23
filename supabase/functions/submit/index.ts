@@ -392,7 +392,6 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
     { id: "teaching", name: "Teaching & Organizing Lead" }
   ],
   "initiatives director": [
-    { id: "research", name: "Research Head" },
     { id: "execution-management", name: "Execution Management Head" },
     { id: "field-execution", name: "Field Execution Head" },
     { id: "teaching-engagement", name: "Teaching & Engagement Head" }
@@ -411,11 +410,7 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
  * still sees the current roles only.
  */
 const RETIRED_COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
-  hr: [
-    { id: "engagement", name: "Engagement Head" },
-    { id: "inclusion", name: "Inclusion Head" },
-    { id: "tracking", name: "Tracking System Head" }
-  ],
+  hr: [{ id: "tracking", name: "Tracking System Head" }],
   "branding media": [
     { id: "projects", name: "Head of Projects" },
     { id: "design", name: "Head of Graphic Design" },
@@ -425,7 +420,7 @@ const RETIRED_COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }
     { id: "planning", name: "The Planner" },
     { id: "procurement", name: "The Negotiator" }
   ],
-  visits: [{ id: "impact", name: "Impact Head" }]
+  visits: []
 };
 
 /** Every position the board can hold for a committee: current, then retired. */
