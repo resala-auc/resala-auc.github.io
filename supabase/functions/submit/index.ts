@@ -374,12 +374,7 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
     { id: "inventory", name: "The Organizer" },
     { id: "logistics", name: "The Coordinator" }
   ],
-  "branding media": [
-    { id: "projects", name: "Head of Projects" },
-    { id: "production", name: "Head of Acting & Production" },
-    { id: "design", name: "Head of Graphic Design" },
-    { id: "editing", name: "Head of Video Editing" }
-  ],
+  "branding media": [{ id: "production", name: "Head of Acting & Production" }],
   hr: [{ id: "engagement-inclusion", name: "Engagement & Inclusion Head" }],
   "pr fundraising": [
     { id: "sponsorship", name: "Sponsorship Head" },
@@ -403,6 +398,41 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
     { id: "teaching-engagement", name: "Teaching & Engagement Head" }
   ]
 };
+
+/*
+ * Roles the cycle stopped recruiting for. Hand-mirrored from `retiredHeads` in
+ * src/role-guide-data.mjs, same as COMMITTEE_HEADS above — Deno cannot import
+ * the browser bundle, so the two must be edited together.
+ *
+ * These are never offered to an applicant and never appear on a guide page.
+ * They exist so the recruitment admin can describe the board as it actually
+ * is: someone can hold a position that is no longer advertised. Only the admin
+ * placement path accepts them; a committee director building their own diagram
+ * still sees the current roles only.
+ */
+const RETIRED_COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
+  hr: [
+    { id: "engagement", name: "Engagement Head" },
+    { id: "inclusion", name: "Inclusion Head" },
+    { id: "tracking", name: "Tracking System Head" }
+  ],
+  "branding media": [
+    { id: "projects", name: "Head of Projects" },
+    { id: "design", name: "Head of Graphic Design" },
+    { id: "editing", name: "Head of Video Editing" }
+  ],
+  operations: [
+    { id: "planning", name: "The Planner" },
+    { id: "procurement", name: "The Negotiator" }
+  ],
+  visits: [{ id: "impact", name: "Impact Head" }]
+};
+
+/** Every position the board can hold for a committee: current, then retired. */
+function headsForHierarchy(committee: string): Array<{ id: string; name: string }> {
+  const key = normalizeRole(committee);
+  return [...(COMMITTEE_HEADS[key] ?? []), ...(RETIRED_COMMITTEE_HEADS[key] ?? [])];
+}
 
 const COMMITTEE_INTERVIEWS: Record<string, CommitteeInterview> = {
   "tech director": {
@@ -6422,8 +6452,10 @@ async function adminAssignHeadsApplicant(
 
   const admin = await requireRecruitmentAdmin(token, payload.email);
 
-  const heads = COMMITTEE_HEADS[normalizeRole(committee)];
-  const head = heads?.find((h) => h.id === headId);
+  // The admin builds the board as it actually is, so retired roles are
+  // placeable here — and only here. A committee director's own diagram still
+  // resolves against COMMITTEE_HEADS alone.
+  const head = headsForHierarchy(committee).find((h) => h.id === headId);
   if (!head) {
     throw new Error(`${displayCommitteeName(committee)} has no role called that. Pick one from the list.`);
   }

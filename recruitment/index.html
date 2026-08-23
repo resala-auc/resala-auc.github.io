@@ -133,6 +133,9 @@
   .slot-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
   .slot-chip { display: flex; align-items: center; gap: 7px; background: var(--soft); border-radius: 9px; padding: 6px 9px; margin-bottom: 6px; font-size: 13px; }
   .chip-check { flex: 0 0 auto; margin: 0; accent-color: var(--blue); }
+  .retired-tag { margin-left: 7px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--muted); background: var(--soft); border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
   .add-row { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 9px; border-top: 1px dashed var(--line); }
   .add-row select { flex: 1 1 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid var(--line);
     border-radius: 8px; background: var(--soft); color: var(--ink); }
@@ -233,7 +236,7 @@
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
-import { getRoleGuideById } from "../role-guide-data.js";
+import { getRoleGuideById, getAllHeadsForHierarchy } from "../role-guide-data.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
@@ -1115,7 +1118,10 @@ async function adminRemoveFromRole(email, rerender = renderTeams) {
 
 function hierarchyRows() {
   return CYCLE_COMMITTEES.map((c) => {
-    const heads = getRoleGuideById(c.id)?.heads ?? [];
+    /* Current roles plus the ones the cycle stopped recruiting for. The board
+       still has to be describable — someone can hold a position that is no
+       longer advertised — and this tab is the only place that is offered. */
+    const heads = getAllHeadsForHierarchy(c.id);
     const placed = teamApplicantsFor(c.raw);
     const roles = heads.map((h) => {
       const inRole = placed.filter((a) => norm(a.acceptedRole) === norm(h.name));
@@ -1143,10 +1149,13 @@ function renderHierarchy() {
   const rows = hierarchyRows();
   const candidates = unplacedApplicants();
 
-  const allRoles = rows.flatMap((r) => r.roles);
+  /* Retired roles are placeable but not expected to be filled, so they stay
+     out of the progress count and out of the missing list — otherwise "am I
+     done" could never reach complete. */
+  const allRoles = rows.flatMap((r) => r.roles).filter((x) => !x.head.retired);
   const filled = allRoles.filter((r) => r.headHolders.length).length;
   const missing = rows
-    .map((r) => ({ label: r.label, roles: r.roles.filter((x) => !x.headHolders.length).map((x) => x.head.name) }))
+    .map((r) => ({ label: r.label, roles: r.roles.filter((x) => !x.head.retired && !x.headHolders.length).map((x) => x.head.name) }))
     .filter((r) => r.roles.length);
   const staged = rows.reduce((n, r) => n + r.staged.length, 0);
   const sent = rows.reduce((n, r) => n + r.sent.length, 0);
@@ -1154,12 +1163,12 @@ function renderHierarchy() {
   const sections = rows.map((r) => `
     <section class="committee">
       <h2>${esc(r.label)}
-        <span class="c">${r.roles.filter((x) => x.headHolders.length).length}/${r.roles.length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
+        <span class="c">${r.roles.filter((x) => !x.head.retired && x.headHolders.length).length}/${r.roles.filter((x) => !x.head.retired).length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
       </h2>
       <div class="team-grid">
         ${r.roles.map((x) => `
-          <div class="role-box ${x.headHolders.length ? "" : "missing"}">
-            <div class="role-box-title">${esc(x.head.name)}</div>
+          <div class="role-box ${x.headHolders.length || x.head.retired ? "" : "missing"}">
+            <div class="role-box-title">${esc(x.head.name)}${x.head.retired ? `<span class="retired-tag" title="No longer recruited for — placeable here only">closed</span>` : ""}</div>
             <div class="slot-group"><div class="slot-label">Head</div>
               ${x.headHolders.length ? x.headHolders.map((a) => adminChip(a, r.raw)).join("") : `<div class="note">Not chosen yet.</div>`}</div>
             ${x.coHeads.length ? `<div class="slot-group"><div class="slot-label">Co-Head</div>${x.coHeads.map((a) => adminChip(a, r.raw)).join("")}</div>` : ""}

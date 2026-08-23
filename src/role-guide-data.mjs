@@ -277,28 +277,10 @@ export const roleGuides = [
     preparation: "Draft a plan for reaching 5k followers.",
     heads: [
       {
-        id: "projects",
-        name: "Head of Projects",
-        description:
-          "Leads the other heads and owns the workflow from end to end. You take each request from the moment it arrives, decide which teams to activate, assign it, set deadlines, and keep every stage moving \u2014 filming, editing, design, publishing \u2014 so nothing sits waiting on someone who forgot. At any moment, you are the person who knows the status of every project. Suits someone organized and comfortable holding people to deadlines, including those who are not obliged to listen. This is the only role where the main skill is running other people rather than making the content yourself."
-      },
-      {
         id: "production",
         name: "Head of Acting & Production",
         description:
           "Runs everything that happens on the day of filming. You choose who appears on camera, write scripts, direct interviews and documentary shoots, organize locations and schedules, and make sure every shot on the list is captured before the team leaves. Suits someone confident with people, who can keep a shoot moving and get a natural answer out of a nervous volunteer."
-      },
-      {
-        id: "design",
-        name: "Head of Graphic Design",
-        description:
-          "Owns how Resala looks. You design posters, feed posts, carousels, story graphics, thumbnails and event branding, and protect the visual identity \u2014 fonts, color palette, templates \u2014 so every post is recognizably ours. Suits a designer who works fast to a brief, builds reusable templates, and takes honest feedback without taking it personally."
-      },
-      {
-        id: "editing",
-        name: "Head of Video Editing",
-        description:
-          "Turns raw footage into the reels, documentaries, and interviews that go on the page. You cut the video, add subtitles, transitions, and motion graphics, keep one editing style across platforms, and archive footage so it can be reused. Suits someone who can hold a story together and deliver on a deadline, not just make something look good."
       }
     ],
     whyChoose: "Branding is how people see, understand, and remember Resala. If Resala does strong work but no one sees it clearly, the impact becomes less visible.",
@@ -646,4 +628,43 @@ export function normalizeRoleName(value) {
 export function getRoleGuideByName(name) {
   const normalizedName = normalizeRoleName(name);
   return roleGuides.find((role) => normalizeRoleName(role.name) === normalizedName) ?? null;
+}
+
+/*
+ * Roles this cycle stopped recruiting for. They are deliberately NOT part of
+ * `roleGuides[].heads`, so the application never offers them and the guide
+ * pages never list them — an applicant should only ever see a role that is
+ * genuinely open.
+ *
+ * The board still has to be describable, though. Someone can hold a position
+ * that is no longer being advertised — carried over, moved across, or filled
+ * outside the cycle — so the recruitment admin can place people into these
+ * when building the hierarchy, and only there. Keyed by role-guide id.
+ */
+export const retiredHeads = {
+  hr: [
+    { id: "engagement", name: "Engagement Head" },
+    { id: "inclusion", name: "Inclusion Head" },
+    { id: "tracking", name: "Tracking System Head" }
+  ],
+  "branding-media": [
+    { id: "projects", name: "Head of Projects" },
+    { id: "design", name: "Head of Graphic Design" },
+    { id: "editing", name: "Head of Video Editing" }
+  ],
+  operations: [
+    { id: "planning", name: "The Planner" },
+    { id: "procurement", name: "The Negotiator" }
+  ],
+  visits: [{ id: "impact", name: "Impact Head" }]
+};
+
+/** Current roles first, then retired ones — every position the board can hold. */
+export function getAllHeadsForHierarchy(roleGuideId) {
+  const current = getRoleGuideById(roleGuideId)?.heads ?? [];
+  const retired = retiredHeads[roleGuideId] ?? [];
+  return [
+    ...current.map((h) => ({ ...h, retired: false })),
+    ...retired.map((h) => ({ ...h, retired: true }))
+  ];
 }
