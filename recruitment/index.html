@@ -181,6 +181,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="teams">Team diagrams</button>
+      <button class="tab" data-view="hierarchy">Hierarchy</button>
       <button class="tab" data-view="onboarding">Onboarding</button>
       <button class="tab" data-view="slots">Slots</button>
     </div>
@@ -206,6 +207,7 @@
     </div>
 
     <div id="view-teams" class="hidden"></div>
+    <div id="view-hierarchy" class="hidden"></div>
     <div id="view-onboarding" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
@@ -1059,10 +1061,14 @@ async function approveTeam(rawCommittee, btn) {
   }
 }
 
-async function adminAddToRole(key) {
+async function adminAddToRole(key, rerender = renderTeams, scope = document) {
   const [rawCommittee, headId] = key.split("|");
-  const email = document.querySelector(`[data-add-email="${CSS.escape(key)}"]`)?.value;
-  const position = document.querySelector(`[data-add-position="${CSS.escape(key)}"]`)?.value;
+  /* Scoped to the tab the button was clicked in: the team-diagram and
+     hierarchy views render the same role keys, and once both have been opened
+     they are both in the DOM — an unscoped lookup would happily read the
+     hidden tab's dropdown and add whoever happened to be selected there. */
+  const email = scope.querySelector(`[data-add-email="${CSS.escape(key)}"]`)?.value;
+  const position = scope.querySelector(`[data-add-position="${CSS.escape(key)}"]`)?.value;
   if (!email || !position) return;
   const who = state.data.applicants.find((a) => norm(a.email) === norm(email));
 
@@ -1078,14 +1084,14 @@ async function adminAddToRole(key) {
     });
     state.teamMsg = { type: "ok", text: `${who?.fullName || email} added as ${r.position} of ${r.headName}. Tick them below and send when ready.` };
     await load(state.admin.email);
-    renderTeams();
+    rerender();
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
-    renderTeams();
+    rerender();
   }
 }
 
-async function adminRemoveFromRole(email) {
+async function adminRemoveFromRole(email, rerender = renderTeams) {
   const who = state.data.applicants.find((a) => norm(a.email) === norm(email));
   if (!(await confirmDialog(`Take ${who?.fullName || "this applicant"} out of their role?\n\nNothing has been emailed to them yet, and they go back to the unplaced list.`))) return;
 
@@ -1094,14 +1100,137 @@ async function adminRemoveFromRole(email) {
     await api({ mode: "heads-admin-unassign-applicant", email: state.admin.email, applicantEmail: email });
     state.teamMsg = { type: "ok", text: `${who?.fullName || "Applicant"} removed.` };
     await load(state.admin.email);
-    renderTeams();
+    rerender();
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
-    renderTeams();
+    rerender();
   }
 }
 
-async function rejectSubmission(email, rawCommittee) {
+/* ── hierarchy: build every committee's roles, then send once ─────────────
+   The Team diagrams tab answers "what did this committee submit, and do I
+   approve it". This one answers the other question — "is the whole board
+   filled yet" — so it runs across all eight committees at once and ends in a
+   single send rather than one approve per committee. */
+
+function hierarchyRows() {
+  return CYCLE_COMMITTEES.map((c) => {
+    const heads = getRoleGuideById(c.id)?.heads ?? [];
+    const placed = teamApplicantsFor(c.raw);
+    const roles = heads.map((h) => {
+      const inRole = placed.filter((a) => norm(a.acceptedRole) === norm(h.name));
+      return {
+        head: h,
+        headHolders: inRole.filter((a) => a.acceptedPosition === "Head"),
+        coHeads: inRole.filter((a) => a.acceptedPosition === "Co-Head"),
+        members: inRole.filter((a) => a.acceptedPosition === "Member")
+      };
+    });
+    return {
+      raw: c.raw,
+      label: display(c.raw),
+      roles,
+      staged: placed.filter((a) => a.acceptedStatus === "Submitted"),
+      sent: placed.filter((a) => a.acceptedStatus === "Yes")
+    };
+  });
+}
+
+function renderHierarchy() {
+  const el = document.getElementById("view-hierarchy");
+  if (!state.data) return;
+
+  const rows = hierarchyRows();
+  const candidates = unplacedApplicants();
+
+  const allRoles = rows.flatMap((r) => r.roles);
+  const filled = allRoles.filter((r) => r.headHolders.length).length;
+  const missing = rows
+    .map((r) => ({ label: r.label, roles: r.roles.filter((x) => !x.headHolders.length).map((x) => x.head.name) }))
+    .filter((r) => r.roles.length);
+  const staged = rows.reduce((n, r) => n + r.staged.length, 0);
+  const sent = rows.reduce((n, r) => n + r.sent.length, 0);
+
+  const sections = rows.map((r) => `
+    <section class="committee">
+      <h2>${esc(r.label)}
+        <span class="c">${r.roles.filter((x) => x.headHolders.length).length}/${r.roles.length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
+      </h2>
+      <div class="team-grid">
+        ${r.roles.map((x) => `
+          <div class="role-box ${x.headHolders.length ? "" : "missing"}">
+            <div class="role-box-title">${esc(x.head.name)}</div>
+            <div class="slot-group"><div class="slot-label">Head</div>
+              ${x.headHolders.length ? x.headHolders.map((a) => adminChip(a, r.raw)).join("") : `<div class="note">Not chosen yet.</div>`}</div>
+            ${x.coHeads.length ? `<div class="slot-group"><div class="slot-label">Co-Head</div>${x.coHeads.map((a) => adminChip(a, r.raw)).join("")}</div>` : ""}
+            ${x.members.length ? `<div class="slot-group"><div class="slot-label">Members</div>${x.members.map((a) => adminChip(a, r.raw)).join("")}</div>` : ""}
+            <div class="slot-group">
+              ${adminRolePicker(r.raw, x.head, x.headHolders.length === 0, x.coHeads.length === 0, candidates)}
+            </div>
+          </div>`).join("")}
+      </div>
+    </section>`).join("");
+
+  el.innerHTML = `
+    <div class="team-summary">
+      <span class="count"><b>${filled}</b> of <b>${allRoles.length}</b> roles have a Head</span>
+      <span class="count"><b>${staged}</b> ready to be emailed</span>
+      <span class="count"><b>${sent}</b> already sent</span>
+      <div class="go">
+        <button class="btn btn-gold" id="send-all"${staged ? "" : " disabled"}>Send all acceptance emails${staged ? ` (${staged})` : ""}</button>
+      </div>
+    </div>
+    ${missing.length ? `
+      <div class="missing-summary">
+        <div class="missing-summary-title">Still without a Head — you can still send, these just stay open</div>
+        <div class="missing-grid">
+          ${missing.map((m) => `
+            <div class="missing-name">${esc(m.label)}</div>
+            <div class="missing-roles">${m.roles.map((n) => `<span class="role-chip">${esc(n)}</span>`).join("")}</div>
+          `).join("")}
+        </div>
+      </div>` : ""}
+    ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-6px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
+    ${sections}`;
+}
+
+/* One send for the whole board. Runs committee by committee because that is
+   what the endpoint is scoped to, and reports per committee so a failure
+   part-way through says exactly who did and did not get an email. */
+async function sendAllAcceptances(btn) {
+  const rows = hierarchyRows().filter((r) => r.staged.length);
+  if (!rows.length) return;
+
+  const total = rows.reduce((n, r) => n + r.staged.length, 0);
+  const roster = rows
+    .map((r) => `${r.label}: ${r.staged.map((a) => a.fullName).join(", ")}`)
+    .join("\n");
+  if (!(await confirmDialog(
+    `Send the acceptance email to ${total} ${total === 1 ? "person" : "people"} across ${rows.length} committee${rows.length === 1 ? "" : "s"}?\n\n${roster}\n\nThis emails them immediately, cc the committee and HR. It cannot be undone.`
+  ))) return;
+
+  btn.disabled = true;
+  const done = [];
+  const failed = [];
+  for (const [i, r] of rows.entries()) {
+    btn.textContent = `Sending ${i + 1} of ${rows.length}…`;
+    try {
+      const res = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: r.raw });
+      done.push(`${r.label} (${res.sent.length})`);
+    } catch (err) {
+      failed.push(`${r.label}: ${err.message}`);
+    }
+  }
+
+  state.teamMsg = failed.length
+    ? { type: "bad", text: `Sent for ${done.join(", ") || "nobody"}. Failed — ${failed.join(" · ")}` }
+    : { type: "ok", text: `Acceptance emails sent: ${done.join(", ")}.` };
+
+  await load(state.admin.email);
+  renderHierarchy();
+}
+
+async function rejectSubmission(email, rawCommittee, rerender = renderTeams) {
   const a = state.data.applicants.find((x) => norm(x.email) === norm(email));
   const label = display(rawCommittee);
   if (!(await confirmDialog(`Reject ${a?.fullName || "this applicant"}'s submission for ${label}?\n\nSends it back to Draft on the committee's own diagram — nobody is emailed, and they can revise and resubmit it.`))) return;
@@ -1110,10 +1239,10 @@ async function rejectSubmission(email, rawCommittee) {
     await api({ mode: "heads-admin-reject-applicant", email: state.admin.email, applicantEmail: email, committee: rawCommittee });
     state.teamMsg = { type: "ok", text: `${a?.fullName || "Applicant"}: sent back to Draft for ${label} to revise.` };
     await load(state.admin.email);
-    renderTeams();
+    rerender();
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
-    renderTeams();
+    rerender();
   }
 }
 
@@ -1280,14 +1409,29 @@ document.getElementById("views").addEventListener("click", (e) => {
   state.teamMsg = null;
   document.getElementById("view-applicants").classList.toggle("hidden", view.dataset.view !== "applicants");
   document.getElementById("view-teams").classList.toggle("hidden", view.dataset.view !== "teams");
+  document.getElementById("view-hierarchy").classList.toggle("hidden", view.dataset.view !== "hierarchy");
   document.getElementById("view-onboarding").classList.toggle("hidden", view.dataset.view !== "onboarding");
   document.getElementById("view-slots").classList.toggle("hidden", view.dataset.view !== "slots");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
     btn.setAttribute("aria-selected", btn.dataset.view === view.dataset.view);
   }
   if (view.dataset.view === "teams") renderTeams();
+  if (view.dataset.view === "hierarchy") renderHierarchy();
   if (view.dataset.view === "onboarding") renderOnboarding();
   if (view.dataset.view === "slots") loadSlotsCoverage();
+});
+
+/* The hierarchy tab reuses the same add/remove controls as the team diagrams,
+   so it shares their handlers and only adds its own single send. */
+document.getElementById("view-hierarchy").addEventListener("click", (e) => {
+  const sendAll = e.target.closest("#send-all");
+  if (sendAll) { sendAllAcceptances(sendAll); return; }
+  const addBtn = e.target.closest("[data-add-go]");
+  if (addBtn) { adminAddToRole(addBtn.dataset.addGo, renderHierarchy, e.currentTarget); return; }
+  const unassignBtn = e.target.closest("[data-unassign]");
+  if (unassignBtn) { adminRemoveFromRole(unassignBtn.dataset.unassign, renderHierarchy); return; }
+  const rejectBtn = e.target.closest("[data-reject]");
+  if (rejectBtn) { rejectSubmission(rejectBtn.dataset.reject, rejectBtn.dataset.rejectCommittee, renderHierarchy); return; }
 });
 
 document.getElementById("view-teams").addEventListener("click", (e) => {
@@ -1296,7 +1440,7 @@ document.getElementById("view-teams").addEventListener("click", (e) => {
   const rejectBtn = e.target.closest("[data-reject]");
   if (rejectBtn) { rejectSubmission(rejectBtn.dataset.reject, rejectBtn.dataset.rejectCommittee); return; }
   const addBtn = e.target.closest("[data-add-go]");
-  if (addBtn) { adminAddToRole(addBtn.dataset.addGo); return; }
+  if (addBtn) { adminAddToRole(addBtn.dataset.addGo, renderTeams, e.currentTarget); return; }
   const unassignBtn = e.target.closest("[data-unassign]");
   if (unassignBtn) { adminRemoveFromRole(unassignBtn.dataset.unassign); return; }
 });
