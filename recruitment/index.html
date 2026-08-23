@@ -1173,7 +1173,13 @@ function hierarchyRows() {
       roles,
       stranded,
       staged: placed.filter((a) => a.acceptedStatus === "Submitted"),
-      sent: placed.filter((a) => a.acceptedStatus === "Yes")
+      sent: placed.filter((a) => a.acceptedStatus === "Yes"),
+      /* Drafts are the committee's working state — only they can turn those
+         into Submitted. Held ones are waiting on a different committee to
+         release the applicant. Neither is sendable, and the send button used
+         to just sit disabled without saying which of the two it was. */
+      drafts: placed.filter((a) => a.acceptedStatus === "Draft" && !isHeldForFirstPreference(a, c.raw)),
+      held: placed.filter((a) => a.acceptedStatus === "Draft" && isHeldForFirstPreference(a, c.raw))
     };
   });
 }
@@ -1203,6 +1209,22 @@ function strandedAdminCard(a, rawCommittee, heads) {
     </div>`;
 }
 
+/* Why the send button for a committee is or is not clickable. A disabled
+   button with no reason was the whole problem: a committee could have five
+   people sitting in Draft and the tab would only say "nothing staged". */
+function sendStatus(r) {
+  const bits = [];
+  if (r.staged.length) bits.push(`${r.staged.length} ready to be emailed`);
+  if (r.drafts.length) bits.push(`${r.drafts.length} still Draft — ${esc(r.label)} has not submitted ${r.drafts.length === 1 ? "them" : "these"} yet`);
+  if (r.held.length) bits.push(`${r.held.length} waiting on another committee to release them`);
+  if (r.sent.length) bits.push(`${r.sent.length} already sent`);
+  if (!bits.length) return `Nobody placed in ${esc(r.label)} yet.`;
+  const tail = !r.staged.length && r.drafts.length
+    ? " You can place them here yourself to send without waiting."
+    : "";
+  return bits.join(" · ") + "." + tail;
+}
+
 function renderHierarchy() {
   const el = document.getElementById("view-hierarchy");
   if (!state.data) return;
@@ -1230,7 +1252,7 @@ function renderHierarchy() {
         <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
       <div class="row2" style="align-items:center;margin-bottom:10px;">
-        <div class="note">${r.staged.length ? `${r.staged.length} ready to be emailed for ${esc(r.label)}.` : "Nothing staged for this committee yet."}</div>
+        <div class="note">${sendStatus(r)}</div>
         <div style="flex:0 0 auto;">
           <button class="btn btn-sm btn-gold" data-send-committee="${esc(r.raw)}"${r.staged.length ? "" : " disabled"}>Send ${esc(r.label)} only${r.staged.length ? ` (${r.staged.length})` : ""}</button>
         </div>
