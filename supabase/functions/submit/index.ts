@@ -281,6 +281,23 @@ const HEADS_SCORE_HEADERS = [
 ];
 
 const HEADS_ASSIGNMENT_SHEET_NAME = Deno.env.get("HEADS_ASSIGNMENT_SHEET_NAME") ?? "Interview Assignments";
+/*
+ * Ranked backups per role. When a committee places someone who put them
+ * second, that applicant may still go to their first-preference committee, so
+ * the role needs a next-in-line recorded at the moment the decision is made —
+ * not reconstructed weeks later. Order is the Rank column, lowest first.
+ */
+const HEADS_WAITLIST_SHEET_NAME = Deno.env.get("HEADS_WAITLIST_SHEET_NAME") ?? "Heads Waiting List";
+const HEADS_WAITLIST_HEADERS = [
+  "Committee",
+  "Head Role",
+  "Rank",
+  "Applicant Email",
+  "Applicant Name",
+  "Added By",
+  "Added At"
+];
+
 const HEADS_ASSIGNMENT_HEADERS = [
   "Assignment ID",
   "Applicant Email",
@@ -1238,6 +1255,20 @@ type HeadsAssignApplicantPayload = {
   position: "Head" | "Co-Head" | "Member";
 };
 
+/**
+ * The ordered backup list for one role, rewritten wholesale. Mainly there for
+ * a role filled by someone who put this committee second: they may still be
+ * claimed by their first preference, and the committee should record who takes
+ * the seat instead while they still remember.
+ */
+type HeadsSetWaitlistPayload = {
+  mode: "heads-set-waitlist";
+  email: string;
+  committee: string;
+  headId: string;
+  applicantEmails: string[];
+};
+
 /** Pulls an applicant back off the diagram before the committee has confirmed it. */
 type HeadsUnassignApplicantPayload = {
   mode: "heads-unassign-applicant";
@@ -1424,6 +1455,7 @@ type SubmissionPayload =
   | HeadsSubmitTeamPayload
   | HeadsAdminConfirmTeamPayload
   | HeadsAdminRejectApplicantPayload
+  | HeadsSetWaitlistPayload
   | HeadsAdminAssignApplicantPayload
   | HeadsAdminUnassignApplicantPayload
   | HeadsOnboardingStatusPayload
@@ -1980,6 +2012,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await sendHeadsTeamAcceptances(token, payload)) });
     }
 
+    if (isHeadsSetWaitlistPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await setHeadsWaitlist(token, payload)) });
+    }
+
     if (isHeadsAdminRejectApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2224,6 +2262,12 @@ function isHeadsAdminConfirmTeamPayload(
 ): payload is HeadsAdminConfirmTeamPayload {
   return (payload as HeadsAdminConfirmTeamPayload).mode === "heads-admin-confirm-team";
 }
+function isHeadsSetWaitlistPayload(
+  payload: SubmissionPayload
+): payload is HeadsSetWaitlistPayload {
+  return (payload as HeadsSetWaitlistPayload).mode === "heads-set-waitlist";
+}
+
 function isHeadsAdminRejectApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminRejectApplicantPayload {
@@ -4732,6 +4776,109 @@ async function ensureHeadsScoreSheet(token: string): Promise<void> {
   await ensureSheetHeaders(token, HEADS_SCORE_SHEET_NAME, HEADS_SCORE_HEADERS);
 }
 
+async function ensureHeadsWaitlistSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HEADS_WAITLIST_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_WAITLIST_SHEET_NAME, HEADS_WAITLIST_HEADERS);
+}
+
+/** Every backup row, ranked, for whoever is reading the diagram. */
+async function readHeadsWaitlist(
+  token: string
+): Promise<Array<{ committee: string; headRole: string; rank: number; applicantEmail: string; applicantName: string }>> {
+  await ensureHeadsWaitlistSheet(token);
+  const width = columnLetter(HEADS_WAITLIST_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_WAITLIST_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  return rows
+    .filter((row) => String(row[3] ?? "").trim())
+    .map((row) => ({
+      committee: String(row[0] ?? "").trim(),
+      headRole: String(row[1] ?? "").trim(),
+      rank: Number(row[2] ?? 0) || 0,
+      applicantEmail: String(row[3] ?? "").trim(),
+      applicantName: String(row[4] ?? "").trim()
+    }))
+    .sort((a, b) => a.rank - b.rank);
+}
+
+/**
+ * Rewrites one role's backup list wholesale. The client sends the order it
+ * wants, which is simpler to reason about than patching individual ranks and
+ * makes reordering and removal the same operation.
+ */
+async function setHeadsWaitlist(
+  token: string,
+  payload: HeadsSetWaitlistPayload
+): Promise<{ committee: string; headName: string; waitlist: Array<{ applicantEmail: string; applicantName: string }> }> {
+  const committee = String(payload.committee ?? "").trim();
+  const headId = String(payload.headId ?? "").trim();
+  if (!committee || !headId) throw new Error("Committee and role are both required.");
+
+  const access = await requireCommitteeAccess(token, payload.email);
+  if (normalizeRole(access.department) !== normalizeRole(committee)) {
+    throw new Error(`${displayCommitteeName(access.department)} does not run ${displayCommitteeName(committee)}'s diagram.`);
+  }
+
+  const head = headsForHierarchy(committee).find((h) => h.id === headId);
+  if (!head) throw new Error(`${displayCommitteeName(committee)} has no role called that.`);
+
+  const wanted = (Array.isArray(payload.applicantEmails) ? payload.applicantEmails : [])
+    .map((e) => String(e ?? "").trim())
+    .filter(Boolean);
+
+  // Names come from the applications sheet rather than the client, so a
+  // backup list cannot be made to show a name the applicant never gave.
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const appsResponse = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const appRows = ((await appsResponse.json()).values ?? []) as string[][];
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+  const nameOf = (email: string) => {
+    const i = findCurrentRowIndex(appRows, emailColumn, email);
+    return i === -1 ? "" : String(appRows[i][nameColumn] ?? "").trim();
+  };
+
+  await ensureHeadsWaitlistSheet(token);
+  const listWidth = columnLetter(HEADS_WAITLIST_HEADERS.length);
+  const current = await sheetsFetch(token, "GET", `${sheetRange(HEADS_WAITLIST_SHEET_NAME, `A2:${listWidth}`)}`);
+  const rows = ((await current.json()).values ?? []) as string[][];
+
+  // Everything except this committee+role, then this role's new order appended.
+  const keep = rows.filter(
+    (row) =>
+      String(row[3] ?? "").trim() &&
+      !(normalizeRole(String(row[0] ?? "")) === normalizeRole(committee) &&
+        normalizeRole(String(row[1] ?? "")) === normalizeRole(head.name))
+  );
+  const addedAt = new Date().toISOString();
+  const mine = wanted.map((email, i) => [
+    displayCommitteeName(committee),
+    head.name,
+    String(i + 1),
+    email,
+    nameOf(email),
+    access.email,
+    addedAt
+  ]);
+
+  await sheetsFetch(token, "POST", `${sheetRange(HEADS_WAITLIST_SHEET_NAME, `A2:${listWidth}`)}:clear`, {});
+  const all = [...keep, ...mine];
+  if (all.length) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(HEADS_WAITLIST_SHEET_NAME, `A:${listWidth}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: all }
+    );
+  }
+
+  return {
+    committee: displayCommitteeName(committee),
+    headName: head.name,
+    waitlist: wanted.map((email) => ({ applicantEmail: email, applicantName: nameOf(email) }))
+  };
+}
+
 async function ensureHeadsAssignmentSheet(token: string): Promise<void> {
   await ensureSheetTab(token, HEADS_ASSIGNMENT_SHEET_NAME);
   await ensureSheetHeaders(token, HEADS_ASSIGNMENT_SHEET_NAME, HEADS_ASSIGNMENT_HEADERS);
@@ -5009,12 +5156,14 @@ async function loadCommitteePortal(
   firstPreference: Array<Record<string, unknown>>;
   secondPreference: Array<Record<string, unknown>>;
   assigned: Array<Record<string, unknown>>;
+  waitlist: Array<{ committee: string; headRole: string; rank: number; applicantEmail: string; applicantName: string }>;
 }> {
   const access = await requireCommitteeAccess(token, email);
-  const [applicants, scores, assignments] = await Promise.all([
+  const [applicants, scores, assignments, waitlist] = await Promise.all([
     readHeadsApplicants(token),
     readHeadsScores(token),
-    readHeadsAssignments(token)
+    readHeadsAssignments(token),
+    readHeadsWaitlist(token)
   ]);
 
   const department = normalizeRole(access.department);
@@ -5074,7 +5223,7 @@ async function loadCommitteePortal(
     })
     .filter(Boolean) as Array<Record<string, unknown>>;
 
-  return { access, firstPreference, secondPreference, assigned };
+  return { access, firstPreference, secondPreference, assigned, waitlist };
 }
 
 /**
@@ -5502,13 +5651,15 @@ async function loadHeadsAdmin(
   applicants: Array<Record<string, unknown>>;
   assignments: Array<Record<string, string>>;
   panel: Array<{ name: string; email: string; department: string; positionType: string }>;
+  waitlist: Array<{ committee: string; headRole: string; rank: number; applicantEmail: string; applicantName: string }>;
 }> {
   const admin = await requireRecruitmentAdmin(token, email);
-  const [applicants, scores, assignments, hierarchy] = await Promise.all([
+  const [applicants, scores, assignments, hierarchy, waitlist] = await Promise.all([
     readHeadsApplicants(token),
     readHeadsScores(token),
     readHeadsAssignments(token),
-    loadHierarchy(token)
+    loadHierarchy(token),
+    readHeadsWaitlist(token)
   ]);
 
   const withScores = applicants.map((applicant) => ({
@@ -5532,7 +5683,7 @@ async function loadHeadsAdmin(
       positionType: String(entry.positionType ?? "").trim()
     }));
 
-  return { admin, applicants: withScores, assignments, panel };
+  return { admin, applicants: withScores, assignments, panel, waitlist };
 }
 
 /**
@@ -6652,16 +6803,17 @@ async function submitHeadsTeam(
 
     /*
      * This committee is not who the applicant put first, and the
-     * first-preference committee has not released them — stays a Draft,
-     * not submitted. The director sees this back as `held`, with whose
-     * portal to go ask.
+     * first-preference committee has not released them. It still goes to the
+     * admin — blocking it here meant the decision never reached the person
+     * who is supposed to make it — but it is reported back as `held` so the
+     * director knows it is contested, and sendHeadsTeamAcceptances leaves it
+     * out of a send until the admin names it explicitly.
      */
     const firstPreferenceCommittee = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
     const isFirstPreference = normalizeRole(firstPreferenceCommittee) === normalizeRole(committee);
     const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
     if (!isFirstPreference && !released) {
       held.push({ applicantEmail, fullName, firstPreferenceCommittee: displayCommitteeName(firstPreferenceCommittee) });
-      continue;
     }
 
     await sheetsFetch(
@@ -6704,6 +6856,7 @@ async function sendHeadsTeamAcceptances(
 ): Promise<{
   committee: string;
   sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }>;
+  skippedContested: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }>;
   missingHeadRoles: string[];
 }> {
   const committee = String(payload.committee ?? "").trim();
@@ -6730,14 +6883,39 @@ async function sendHeadsTeamAcceptances(
    */
   const ccPanel = await getCommitteePanel(token, committee).catch(() => []);
 
+  /*
+   * A placement by a committee that is not the applicant's first preference,
+   * where that first-preference committee has not released them, is contested:
+   * the admin is meant to decide who needs them more. It reaches this point so
+   * it can be seen and decided on, but a bulk send skips it — only naming the
+   * applicant explicitly in applicantEmails sends it, which is the admin
+   * saying they have made that call.
+   */
+  const isContested = (row: string[]): boolean => {
+    const first = normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""));
+    const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
+    return first !== normalizeRole(committee) && !released;
+  };
+
+  const skippedContested: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
+
   const submitted = rows
     .map((row, index) => ({ row, index }))
-    .filter(
-      ({ row }) =>
-        String(row[ACCEPTED_COLUMN] ?? "").trim() === "Submitted" &&
-        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
-        (onlyEmails.size === 0 || onlyEmails.has(String(row[emailColumn] ?? "").trim().toLowerCase()))
-    );
+    .filter(({ row }) => {
+      if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Submitted") return false;
+      if (normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) return false;
+      const named = onlyEmails.has(String(row[emailColumn] ?? "").trim().toLowerCase());
+      if (onlyEmails.size > 0) return named;
+      if (isContested(row)) {
+        skippedContested.push({
+          applicantEmail: String(row[emailColumn] ?? "").trim(),
+          fullName: String(row[nameColumn] ?? "").trim(),
+          firstPreferenceCommittee: displayCommitteeName(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""))
+        });
+        return false;
+      }
+      return true;
+    });
 
   const sent: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
 
@@ -6774,7 +6952,12 @@ async function sendHeadsTeamAcceptances(
     sent.push({ applicantEmail, fullName, headName, position });
   }
 
-  return { committee: displayCommitteeName(committee), sent, missingHeadRoles: missingHeadRolesFor(rows, committee) };
+  return {
+    committee: displayCommitteeName(committee),
+    sent,
+    skippedContested,
+    missingHeadRoles: missingHeadRolesFor(rows, committee)
+  };
 }
 
 /**

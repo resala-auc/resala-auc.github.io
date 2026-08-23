@@ -201,6 +201,11 @@
     .retired-tag { margin-left: 7px; font-size: 10px; font-weight: 700; text-transform: uppercase;
     letter-spacing: .6px; color: var(--muted); background: var(--soft); border: 1px solid var(--line);
     border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
+  .waitlist { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--line); }
+  .waitlist.wanted { background: #fdf4e0; border-radius: 9px; padding: 9px 10px 10px; border-top: 0; }
+  .wl-rank { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 999px; background: var(--blue);
+    color: #fff; font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center;
+    justify-content: center; }
   .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
   .stranded-block { background: #fdf4e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
   .stranded-block .pool-card.stranded { background: #fff; }
@@ -810,18 +815,39 @@ function isHeldForFirstPreference(applicant) {
   return p?.status === "Draft" && applicant.preference !== "First" && !applicant.firstPreferenceReleased;
 }
 
+/* Placed here, but this is not who they put first, and that committee has not
+   released them. It still goes to the admin — they are the one who weighs the
+   two committees against each other — but it is marked all the way through so
+   nobody mistakes it for a settled placement. */
+function isContested(applicant) {
+  return Boolean(placementOn(applicant)) && applicant.preference !== "First" && !applicant.firstPreferenceReleased;
+}
+
+/* This role's backups, in the order the director put them. */
+function waitlistFor(headName) {
+  return (state.data?.waitlist ?? [])
+    .filter((w) => norm(w.headRole) === norm(headName))
+    .sort((a, b) => a.rank - b.rank);
+}
+
 function slotChip(applicant) {
   const p = placementOn(applicant);
   const pending = isHeldForFirstPreference(applicant);
+  const contested = isContested(applicant);
   const label = p.status === "Yes" ? "Sent" : p.status === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
   const cls = p.status === "Yes" ? "sent" : p.status === "Submitted" ? "submitted" : pending ? "pending" : "draft";
   return `
     <div class="slot-chip">
       <span>${esc(applicant.fullName)}</span>
       <span class="chip-status ${cls}">${label}</span>
+      ${contested ? `<span class="chip-status pending" title="Their first preference is ${esc(display(applicant.roleAppliedFor))}">2nd</span>` : ""}
       ${p.status !== "Yes" ? `<button type="button" class="chip-x" data-unassign="${esc(applicant.email)}" title="Remove">×</button>` : ""}
     </div>
-    ${pending ? `<div class="note" style="margin:-3px 0 6px;">Waiting on ${esc(display(applicant.roleAppliedFor))}'s committee to release them.</div>` : ""}`;
+    ${contested ? `<div class="note" style="margin:-3px 0 6px;">They put <b>${esc(display(applicant.roleAppliedFor))}</b> first. ${
+      p.status === "Draft"
+        ? "Submitting sends this to the admin, who decides which committee needs them more — add a backup below in case you lose them."
+        : "The admin decides which committee needs them more."
+    }</div>` : ""}`;
 }
 
 /** Panel average, same ranking the Applicants tab already shows — so "best
@@ -926,6 +952,43 @@ function strandedCard(applicant, heads) {
           <button type="button" class="btn btn-sm btn-ghost" data-unassign="${esc(applicant.email)}">Remove</button>
         </div>
       </div>
+    </div>`;
+}
+
+/* Ranked backups for one role. Prompted hardest when the role is held by
+   someone who put this committee second, because that is exactly the seat
+   most likely to come free. Any candidate can be a backup — first or second
+   preference — since either can take the role if the seat opens. */
+function waitlistBlock(head, contestedHere, candidates) {
+  const list = waitlistFor(head.name);
+  const chosen = new Set(list.map((w) => norm(w.applicantEmail)));
+  const options = candidates
+    .filter((a) => !chosen.has(norm(a.email)))
+    .map((a) => `<option value="${esc(a.email)}">${esc(a.fullName)}${rankScore(a) === null ? "" : ` · ${Math.round(rankScore(a))}/100`} — ${esc(a.preference === "First" ? "1st pref" : a.preference === "Second" ? "2nd pref" : a.preference)}</option>`)
+    .join("");
+
+  return `
+    <div class="waitlist ${contestedHere && !list.length ? "wanted" : ""}">
+      <div class="slot-label">Backups${list.length ? ` (${list.length})` : ""}</div>
+      ${contestedHere && !list.length
+        ? `<div class="note" style="margin-bottom:7px;">This role is held by someone who put another committee first. Add who takes it if you lose them.</div>`
+        : ""}
+      ${list.length
+        ? list.map((w, i) => `
+          <div class="slot-chip">
+            <span class="wl-rank">${i + 1}</span>
+            <span>${esc(w.applicantName || w.applicantEmail)}</span>
+            <button type="button" class="chip-x" data-wl-remove="${esc(head.id)}" data-wl-email="${esc(w.applicantEmail)}" title="Remove from backups">×</button>
+          </div>`).join("")
+        : `<div class="note">None yet.</div>`}
+      ${options
+        ? `<div class="row2" style="margin-top:7px;">
+             <div><select data-wl-pick="${esc(head.id)}">
+               <option value="" selected disabled>Add a backup…</option>${options}
+             </select></div>
+             <div class="go"><button type="button" class="btn btn-sm btn-ghost" data-wl-add="${esc(head.id)}">Add</button></div>
+           </div>`
+        : `<div class="note">Nobody left to add.</div>`}
     </div>`;
 }
 
@@ -1053,6 +1116,7 @@ function renderTeam() {
               </div>
               ${reallocatePicker(h.id, headOpen, coHeadOpen, reallocatable)}
             </div>
+            ${waitlistBlock(h, inRole.some(isContested), [...candidates, ...reallocatable])}
           </div>
         </div>`;
     })
@@ -1128,6 +1192,45 @@ async function assignToTeam(email, fixedHeadId, fixedPosition) {
     state.teamMsg = { type: "bad", text: e.message };
     renderTeam();
   }
+}
+
+/* Backups are stored as a whole ordered list per role, so adding or removing
+   one is the same call: send the order we want to end up with. */
+async function saveWaitlist(headId, emails) {
+  const heads = getAllHeadsForHierarchy(myGuideId());
+  const head = heads.find((h) => h.id === headId);
+  if (!head) return;
+  state.teamMsg = null;
+  try {
+    await api({
+      mode: "heads-set-waitlist",
+      email: state.access.email,
+      committee: state.access.department,
+      headId,
+      applicantEmails: emails
+    });
+    await load(state.access.email);
+  } catch (e) {
+    state.teamMsg = { type: "bad", text: e.message };
+    renderTeam();
+  }
+}
+
+async function addToWaitlist(headId) {
+  const heads = getAllHeadsForHierarchy(myGuideId());
+  const head = heads.find((h) => h.id === headId);
+  const pick = document.querySelector(`[data-wl-pick="${CSS.escape(headId)}"]`)?.value;
+  if (!head || !pick) return;
+  const current = waitlistFor(head.name).map((w) => w.applicantEmail);
+  await saveWaitlist(headId, [...current, pick]);
+}
+
+async function removeFromWaitlist(headId, email) {
+  const heads = getAllHeadsForHierarchy(myGuideId());
+  const head = heads.find((h) => h.id === headId);
+  if (!head) return;
+  const current = waitlistFor(head.name).map((w) => w.applicantEmail);
+  await saveWaitlist(headId, current.filter((e) => norm(e) !== norm(email)));
 }
 
 async function unassignFromTeam(email) {
@@ -1553,6 +1656,10 @@ document.getElementById("views").addEventListener("click", (e) => {
 });
 
 document.getElementById("view-team").addEventListener("click", (e) => {
+  const wlAdd = e.target.closest("[data-wl-add]");
+  if (wlAdd) { addToWaitlist(wlAdd.dataset.wlAdd); return; }
+  const wlRemove = e.target.closest("[data-wl-remove]");
+  if (wlRemove) { removeFromWaitlist(wlRemove.dataset.wlRemove, wlRemove.dataset.wlEmail); return; }
   const assignBtn = e.target.closest("[data-assign]");
   if (assignBtn) { assignToTeam(assignBtn.dataset.assign, assignBtn.dataset.assignHead || null); return; }
   const reallocBtn = e.target.closest("[data-realloc-add]");
