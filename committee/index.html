@@ -368,10 +368,22 @@ function committeeIdOf(applicant) {
 }
 
 /* HR weights its criteria differently per head, so the rubric needs the head
-   key. Migrated rows carry only the head's display name. */
-function headIdOf(applicant) {
+   key. Migrated rows, and second-preference rows recorded before the head id
+   was captured, carry only the head's display name — so fall back to matching
+   that name against the committee's own roles. Without this an applicant with
+   no head id is never offered under the role they actually applied for; they
+   drop to "Other candidates" and the director has to know to go looking. */
+function headIdOf(applicant, heads) {
   if (applicant.headId) return applicant.headId;
   const name = norm(applicant.headName);
+  if (!name) return "";
+
+  const roles = heads ?? getRoleGuideById(myGuideId())?.heads ?? [];
+  const byName = roles.find((h) => norm(h.name) === name);
+  if (byName) return byName.id;
+
+  // Retired ids from earlier cycle structures, kept so a legacy row still
+  // resolves to the rubric it was scored against.
   for (const key of ["engagement", "inclusion", "tracking", "recognition"]) {
     if (name.includes(key)) return key;
   }
@@ -925,7 +937,7 @@ function poolCard(applicant, heads) {
           ${esc(applicant.acceptedPosition)} of ${esc(applicant.acceptedRole)}.</div>
       </div>`;
   }
-  const appliedHeadId = headIdOf(applicant);
+  const appliedHeadId = headIdOf(applicant, heads);
   const headOptions = heads
     .map((h) => `<option value="${esc(h.id)}"${h.id === appliedHeadId ? " selected" : ""}>${esc(h.name)}</option>`)
     .join("");
@@ -987,7 +999,7 @@ function renderTeam() {
   const unplacedByHead = new Map();
   const otherUnplaced = [];
   for (const a of unplaced) {
-    const hid = headIdOf(a);
+    const hid = headIdOf(a, heads);
     if (hid && heads.some((h) => h.id === hid)) {
       if (!unplacedByHead.has(hid)) unplacedByHead.set(hid, []);
       unplacedByHead.get(hid).push(a);
@@ -1009,7 +1021,7 @@ function renderTeam() {
       const coHeadOpen = coHeadHolders.length === 0;
       // Everyone else unplaced, for reallocating in someone who applied for
       // a different role entirely.
-      const reallocatable = unplaced.filter((a) => headIdOf(a) !== h.id).sort(byScore);
+      const reallocatable = unplaced.filter((a) => headIdOf(a, heads) !== h.id).sort(byScore);
       return `
         <div class="role-box ${headHolders.length ? "" : "missing"}">
           <div class="role-box-title">${esc(h.name)}</div>
