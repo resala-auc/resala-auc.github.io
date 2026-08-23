@@ -7211,7 +7211,7 @@ async function sendAcceptanceEmail({
     "",
     "It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.",
     "",
-    "This is your initial acceptance. It becomes final at the onboarding meeting on 30 August, where you accept the leadership responsibility that comes with the role. Between now and then, start meeting your committee and getting to know the people you will be working with.",
+    "This is your initial acceptance. It becomes final at the onboarding meeting on 30 August, where you sign the letter of responsibility for the role. Between now and then, start meeting your committee and getting to know the people you will be working with.",
     "",
     "",
     "STEP 1 — REPLY TO THIS EMAIL WITHIN 24 HOURS",
@@ -7452,7 +7452,7 @@ export function buildAcceptanceEmailHtml({
                   <tr>
                     <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:17px 20px;">
                       <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:9px;">This is an initial acceptance</div>
-                      <div class="body-text ink" style="font-size:15.5px;line-height:1.65;color:#1b1f23;">It becomes final at the onboarding meeting on <b>30 August</b>, where you accept the leadership responsibility that comes with the role.</div>
+                      <div class="body-text ink" style="font-size:15.5px;line-height:1.65;color:#1b1f23;">It becomes final at the onboarding meeting on <b>30 August</b>, where you sign the <b>letter of responsibility</b> for the role.</div>
                       <div class="body-text muted" style="font-size:15px;line-height:1.6;color:#3f4650;margin-top:7px;">Between now and then, start meeting your committee and getting to know the people you will be working with.</div>
                     </td>
                   </tr>
