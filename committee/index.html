@@ -198,7 +198,10 @@
   }
   .chip-x:hover { color: #a3231b; }
   .pool-grid { display: grid; gap: 10px; }
-  .pool-card { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 13px 15px; }
+    .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
+  .stranded-block { background: #fdf4e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
+  .stranded-block .pool-card.stranded { background: #fff; }
+.pool-card { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 13px 15px; }
   .pool-card .nm { font-weight: 700; }
   .pool-card .meta { font-size: 12.5px; color: var(--muted); }
 
@@ -880,6 +883,37 @@ function reallocatePicker(headId, headOpen, coHeadOpen, candidates) {
     </div>`;
 }
 
+/* Someone placed into a role this committee no longer has — the role was
+   cancelled after they were drafted into it. They match no role box, and they
+   are not "unplaced", so without this they render nowhere at all: invisible on
+   the diagram, impossible to move or remove, and still counted in the totals.
+   Shown with a picker so the director can put them somewhere that exists. */
+function strandedCard(applicant, heads) {
+  const p = placementOn(applicant);
+  const headOptions = heads.map((h) => `<option value="${esc(h.id)}">${esc(h.name)}</option>`).join("");
+  return `
+    <div class="pool-card stranded">
+      <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
+      <div class="meta">Was placed as ${esc(p.position)} of ${esc(p.role)}</div>
+      <div class="note" style="margin-top:6px;">That role is no longer part of ${esc(display(state.access.department))}. Move them into a current one, or take them off.</div>
+      <div class="row2" style="margin-top:9px;">
+        <div><select data-pool-head="${esc(applicant.email)}">
+          <option value="" selected disabled>Pick a role…</option>
+          ${headOptions}
+        </select></div>
+        <div><select data-pool-position="${esc(applicant.email)}">
+          <option value="Member" selected>Member</option>
+          <option value="Head">Head</option>
+          <option value="Co-Head">Co-Head</option>
+        </select></div>
+        <div class="go">
+          <button type="button" class="btn btn-sm btn-gold" data-assign="${esc(applicant.email)}">Move</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-unassign="${esc(applicant.email)}">Remove</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function poolCard(applicant, heads) {
   const elsewhere = applicant.acceptedStatus && !placementOn(applicant);
   if (elsewhere) {
@@ -923,7 +957,12 @@ function renderTeam() {
   }
 
   const pool = teamPool();
-  const here = pool.filter((a) => placementOn(a));
+  const placedHere = pool.filter((a) => placementOn(a));
+  /* A cancelled role leaves its placements behind. They belong to this
+     committee but match no current role, so they are handled separately
+     rather than silently disappearing from the diagram. */
+  const stranded = placedHere.filter((a) => !heads.some((h) => norm(h.name) === norm(placementOn(a).role)));
+  const here = placedHere.filter((a) => heads.some((h) => norm(h.name) === norm(placementOn(a).role)));
   const unplaced = pool.filter((a) => !a.acceptedStatus);
   const elsewhere = pool.filter((a) => a.acceptedStatus && !placementOn(a));
   const readyCount = here.filter((a) => placementOn(a).status === "Draft" && !isHeldForFirstPreference(a)).length;
@@ -1017,6 +1056,13 @@ function renderTeam() {
     <div class="note" style="margin:-10px 0 18px;">Submitting does not email anyone — the recruitment admin reviews it
       and sends the acceptance emails from their own portal.</div>
     ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:-8px 0 20px;">${esc(state.teamMsg.text)}</div>` : ""}
+
+    ${stranded.length ? `
+      <div class="stranded-block">
+        <h2 class="sec2" style="margin-top:0;">Needs a new role (${stranded.length})</h2>
+        <div class="note" style="margin-bottom:12px;">These were placed into a role that has since been removed. They are not on the diagram until you move them.</div>
+        <div class="pool-grid">${stranded.map((a) => strandedCard(a, heads)).join("")}</div>
+      </div>` : ""}
 
     <h2 class="sec2">${esc(display(state.access.department))} — roles</h2>
     <div class="team-roles">${boxes}</div>

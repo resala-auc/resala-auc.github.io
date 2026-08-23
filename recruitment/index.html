@@ -1094,6 +1094,37 @@ async function adminAddToRole(key, rerender = renderTeams, scope = document) {
   }
 }
 
+/* Re-places someone stranded by a cancelled role. Same endpoint as a normal
+   placement — the applicant is fixed here and the role is what varies, which is
+   the opposite of adminAddToRole. */
+async function adminMoveStranded(key, rerender = renderHierarchy, scope = document) {
+  const sep = key.indexOf("|");
+  const rawCommittee = key.slice(0, sep);
+  const applicantEmail = key.slice(sep + 1);
+  const headId = scope.querySelector(`[data-move-head="${CSS.escape(key)}"]`)?.value;
+  const position = scope.querySelector(`[data-move-position="${CSS.escape(key)}"]`)?.value;
+  if (!headId || !position) return;
+  const who = state.data.applicants.find((a) => norm(a.email) === norm(applicantEmail));
+
+  state.teamMsg = null;
+  try {
+    const r = await api({
+      mode: "heads-admin-assign-applicant",
+      email: state.admin.email,
+      applicantEmail,
+      committee: rawCommittee,
+      headId,
+      position
+    });
+    state.teamMsg = { type: "ok", text: `${who?.fullName || applicantEmail} moved to ${r.position} of ${r.headName}.` };
+    await load(state.admin.email);
+    rerender();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    rerender();
+  }
+}
+
 async function adminRemoveFromRole(email, rerender = renderTeams) {
   const who = state.data.applicants.find((a) => norm(a.email) === norm(email));
   if (!(await confirmDialog(`Take ${who?.fullName || "this applicant"} out of their role?\n\nNothing has been emailed to them yet, and they go back to the unplaced list.`))) return;
@@ -1123,6 +1154,10 @@ function hierarchyRows() {
        longer advertised — and this tab is the only place that is offered. */
     const heads = getAllHeadsForHierarchy(c.id);
     const placed = teamApplicantsFor(c.raw);
+    /* A role that was cancelled outright leaves its placements behind. They
+       match no role box and are not unplaced, so without this they would render
+       nowhere — invisible and impossible to move. */
+    const stranded = placed.filter((a) => !heads.some((h) => norm(h.name) === norm(a.acceptedRole)));
     const roles = heads.map((h) => {
       const inRole = placed.filter((a) => norm(a.acceptedRole) === norm(h.name));
       return {
@@ -1136,10 +1171,36 @@ function hierarchyRows() {
       raw: c.raw,
       label: display(c.raw),
       roles,
+      stranded,
       staged: placed.filter((a) => a.acceptedStatus === "Submitted"),
       sent: placed.filter((a) => a.acceptedStatus === "Yes")
     };
   });
+}
+
+/* Someone left behind by a role that was cancelled after they were placed
+   into it. Offered a picker over the roles that still exist, so they can be
+   moved somewhere real instead of sitting invisible. */
+function strandedAdminCard(a, rawCommittee, heads) {
+  const key = `${rawCommittee}|${a.email}`;
+  return `
+    <div class="role-box missing">
+      <div class="role-box-title">${esc(a.fullName)}</div>
+      <div class="note" style="margin-bottom:9px;">Was ${esc(a.acceptedPosition || "placed")} of ${esc(a.acceptedRole)}, which no longer exists.</div>
+      <div class="add-row">
+        <select data-move-head="${esc(key)}">
+          <option value="" selected disabled>Move to…</option>
+          ${heads.map((h) => `<option value="${esc(h.id)}">${esc(h.name)}${h.retired ? " (closed)" : ""}</option>`).join("")}
+        </select>
+        <select data-move-position="${esc(key)}">
+          <option value="Head">Head</option>
+          <option value="Co-Head">Co-Head</option>
+          <option value="Member" selected>Member</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-ghost" data-move-go="${esc(key)}">Move</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-unassign="${esc(a.email)}">Remove</button>
+      </div>
+    </div>`;
 }
 
 function renderHierarchy() {
@@ -1165,6 +1226,9 @@ function renderHierarchy() {
       <h2>${esc(r.label)}
         <span class="c">${r.roles.filter((x) => !x.head.retired && x.headHolders.length).length}/${r.roles.filter((x) => !x.head.retired).length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
       </h2>
+      ${r.stranded.length ? `
+        <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
+        <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
       <div class="team-grid">
         ${r.roles.map((x) => `
           <div class="role-box ${x.headHolders.length || x.head.retired ? "" : "missing"}">
@@ -1435,6 +1499,8 @@ document.getElementById("views").addEventListener("click", (e) => {
 document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   const sendAll = e.target.closest("#send-all");
   if (sendAll) { sendAllAcceptances(sendAll); return; }
+  const moveBtn = e.target.closest("[data-move-go]");
+  if (moveBtn) { adminMoveStranded(moveBtn.dataset.moveGo, renderHierarchy, e.currentTarget); return; }
   const addBtn = e.target.closest("[data-add-go]");
   if (addBtn) { adminAddToRole(addBtn.dataset.addGo, renderHierarchy, e.currentTarget); return; }
   const unassignBtn = e.target.closest("[data-unassign]");
