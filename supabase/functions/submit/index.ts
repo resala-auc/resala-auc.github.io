@@ -7148,6 +7148,29 @@ async function setFirstPreferenceRelease(
   return { applicantEmail, released: release };
 }
 
+/*
+ * Tech Team does not use Head / Co-Head / Member — everyone accepted into it
+ * is a Team Leader, whatever slot they occupy on the diagram. The diagram
+ * still tracks the slot, because the one-Head-per-role rule depends on it;
+ * this only changes what the applicant is called in their own email.
+ */
+function usesTeamLeaderTitles(committee: string): boolean {
+  return normalizeRole(committee) === normalizeRole("Tech Team");
+}
+
+/** How the role reads in the acceptance email, e.g. "Head of The Scout". */
+function acceptanceRoleLine(committee: string, position: string, headName: string): string {
+  if (usesTeamLeaderTitles(committee)) return `Team Leader — ${headName}`;
+  const prefix = position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of";
+  return `${prefix} ${headName}`;
+}
+
+/** The same thing in a sentence, e.g. "a Team Leader" / "the Head". */
+function acceptancePositionPhrase(committee: string, position: string): string {
+  if (usesTeamLeaderTitles(committee)) return "a Team Leader";
+  return position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
+}
+
 /** Where the checklist in the acceptance email actually sends them. */
 function headsOnboardingUrl(aucEmail: string): string {
   return `${HEADS_ONBOARDING_URL}?email=${encodeURIComponent(aucEmail)}`;
@@ -7171,7 +7194,8 @@ async function sendAcceptanceEmail({
   if (!gmailConfigured()) return;
 
   const onboardingUrl = headsOnboardingUrl(aucEmail);
-  const positionPhrase = position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
+  const positionPhrase = acceptancePositionPhrase(committee, position);
+  const roleLine = acceptanceRoleLine(committee, position, headName);
   const subject = `Resala AUC: welcome to ${committee} — you're in!`;
   const body = [
     `Hi ${fullName},`,
@@ -7181,11 +7205,13 @@ async function sendAcceptanceEmail({
     `This year, that person is you. Build the First Step was our call, and you answered it.`,
     "",
     "-----------------------------------------------",
-    `YOU ARE IN: ${positionPhrase.toUpperCase()} OF ${headName.toUpperCase()}`,
+    `YOU ARE IN: ${roleLine.toUpperCase()}`,
     committee,
     "-----------------------------------------------",
     "",
     "It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.",
+    "",
+    "This is your initial acceptance. It becomes final at the onboarding meeting on 30 August, where you accept the leadership responsibility that comes with the role. Between now and then, start meeting your committee and getting to know the people you will be working with.",
     "",
     "",
     "STEP 1 — REPLY TO THIS EMAIL WITHIN 24 HOURS",
@@ -7268,7 +7294,7 @@ export function buildAcceptanceEmailHtml({
   position: string;
   onboardingUrl: string;
 }): string {
-  const roleLine = position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of";
+  const roleLine = acceptanceRoleLine(committee, position, headName);
 
   /*
    * The three dates are the one thing in this email that costs someone their
@@ -7414,13 +7440,23 @@ export function buildAcceptanceEmailHtml({
                   <tr>
                     <td class="askbox" style="background:#fdf9f3;border-left:5px solid #0c2c80;border-radius:4px;padding:17px 20px;">
                       <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:9px;">You have been selected as</div>
-                      <div class="rolename ink" style="font-size:22px;line-height:1.3;font-weight:bold;color:#1b1f23;">${roleLine} ${escapeHtml(headName)}</div>
+                      <div class="rolename ink" style="font-size:22px;line-height:1.3;font-weight:bold;color:#1b1f23;">${escapeHtml(roleLine)}</div>
                       <div class="muted" style="font-size:14.5px;line-height:1.5;color:#3f4650;margin-top:6px;">${escapeHtml(committee)}</div>
                     </td>
                   </tr>
                 </table>
 
-                <p class="body-text muted p" style="margin:0;font-size:17px;line-height:1.65;color:#3f4650;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
+                <p class="body-text muted p" style="margin:0 0 20px;font-size:17px;line-height:1.65;color:#3f4650;">It wasn&rsquo;t an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you&rsquo;re right for this. We&rsquo;re genuinely happy to have you.</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0;">
+                  <tr>
+                    <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:17px 20px;">
+                      <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:9px;">This is an initial acceptance</div>
+                      <div class="body-text ink" style="font-size:15.5px;line-height:1.65;color:#1b1f23;">It becomes final at the onboarding meeting on <b>30 August</b>, where you accept the leadership responsibility that comes with the role.</div>
+                      <div class="body-text muted" style="font-size:15px;line-height:1.6;color:#3f4650;margin-top:7px;">Between now and then, start meeting your committee and getting to know the people you will be working with.</div>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
 

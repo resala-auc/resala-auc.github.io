@@ -227,6 +227,26 @@ for (const position of ["Head", "Co-Head", "Member"] as const) {
   });
 }
 
+/* Tech Team calls everyone a Team Leader whatever slot they hold, so the same
+   position that reads "Head of" elsewhere reads differently here. */
+await Deno.writeTextFile(
+  `${OUT}/acceptance/tech-team-leader.html`,
+  buildAcceptanceEmailHtml({
+    fullName: "Nour Hassan",
+    committee: "Tech Team",
+    headName: "The Navigator",
+    position: "Head",
+    onboardingUrl: "https://resala-auc.github.io/heads-onboarding/?email=nour.hassan%40aucegypt.edu"
+  })
+);
+written.push({
+  committee: "",
+  dir: "acceptance",
+  file: "tech-team-leader.html",
+  title: "Acceptance · Tech Team, welcomed in as a Team Leader",
+  subject: "Resala AUC: welcome to Tech Team — you're in!"
+});
+
 /*
  * One per committee, since each is extending for a different, deliberately
  * chosen subset of its own empty roles — never "all your empty roles",
