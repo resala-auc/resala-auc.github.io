@@ -198,7 +198,10 @@
   }
   .chip-x:hover { color: #a3231b; }
   .pool-grid { display: grid; gap: 10px; }
-    .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
+    .retired-tag { margin-left: 7px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .6px; color: var(--muted); background: var(--soft); border: 1px solid var(--line);
+    border-radius: 999px; padding: 1px 7px; vertical-align: middle; }
+  .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
   .stranded-block { background: #fdf4e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
   .stranded-block .pool-card.stranded { background: #fff; }
 .pool-card { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 13px 15px; }
@@ -281,7 +284,7 @@
 <script type="module">
 import { getRubric, totalScore } from "../scoring-rubrics.js";
 import { getInterviewConfig } from "../interview-config.js";
-import { getRoleGuideById } from "../role-guide-data.js";
+import { getRoleGuideById, getAllHeadsForHierarchy } from "../role-guide-data.js";
 
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
@@ -961,8 +964,11 @@ function renderTeam() {
   const el = document.getElementById("view-team");
   if (!state.access) return;
 
-  const guide = getRoleGuideById(myGuideId());
-  const heads = guide?.heads ?? [];
+  /* Roles still being recruited for, plus the ones the cycle closed. A closed
+     role is not offered to applicants, but the committee can still hold one —
+     carried over, moved across, or filled outside the cycle — so the director
+     needs to be able to place someone into it rather than only the admin. */
+  const heads = getAllHeadsForHierarchy(myGuideId());
   if (!heads.length) {
     el.innerHTML = `<div class="empty">${esc(display(state.access.department))} has no listed roles to build a diagram from.</div>`;
     return;
@@ -1023,12 +1029,12 @@ function renderTeam() {
       // a different role entirely.
       const reallocatable = unplaced.filter((a) => headIdOf(a, heads) !== h.id).sort(byScore);
       return `
-        <div class="role-box ${headHolders.length ? "" : "missing"}">
-          <div class="role-box-title">${esc(h.name)}</div>
+        <div class="role-box ${headHolders.length || h.retired ? "" : "missing"}">
+          <div class="role-box-title">${esc(h.name)}${h.retired ? `<span class="retired-tag" title="No longer recruited for — you can still place someone in it">closed</span>` : ""}</div>
           <div class="role-box-body">
             <div class="slot-group">
               <div class="slot-label">Head</div>
-              ${headHolders.length ? headHolders.map(slotChip).join("") : `<div class="note">No head assigned yet.</div>`}
+              ${headHolders.length ? headHolders.map(slotChip).join("") : `<div class="note">${h.retired ? "Nobody in this closed role." : "No head assigned yet."}</div>`}
             </div>
             <div class="slot-group">
               <div class="slot-label">Co-Head</div>

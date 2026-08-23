@@ -6314,8 +6314,11 @@ async function assignHeadsApplicant(
    */
   const access = await authorizeApplicantAccess(token, payload.email, committee, applicantEmail);
 
-  const heads = COMMITTEE_HEADS[normalizeRole(committee)];
-  const head = heads?.find((h) => h.id === headId);
+  // Closed roles included: a committee can still hold a position the cycle
+  // stopped advertising, and the director's diagram offers those too. They are
+  // never offered to an applicant, and missingHeadRolesFor still ignores them,
+  // so an unfilled closed role never reads as a vacancy.
+  const head = headsForHierarchy(committee).find((h) => h.id === headId);
   if (!head) {
     throw new Error(`${displayCommitteeName(committee)} has no role called that. Pick one from the list.`);
   }
