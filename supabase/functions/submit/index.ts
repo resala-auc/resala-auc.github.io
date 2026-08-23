@@ -1456,6 +1456,32 @@ type ReservationDetails = {
 let resolvedSheetName: string | null = null;
 let resolvedSheetTitles: Set<string> | null = null;
 
+/*
+ * Sheets allows 60 reads per minute per project. Two things used to blow
+ * straight through that:
+ *
+ *   - ensureSheetHeaders re-read row 1 on every single call, from thirteen
+ *     call sites, even though headers cannot change while an instance is warm.
+ *   - buildApplicantCc resolves the committee panel and the HR monitors from
+ *     the Board Hierarchy sheet, and it runs once per applicant. Each call was
+ *     two loadHierarchy round trips, and each of those was a header check plus
+ *     a data read — four reads per person emailed, for a cc list that is
+ *     identical for everyone in the same committee. Fifteen acceptances hit
+ *     the ceiling on their own.
+ *
+ * Both are now cached per warm instance. Headers are checked once per tab; the
+ * hierarchy is held briefly and dropped whenever it is written, so an edit made
+ * in the admin dashboard is still visible immediately.
+ */
+const verifiedSheetHeaders = new Set<string>();
+const HIERARCHY_CACHE_MS = 30_000;
+let hierarchyCache: { at: number; entries: HierarchyEntry[] } | null = null;
+
+/** Called by anything that writes the Board Hierarchy, so the next read is fresh. */
+function invalidateHierarchyCache(): void {
+  hierarchyCache = null;
+}
+
 const ROLE_GUIDE_SLUGS: Record<string, string> = {
   treasurer: "treasurer",
   "tech director": "tech-director",
@@ -3287,6 +3313,10 @@ async function ensureSheetTab(token: string, tabName: string): Promise<void> {
 }
 
 async function ensureSheetHeaders(token: string, sheetName: string, headers: string[]): Promise<void> {
+  // Headers cannot change under a warm instance, and this used to cost a read
+  // on every call from thirteen call sites. Verify once per tab, then trust it.
+  if (verifiedSheetHeaders.has(sheetName)) return;
+
   const width = headers.length;
   const range = `${sheetRange(sheetName, `A1:${columnLetter(width)}1`)}`;
   const response = await sheetsFetch(token, "GET", range);
@@ -3296,6 +3326,7 @@ async function ensureSheetHeaders(token: string, sheetName: string, headers: str
     await sheetsFetch(token, "PUT", `${sheetRange(sheetName, `A1:${columnLetter(width)}1`)}?valueInputOption=RAW`, {
       values: [headers]
     });
+    verifiedSheetHeaders.add(sheetName);
     return;
   }
 
@@ -3305,6 +3336,7 @@ async function ensureSheetHeaders(token: string, sheetName: string, headers: str
       values: [headers]
     });
   }
+  verifiedSheetHeaders.add(sheetName);
 }
 
 async function resetTestApplicant(token: string, payload: AdminResetPayload, applicationSheetName: string): Promise<{
@@ -6655,6 +6687,15 @@ async function sendHeadsTeamAcceptances(
     (payload.applicantEmails ?? []).map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean)
   );
 
+  /*
+   * The cc list is the accepting committee's panel plus the HR monitors, which
+   * is the same answer for every applicant here apart from dropping their own
+   * address. Resolved once for the whole batch rather than per person — this
+   * used to be two Board Hierarchy round trips each, which is what pushed a
+   * batch send past the Sheets read quota.
+   */
+  const ccPanel = await getCommitteePanel(token, committee).catch(() => []);
+
   const submitted = rows
     .map((row, index) => ({ row, index }))
     .filter(
@@ -6684,7 +6725,7 @@ async function sendHeadsTeamAcceptances(
     );
 
     try {
-      const cc = await buildApplicantCc(token, committee, applicantEmail);
+      const cc = await buildApplicantCc(token, committee, applicantEmail, ccPanel);
       await sendAcceptanceEmail({
         fullName,
         aucEmail: applicantEmail,
@@ -7579,6 +7620,13 @@ async function ensureHierarchySheet(token: string): Promise<void> {
 }
 
 async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[] }> {
+  // buildApplicantCc resolves a panel per applicant, so a batch send would
+  // otherwise re-read this whole sheet once per person for an answer that does
+  // not change between them.
+  if (hierarchyCache && Date.now() - hierarchyCache.at < HIERARCHY_CACHE_MS) {
+    return { entries: hierarchyCache.entries };
+  }
+
   await ensureHierarchySheet(token);
   const width = columnLetter(HIERARCHY_HEADERS.length);
   const response = await sheetsFetch(token, "GET", `${sheetRange(HIERARCHY_SHEET_NAME, `A2:${width}`)}`);
@@ -7594,6 +7642,7 @@ async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[]
       phone: String(row[5] ?? "")
     }));
 
+  hierarchyCache = { at: Date.now(), entries };
   return { entries };
 }
 
@@ -7610,6 +7659,8 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
+  // Anything cached from before this write is now wrong.
+  invalidateHierarchyCache();
   await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}:clear`, {});
 
   if (cleaned.length) {
@@ -7619,6 +7670,7 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
     });
   }
 
+  invalidateHierarchyCache();
   return { saved: cleaned.length };
 }
 
@@ -8984,22 +9036,41 @@ async function updateSlotCalendarFields(
   });
 }
 
+/*
+ * Sheets enforces 60 reads and 60 writes per minute per project, and it is a
+ * rolling window rather than a bucket that refills all at once. A batch send
+ * can legitimately crowd the limit even with the caching above, so a 429 is
+ * worth waiting out rather than failing the whole operation — especially on a
+ * write, where giving up part-way through leaves the sheet half-updated.
+ */
 async function sheetsFetch(token: string, method: string, path: string, body?: unknown): Promise<Response> {
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${path}`;
+  const attempts = 4;
 
-  if (!response.ok) {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (response.ok) return response;
+
     const errorText = await response.text();
-    throw new Error(`Google Sheets request failed: ${errorText}`);
-  }
+    const retriable = response.status === 429 || response.status >= 500;
+    if (!retriable || attempt >= attempts) {
+      throw new Error(`Google Sheets request failed: ${errorText}`);
+    }
 
-  return response;
+    // 2s, 6s, 14s — the window is per minute, so the last wait has to be long
+    // enough to actually clear it rather than just re-hitting the same wall.
+    const waitMs = 2000 * (2 ** attempt - 1);
+    console.warn(`Sheets ${response.status} on ${method} ${path} — retrying in ${waitMs}ms (attempt ${attempt} of ${attempts - 1})`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
 }
 
 async function sheetsBatchUpdateValues(
