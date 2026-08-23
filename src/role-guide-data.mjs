@@ -442,12 +442,6 @@ export const roleGuides = [
           "Plans and manages the execution of visits by organizing volunteers, coordinating activities, and ensuring that every visit is carried out smoothly and efficiently."
       },
       {
-        id: "impact",
-        name: "Impact Head",
-        description:
-          "Evaluates completed visits by collecting feedback, documenting outcomes, and identifying improvements that maximize the long-term impact of future visits."
-      },
-      {
         id: "storytelling",
         name: "Storytelling Head",
         description:

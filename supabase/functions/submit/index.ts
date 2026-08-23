@@ -384,7 +384,6 @@ const COMMITTEE_HEADS: Record<string, Array<{ id: string; name: string }>> = {
   visits: [
     { id: "discovery", name: "Discovery Head" },
     { id: "execution", name: "Execution Head" },
-    { id: "impact", name: "Impact Head" },
     { id: "storytelling", name: "Storytelling Head" }
   ],
   "children day director": [
