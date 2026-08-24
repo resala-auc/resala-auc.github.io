@@ -1325,7 +1325,7 @@ function onboardingLine(r) {
     const confirmed = Boolean(a.roleConfirmed);
     const notes = String(a.videoNotes || "").trim();
     const cls = confirmed && notes ? "sent" : confirmed || notes ? "submitted" : "pending";
-    const label = confirmed && notes ? "done" : confirmed ? "role only" : notes ? "notes only" : "not started";
+    const label = confirmed && notes ? "done" : confirmed ? "replied only" : notes ? "notes only" : "not started";
     return `<span class="onb-chip"><span class="chip-name" data-open="${esc(a.email)}">${esc(a.fullName)}</span><span class="chip-status ${cls}">${label}</span></span>`;
   }).join("");
   return `
@@ -1645,7 +1645,7 @@ function renderOnboarding() {
 
   el.innerHTML = `${summary}
     <div class="wrap-x"><table>
-      <thead><tr><th>Applicant</th><th>Role</th><th>Confirmed</th><th>Video notes</th><th>Status</th></tr></thead>
+      <thead><tr><th>Applicant</th><th>Role</th><th>Replied</th><th>Video notes</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
 }

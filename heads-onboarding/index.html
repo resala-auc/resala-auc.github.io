@@ -72,6 +72,8 @@
         resize: vertical;
       }
       textarea#videoNotes:focus { outline: 2px solid var(--color-accent-orange); outline-offset: 1px; }
+      .reply-list { margin: 0 0 12px; padding-left: 20px; font-size: 14.5px; line-height: 1.6; color: var(--color-ink); }
+      .reply-list li { margin-bottom: 3px; }
       .notes-hint { font-size: 13.5px; line-height: 1.55; color: var(--color-ink); margin-top: 8px;
         background: #fdf4e0; border-left: 3px solid #eac262; border-radius: 4px; padding: 9px 12px; }
       .step-deadline { font-size: 14px; color: #8a4706; background: #fdf4e0; border-radius: 6px;
@@ -124,12 +126,18 @@
         </div>
 
         <div class="onboarding-step" id="step-confirm">
-          <p class="step-title"><span class="step-number">1</span> Confirm you're taking the role</p>
-          <p class="step-desc">A quick, deliberate yes — so your committee knows you're actually in before they build around you.</p>
+          <p class="step-title"><span class="step-number">1</span> Reply to your acceptance email</p>
+          <p class="step-desc">Ticking this is not the confirmation itself — the reply is. Send it from the acceptance email in your inbox, confirming all three:</p>
+          <ul class="reply-list">
+            <li>You are taking the role.</li>
+            <li>You can attend <b>Monday 31 August</b> and <b>Tuesday 1 September</b>.</li>
+            <li>You consent to your WhatsApp number being added to the board group.</li>
+          </ul>
           <div class="checklist-row">
             <input type="checkbox" id="roleConfirmed">
-            <label for="roleConfirmed">I confirm I'm taking this role</label>
+            <label for="roleConfirmed">I have replied to the acceptance email confirming all three of the above</label>
           </div>
+          <p class="notes-hint" style="margin-top:10px;">Your committee builds around this. If the reply has not been sent, this step is not done, whatever is ticked here.</p>
           <p class="saved-note" id="role-saved" hidden></p>
         </div>
 

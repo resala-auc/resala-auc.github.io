@@ -1340,7 +1340,7 @@ function renderOnboarding() {
         <div class="pool-card">
           <div class="nm">${esc(a.fullName)} <span class="chip-status ${st.cls}">${st.label}</span></div>
           <div class="meta">${esc(roleTitle(placementOn(a).position, placementOn(a).role))}</div>
-          <div class="note" style="margin-top:7px;">Role confirmed: <b>${a.roleConfirmed ? "yes" : "not yet"}</b></div>
+          <div class="note" style="margin-top:7px;">Replied to accept: <b>${a.roleConfirmed ? "yes" : "not yet"}</b></div>
           <div class="note">Video notes: <b>${notes ? "submitted" : "not yet"}</b></div>
           ${notes ? `<div class="onb-notes">${esc(notes)}</div>` : ""}
         </div>`;

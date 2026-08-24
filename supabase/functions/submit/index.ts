@@ -7649,7 +7649,7 @@ async function sendAcceptanceEmail({
     "Completing this checklist is mandatory. It is part of the recruitment",
     "process, not an extra, and it cannot be skipped.",
     "",
-    "  1. Confirm you're taking the role.",
+    "  1. Confirm you have sent the reply above.",
     `  2. Watch the leadership vs. management video: ${LEADERSHIP_VIDEO_URL}`,
     `  3. Send us your notes on what stuck with you, by ${VIDEO_NOTES_DEADLINE}.`,
     "",
@@ -7959,7 +7959,7 @@ export function buildAcceptanceEmailHtml({
                     </td>
                   </tr>
                 </table>
-                ${bullet("Confirm you&rsquo;re taking the role.")}
+                ${bullet("Confirm you have sent the reply above.")}
                 ${bullet(`Watch the <a href="${escapeHtml(LEADERSHIP_VIDEO_URL)}" target="_blank" rel="noopener" style="color:#0c2c80;font-weight:bold;">leadership vs. management video</a>.`)}
                 ${bullet(`Send us your notes on what stuck with you, <b>by ${escapeHtml(VIDEO_NOTES_DEADLINE)}</b>.`)}
                 <div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>
