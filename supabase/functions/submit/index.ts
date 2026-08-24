@@ -1638,6 +1638,25 @@ function displayCommitteeName(name: unknown): string {
   return COMMITTEE_DISPLAY_NAMES[normalizeRole(raw)] ?? raw;
 }
 
+/*
+ * "Which committee" comparisons in the acceptance lifecycle mix two
+ * representations that don't match each other: function parameters — always
+ * the raw internal name ("Tech Director"), since that's what the frontend
+ * reads off the diagram — against the Accepted Committee column, the Claims
+ * sheet's Committee column, and the Waiting List sheet's Committee column,
+ * all of which are always written through displayCommitteeName ("Tech
+ * Team"). For a committee with no rename the two strings are identical and
+ * normalizeRole(committee) alone happens to work; for Tech, Initiatives and
+ * Children's Day they never match, so every comparison written that way
+ * silently found nothing for those three. Passing both sides through this
+ * first collapses them to the same key regardless of which form either side
+ * happens to be in — displayCommitteeName is idempotent on an already-display
+ * name, so wrapping a value that's already correct costs nothing.
+ */
+function committeeKey(value: unknown): string {
+  return normalizeRole(displayCommitteeName(value));
+}
+
 /**
  * The head this applicant chose. roleStepTitle is `${stepTitle} · ${head}`, so
  * without the separator there is no head to read — returning the step title
@@ -5082,7 +5101,7 @@ async function setHeadsWaitlist(
   const keep = rows.filter(
     (row) =>
       String(row[3] ?? "").trim() &&
-      !(normalizeRole(String(row[0] ?? "")) === normalizeRole(committee) &&
+      !(committeeKey(row[0]) === committeeKey(committee) &&
         normalizeRole(String(row[1] ?? "")) === normalizeRole(head.name))
   );
   const addedAt = new Date().toISOString();
@@ -6775,7 +6794,7 @@ async function approvedClaimKeys(token: string): Promise<Set<string>> {
   return new Set(
     claims
       .filter((c) => c.status === "Approved")
-      .map((c) => `${normalize(c.applicantEmail)}|${normalizeRole(c.committee)}`)
+      .map((c) => `${normalize(c.applicantEmail)}|${committeeKey(c.committee)}`)
   );
 }
 
@@ -6790,7 +6809,7 @@ function assertRoleSlotFreeInClaims(
   const taken = claims.find(
     (c) =>
       normalize(c.applicantEmail) !== normalize(applicantEmail) &&
-      normalizeRole(c.committee) === normalizeRole(committee) &&
+      committeeKey(c.committee) === committeeKey(committee) &&
       normalizeRole(c.headRole) === normalizeRole(headName) &&
       c.position === position &&
       ["Draft", "Submitted", "Approved"].includes(c.status)
@@ -6798,29 +6817,6 @@ function assertRoleSlotFreeInClaims(
   if (!taken) return;
   throw new Error(
     `${taken.applicantName || "Someone else"} is already ${position} of ${headName}. Remove them first to replace them.`
-  );
-}
-
-function assertRoleSlotFree(
-  rows: string[][],
-  skipIndex: number,
-  committee: string,
-  headName: string,
-  position: string
-): void {
-  if (position !== "Head" && position !== "Co-Head") return;
-  const takenIndex = rows.findIndex(
-    (row, rowIndex) =>
-      rowIndex !== skipIndex &&
-      normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
-      normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")) === normalizeRole(headName) &&
-      String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === position &&
-      ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim())
-  );
-  if (takenIndex === -1) return;
-  const takenBy = String(rows[takenIndex][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim();
-  throw new Error(
-    `${takenBy || "Someone else"} is already ${position} of ${headName}. Remove them first to replace them.`
   );
 }
 
@@ -7056,7 +7052,7 @@ async function unassignHeadsApplicant(
   if (index === -1) throw new Error("No application found for that applicant.");
 
   const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
-  if (status === "Yes" && normalizeRole(String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)) {
+  if (status === "Yes" && committeeKey(rows[index][ACCEPTED_COMMITTEE_COLUMN]) === committeeKey(committee)) {
     throw new Error("Already approved and emailed — this can't be undone from the diagram.");
   }
 
@@ -7081,7 +7077,7 @@ function missingHeadRolesFor(rows: string[][], committee: string): string[] {
       .filter(
         (row) =>
           ["Draft", "Submitted", "Yes"].includes(String(row[ACCEPTED_COLUMN] ?? "").trim()) &&
-          normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee) &&
+          committeeKey(row[ACCEPTED_COMMITTEE_COLUMN]) === committeeKey(committee) &&
           String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() === "Head"
       )
       .map((row) => normalizeRole(String(row[ACCEPTED_ROLE_COLUMN] ?? "")))
@@ -7138,7 +7134,7 @@ async function submitHeadsTeam(
    * who decides between them.
    */
   const mine = claims.filter(
-    (c) => normalizeRole(c.committee) === normalizeRole(committee) && c.status === "Draft"
+    (c) => committeeKey(c.committee) === committeeKey(committee) && c.status === "Draft"
   );
 
   for (const claim of mine) {
@@ -7236,7 +7232,7 @@ async function sendHeadsTeamAcceptances(
     // function's own `committee` is the raw internal name ("Tech Director")
     // — the same rename that keeps FIRST_PREFERENCE_COMMITTEE_COLUMN matching
     // below, which is raw too. The two must not be normalized the same way.
-    if (approvedHere.has(`${normalize(applicantEmail)}|${normalizeRole(displayCommitteeName(committee))}`)) return false;
+    if (approvedHere.has(`${normalize(applicantEmail)}|${committeeKey(committee)}`)) return false;
     const first = normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""));
     const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
     return first !== normalizeRole(committee) && !released;
@@ -7248,7 +7244,7 @@ async function sendHeadsTeamAcceptances(
     .map((row, index) => ({ row, index }))
     .filter(({ row }) => {
       if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Submitted") return false;
-      if (normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) return false;
+      if (committeeKey(row[ACCEPTED_COMMITTEE_COLUMN]) !== committeeKey(committee)) return false;
       const named = onlyEmails.has(String(row[emailColumn] ?? "").trim().toLowerCase());
       if (onlyEmails.size > 0) return named;
       const applicantEmail = String(row[emailColumn] ?? "").trim();
@@ -7350,7 +7346,7 @@ async function previewHeadsAcceptances(
     // function's own `committee` is the raw internal name ("Tech Director")
     // — the same rename that keeps FIRST_PREFERENCE_COMMITTEE_COLUMN matching
     // below, which is raw too. The two must not be normalized the same way.
-    if (approvedHere.has(`${normalize(applicantEmail)}|${normalizeRole(displayCommitteeName(committee))}`)) return false;
+    if (approvedHere.has(`${normalize(applicantEmail)}|${committeeKey(committee)}`)) return false;
     return (
       normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee) &&
       String(row[RELEASED_COLUMN] ?? "").trim() !== "Yes"
@@ -7363,7 +7359,7 @@ async function previewHeadsAcceptances(
 
   for (const row of rows) {
     if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Submitted") continue;
-    if (normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) continue;
+    if (committeeKey(row[ACCEPTED_COMMITTEE_COLUMN]) !== committeeKey(committee)) continue;
     const applicantEmail = String(row[emailColumn] ?? "").trim();
     if (!applicantEmail) continue;
 
@@ -7417,7 +7413,7 @@ async function rejectHeadsSubmission(
   const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
   if (status === "Yes") throw new Error("Already approved and emailed — this can't be rejected from here.");
   if (status !== "Submitted") throw new Error("This applicant has not been submitted for approval.");
-  if (normalizeRole(String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) {
+  if (committeeKey(rows[index][ACCEPTED_COMMITTEE_COLUMN]) !== committeeKey(committee)) {
     throw new Error("This applicant is not on that committee's diagram.");
   }
 
