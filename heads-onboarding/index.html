@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Heads Onboarding | Resala AUC</title>
-    <meta name="description" content="Resala AUC heads onboarding checklist: confirm your role, watch the leadership vs. management video, and share your notes.">
+    <meta name="description" content="Resala AUC heads onboarding checklist: confirm your role, watch the leadership vs. management video, and share your notes by 26 August.">
     <link rel="icon" type="image/png" href="../favicon.png">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -73,6 +73,8 @@
       }
       textarea#videoNotes:focus { outline: 2px solid var(--color-accent-orange); outline-offset: 1px; }
       .notes-hint { font-size: 13px; color: var(--color-muted); margin-top: 6px; }
+      .step-deadline { font-size: 14px; color: #8a4706; background: #fdf4e0; border-radius: 6px;
+        padding: 7px 11px; margin: 0 0 12px; display: inline-block; }
       .saved-note { font-size: 13px; color: #2f9e5c; margin-top: 8px; }
       .onboarding-submit { text-align: center; margin-top: 24px; }
       .onboarding-notice { text-align: center; font-size: 14px; margin-top: 12px; color: var(--color-muted); }
@@ -132,7 +134,8 @@
 
         <div class="onboarding-step" id="step-video">
           <p class="step-title"><span class="step-number">2</span> Watch: Leadership vs. Management</p>
-          <p class="step-desc">A short watch before you start — then a few lines on what stuck with you.</p>
+          <p class="step-desc">Watch it properly, then write a few lines on what stuck with you.</p>
+          <p class="step-deadline"><b>Due Tuesday 26 August, 9:00 PM.</b></p>
           <a class="button button-secondary" id="video-link" href="#" target="_blank" rel="noopener">Watch the video</a>
           <div style="margin-top:16px;">
             <label for="videoNotes" style="display:block;font-weight:600;font-size:14px;color:var(--color-ink);margin-bottom:2px;">Your notes</label>
@@ -151,8 +154,7 @@
 
     <script>
       const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
-      // TODO: set the real leadership-vs-management video link before this page goes live.
-      const VIDEO_URL = "";
+      const VIDEO_URL = "https://www.youtube.com/watch?v=qzoIAJYPQwo";
 
       const params = new URLSearchParams(window.location.search);
       const email = (params.get("email") || "").trim();
@@ -196,7 +198,25 @@
         return iso ? String(iso).slice(0, 16).replace("T", " ") : "";
       }
 
+      /* ?preview=1 fills the page with stand-in details and disables saving, so
+         the checklist can be read by someone who is not an accepted applicant —
+         which is otherwise impossible, since it only opens for a real record. */
+      const isPreview = params.get("preview") === "1";
+
       async function init() {
+        if (isPreview) {
+          heroTitle.textContent = "Welcome, Nour";
+          heroSubtitle.textContent = "Head of Graphic Design — Branding / Media.";
+          roleLine.textContent = "Head of Graphic Design";
+          committeeLine.textContent = "Branding / Media";
+          form.hidden = false;
+          submitButton.disabled = true;
+          submitButton.textContent = "Preview — saving is off";
+          formNotice.hidden = false;
+          formNotice.textContent = "This is a preview with stand-in details. An accepted applicant opens it from the link in their acceptance email, with their own name and role filled in.";
+          return;
+        }
+
         if (!email) {
           missingParams.hidden = false;
           return;

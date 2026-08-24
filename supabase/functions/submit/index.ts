@@ -32,6 +32,11 @@ const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://res
   "/"
 );
 /** The post-acceptance checklist a newly accepted head fills in themselves. */
+/** The leadership-vs-management video the checklist asks them to watch. */
+const LEADERSHIP_VIDEO_URL =
+  Deno.env.get("LEADERSHIP_VIDEO_URL") ?? "https://www.youtube.com/watch?v=qzoIAJYPQwo";
+/** When their notes on it are due. */
+const VIDEO_NOTES_DEADLINE = Deno.env.get("VIDEO_NOTES_DEADLINE") ?? "Tuesday 26 August, 9:00 PM";
 const HEADS_ONBOARDING_URL = (
   Deno.env.get("HEADS_ONBOARDING_URL") ?? "https://resala-auc.github.io/heads-onboarding/"
 ).replace(/\/*$/, "/");
@@ -7642,8 +7647,8 @@ async function sendAcceptanceEmail({
     "STEP 2 — YOUR ONBOARDING CHECKLIST",
     "",
     "  1. Confirm you're taking the role.",
-    "  2. Watch a short video on leadership vs. management.",
-    "  3. Send us a few notes on what stuck with you.",
+    `  2. Watch the leadership vs. management video: ${LEADERSHIP_VIDEO_URL}`,
+    `  3. Send us your notes on what stuck with you, by ${VIDEO_NOTES_DEADLINE}.`,
     "",
     `Open your checklist: ${onboardingUrl}`,
     "",
@@ -7945,8 +7950,8 @@ export function buildAcceptanceEmailHtml({
               <td class="pad" style="padding:24px 40px 0;">
                 ${stepHeading("2", "Finish your onboarding checklist")}
                 ${bullet("Confirm you&rsquo;re taking the role.")}
-                ${bullet("Watch a short video on leadership vs. management.")}
-                ${bullet("Send us a few notes on what stuck with you.")}
+                ${bullet(`Watch the <a href="${escapeHtml(LEADERSHIP_VIDEO_URL)}" target="_blank" rel="noopener" style="color:#0c2c80;font-weight:bold;">leadership vs. management video</a>.`)}
+                ${bullet(`Send us your notes on what stuck with you, <b>by ${escapeHtml(VIDEO_NOTES_DEADLINE)}</b>.`)}
                 <div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>
 
                 <table role="presentation" cellspacing="0" cellpadding="0" border="0">
