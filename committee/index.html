@@ -807,14 +807,6 @@ function placementOn(applicant) {
   return { role: applicant.acceptedRole, position: applicant.acceptedPosition, status: applicant.acceptedStatus };
 }
 
-/* Drafted but stuck behind the applicant's first-preference committee, who
-   has not released them yet — the only status a placement here can be in
-   without also being ready to send. */
-function isHeldForFirstPreference(applicant) {
-  const p = placementOn(applicant);
-  return p?.status === "Draft" && applicant.preference !== "First" && !applicant.firstPreferenceReleased;
-}
-
 /* Placed here, but this is not who they put first, and that committee has not
    released them. It still goes to the admin — they are the one who weighs the
    two committees against each other — but it is marked all the way through so
@@ -832,10 +824,9 @@ function waitlistFor(headName) {
 
 function slotChip(applicant) {
   const p = placementOn(applicant);
-  const pending = isHeldForFirstPreference(applicant);
   const contested = isContested(applicant);
-  const label = p.status === "Yes" ? "Sent" : p.status === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
-  const cls = p.status === "Yes" ? "sent" : p.status === "Submitted" ? "submitted" : pending ? "pending" : "draft";
+  const label = p.status === "Yes" ? "Sent" : p.status === "Submitted" ? "Submitted" : "Draft";
+  const cls = p.status === "Yes" ? "sent" : p.status === "Submitted" ? "submitted" : "draft";
   return `
     <div class="slot-chip">
       <span>${esc(applicant.fullName)}</span>
@@ -1046,8 +1037,12 @@ function renderTeam() {
   const here = placedHere.filter((a) => heads.some((h) => norm(h.name) === norm(placementOn(a).role)));
   const unplaced = pool.filter((a) => !a.acceptedStatus);
   const elsewhere = pool.filter((a) => a.acceptedStatus && !placementOn(a));
-  const readyCount = here.filter((a) => placementOn(a).status === "Draft" && !isHeldForFirstPreference(a)).length;
-  const pendingCount = here.filter(isHeldForFirstPreference).length;
+  /* Every Draft is submittable, second preferences included. They used to be
+     held back here, which meant a committee whose picks were all second
+     preference could not submit at all — the decision never reached the admin,
+     who is the one meant to make it. They go through flagged instead. */
+  const readyCount = here.filter((a) => placementOn(a).status === "Draft").length;
+  const contestedCount = here.filter((a) => placementOn(a).status === "Draft" && isContested(a)).length;
   const submittedCount = here.filter((a) => placementOn(a).status === "Submitted").length;
   const sentCount = here.filter((a) => placementOn(a).status === "Yes").length;
 
@@ -1136,7 +1131,7 @@ function renderTeam() {
   el.innerHTML = `
     <div class="team-summary">
       <span class="count"><b>${readyCount}</b> ready to submit</span>
-      ${pendingCount ? `<span class="count"><b>${pendingCount}</b> waiting on first preference</span>` : ""}
+      ${contestedCount ? `<span class="count"><b>${contestedCount}</b> second preference — admin decides</span>` : ""}
       <span class="count"><b>${submittedCount}</b> awaiting admin approval</span>
       <span class="count"><b>${sentCount}</b> approved and sent</span>
       <span class="count"><b>${unplaced.length}</b> not yet placed</span>
@@ -1258,7 +1253,7 @@ async function confirmTeam() {
   // applicant's first-preference committee is excluded here the same way the
   // backend excludes it, so the confirm dialog's count matches what really
   // goes to the admin.
-  const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft" && !isHeldForFirstPreference(a));
+  const drafts = teamPool().filter((a) => placementOn(a)?.status === "Draft");
   const headCount = drafts.filter((a) => placementOn(a).position === "Head").length;
   const coHeadCount = drafts.filter((a) => placementOn(a).position === "Co-Head").length;
   const memberCount = drafts.length - headCount - coHeadCount;
@@ -1282,12 +1277,21 @@ async function confirmTeam() {
     ? `Submit ${drafts.length} ${drafts.length === 1 ? "person" : "people"} ` +
       `(${headCount} as Head, ${coHeadCount} as Co-Head, ${memberCount} as Member) for admin approval?`
     : "Submit this committee with nobody placed?";
+
+  /* Second preferences go through, but the admin decides between the two
+     committees — so say who they are and who they put first, rather than
+     letting the director find out later. */
+  const contested = drafts.filter(isContested);
+  const contestedNote = contested.length
+    ? `\n\n${contested.length} put another committee first. The admin decides who gets them:\n  ` +
+      contested.map((a) => `${a.fullName} — ${display(a.roleAppliedFor)} first`).join("\n  ")
+    : "";
   const emptyNote = empty.length
     ? `\n\nThese roles will be reported as still empty for this cycle:\n  ${empty.join("\n  ")}`
     : "";
 
   if (!(await confirmDialog(
-    roster + emptyNote +
+    roster + contestedNote + emptyNote +
     "\n\nThis does not email anyone yet — the recruitment admin reviews the roster and sends the acceptance emails."
   ))) return;
 
