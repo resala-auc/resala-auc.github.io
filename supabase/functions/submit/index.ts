@@ -7538,12 +7538,13 @@ async function setFirstPreferenceRelease(
 }
 
 /*
- * Tech Team does not use Head / Co-Head / Member — everyone accepted into it
- * is a Team Leader, whatever slot they occupy on the diagram. The diagram
- * still tracks the slot, because the one-Head-per-role rule depends on it;
- * this only changes what the applicant is called in their own email.
+ * Tech Team has no Head / Co-Head / Member — it is flat, and every accepted
+ * applicant is simply part of the team. The diagram still records a slot per
+ * applicant, because the one-Head-per-role rule needs somewhere to attach to,
+ * but a director choosing "Member" for everyone there is a placeholder, not a
+ * real distinction, and the applicant's own email must not say otherwise.
  */
-function usesTeamLeaderTitles(committee: string): boolean {
+function isFlatCommittee(committee: string): boolean {
   return normalizeRole(committee) === normalizeRole("Tech Team");
 }
 
@@ -7568,16 +7569,16 @@ function roleTitle(position: string, headName: string): string {
   return `${position} of ${core}`;
 }
 
-/** How the role reads in the acceptance email, e.g. "Head of Graphic Design". */
+/*
+ * How the role reads in the acceptance email, e.g. "Head of Graphic Design".
+ * Tech gets just the role name on its own — "The Navigator" — since Head,
+ * Co-Head and Member all mean the same nothing there: no position word, no
+ * "Team Leader" label standing in for one either, just which of the six
+ * roles they hold.
+ */
 function acceptanceRoleLine(committee: string, position: string, headName: string): string {
-  if (usesTeamLeaderTitles(committee)) return `Team Leader — ${headName}`;
+  if (isFlatCommittee(committee)) return String(headName ?? "").trim();
   return roleTitle(position, headName);
-}
-
-/** The same thing in a sentence, e.g. "a Team Leader" / "the Head". */
-function acceptancePositionPhrase(committee: string, position: string): string {
-  if (usesTeamLeaderTitles(committee)) return "a Team Leader";
-  return position === "Head" ? "the Head" : position === "Co-Head" ? "a Co-Head" : "a Member";
 }
 
 /** Where the checklist in the acceptance email actually sends them. */
@@ -7603,7 +7604,6 @@ async function sendAcceptanceEmail({
   if (!gmailConfigured()) return;
 
   const onboardingUrl = headsOnboardingUrl(aucEmail);
-  const positionPhrase = acceptancePositionPhrase(committee, position);
   const roleLine = acceptanceRoleLine(committee, position, headName);
   const subject = `Resala AUC: welcome to ${committee} — you're in!`;
   const body = [

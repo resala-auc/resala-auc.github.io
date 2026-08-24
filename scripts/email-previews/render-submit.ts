@@ -247,10 +247,11 @@ written.push({
   subject: "Resala AUC: welcome to Branding / Media — you're in!"
 });
 
-/* Tech Team calls everyone a Team Leader whatever slot they hold, so the same
-   position that reads "Head of" elsewhere reads differently here. */
+/* Tech Team is flat — no Head, Co-Head or Member — so the position a director
+   picked (here "Head", same as any other diagram placeholder) must not leak
+   into the email at all. */
 await Deno.writeTextFile(
-  `${OUT}/acceptance/tech-team-leader.html`,
+  `${OUT}/acceptance/tech-team-flat.html`,
   buildAcceptanceEmailHtml({
     fullName: "Nour Hassan",
     committee: "Tech Team",
@@ -262,8 +263,8 @@ await Deno.writeTextFile(
 written.push({
   committee: "",
   dir: "acceptance",
-  file: "tech-team-leader.html",
-  title: "Acceptance · Tech Team, welcomed in as a Team Leader",
+  file: "tech-team-flat.html",
+  title: "Acceptance · Tech Team, no hierarchy shown regardless of diagram position",
   subject: "Resala AUC: welcome to Tech Team — you're in!"
 });
 
