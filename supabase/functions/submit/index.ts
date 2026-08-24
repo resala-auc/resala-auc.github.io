@@ -7542,11 +7542,31 @@ function usesTeamLeaderTitles(committee: string): boolean {
   return normalizeRole(committee) === normalizeRole("Tech Team");
 }
 
-/** How the role reads in the acceptance email, e.g. "Head of The Scout". */
+/*
+ * Role names already carry their own title — "Head of Graphic Design",
+ * "Discovery Head", "The Organizer" — so pasting a position in front of them
+ * produced "Head of Head of Graphic Design" and "Head of Discovery Head".
+ * The position word is stripped out of the name before being put back once, in
+ * front, where it belongs.
+ */
+function roleTitle(position: string, headName: string): string {
+  const name = String(headName ?? "").trim();
+  if (!name) return position;
+
+  // "Head of Graphic Design" -> "Graphic Design"
+  const withoutPrefix = name.replace(/^(?:co-)?heads?\s+of\s+/i, "");
+  // "Discovery Head" -> "Discovery"
+  const core = withoutPrefix.replace(/\s+heads?$/i, "").trim() || name;
+
+  // "The Organizer" is the whole title; "Head of The Organizer" reads wrong.
+  if (/^the\s+/i.test(core)) return `${position} — ${core}`;
+  return `${position} of ${core}`;
+}
+
+/** How the role reads in the acceptance email, e.g. "Head of Graphic Design". */
 function acceptanceRoleLine(committee: string, position: string, headName: string): string {
   if (usesTeamLeaderTitles(committee)) return `Team Leader — ${headName}`;
-  const prefix = position === "Head" ? "Head of" : position === "Co-Head" ? "Co-Head of" : "Member of";
-  return `${prefix} ${headName}`;
+  return roleTitle(position, headName);
 }
 
 /** The same thing in a sentence, e.g. "a Team Leader" / "the Head". */

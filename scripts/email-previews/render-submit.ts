@@ -227,6 +227,26 @@ for (const position of ["Head", "Co-Head", "Member"] as const) {
   });
 }
 
+/* A role whose own name starts with "Head of" — the case that used to render
+   as "Head of Head of Graphic Design". */
+await Deno.writeTextFile(
+  `${OUT}/acceptance/branding-cohead.html`,
+  buildAcceptanceEmailHtml({
+    fullName: "Farah Gamal El Deen",
+    committee: "Branding / Media",
+    headName: "Head of Graphic Design",
+    position: "Co-Head",
+    onboardingUrl: "https://resala-auc.github.io/heads-onboarding/?email=farah%40aucegypt.edu"
+  })
+);
+written.push({
+  committee: "",
+  dir: "acceptance",
+  file: "branding-cohead.html",
+  title: "Acceptance · Branding, a role already named \"Head of …\"",
+  subject: "Resala AUC: welcome to Branding / Media — you're in!"
+});
+
 /* Tech Team calls everyone a Team Leader whatever slot they hold, so the same
    position that reads "Head of" elsewhere reads differently here. */
 await Deno.writeTextFile(

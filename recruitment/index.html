@@ -918,6 +918,19 @@ function isContested(a, rawCommittee) {
   return Boolean(a.acceptedStatus) && normRole(a.roleAppliedFor) !== normRole(rawCommittee) && !a.firstPreferenceReleased;
 }
 
+/* Role names already carry their own title — "Head of Graphic Design",
+   "Discovery Head", "The Organizer" — so putting a position in front of them
+   unchanged gives "Head of Head of Graphic Design". Strip the position word
+   out of the name, then put it back once, in front. Mirrors roleTitle in the
+   edge function so the portals and the email never disagree. */
+function roleTitle(position, headName) {
+  const name = String(headName ?? "").trim();
+  if (!name) return String(position ?? "");
+  const core = name.replace(/^(?:co-)?heads?\s+of\s+/i, "").replace(/\s+heads?$/i, "").trim() || name;
+  if (/^the\s+/i.test(core)) return `${position} — ${core}`;
+  return `${position} of ${core}`;
+}
+
 function adminChip(a, rawCommittee) {
   const pending = isHeldForFirstPreference(a, rawCommittee);
   const contested = isContested(a, rawCommittee);
@@ -1104,7 +1117,7 @@ async function adminAddToRole(key, rerender = renderTeams, scope = document) {
       headId,
       position
     });
-    state.teamMsg = { type: "ok", text: `${who?.fullName || email} added as ${r.position} of ${r.headName}. Tick them below and send when ready.` };
+    state.teamMsg = { type: "ok", text: `${who?.fullName || email} added as ${roleTitle(r.position, r.headName)}. Tick them below and send when ready.` };
     await load(state.admin.email);
     rerender();
   } catch (err) {
@@ -1135,7 +1148,7 @@ async function adminMoveStranded(key, rerender = renderHierarchy, scope = docume
       headId,
       position
     });
-    state.teamMsg = { type: "ok", text: `${who?.fullName || applicantEmail} moved to ${r.position} of ${r.headName}.` };
+    state.teamMsg = { type: "ok", text: `${who?.fullName || applicantEmail} moved to ${roleTitle(r.position, r.headName)}.` };
     await load(state.admin.email);
     rerender();
   } catch (err) {
@@ -1211,7 +1224,7 @@ function strandedAdminCard(a, rawCommittee, heads) {
   return `
     <div class="role-box missing">
       <div class="role-box-title">${esc(a.fullName)}</div>
-      <div class="note" style="margin-bottom:9px;">Was ${esc(a.acceptedPosition || "placed")} of ${esc(a.acceptedRole)}, which no longer exists.</div>
+      <div class="note" style="margin-bottom:9px;">Was ${esc(roleTitle(a.acceptedPosition || "placed", a.acceptedRole))}, which no longer exists.</div>
       <div class="add-row">
         <select data-move-head="${esc(key)}">
           <option value="" selected disabled>Move to…</option>
@@ -1283,7 +1296,7 @@ function renderContestedBlock() {
               <button type="button" class="btn btn-sm ${first && norm(c.committee) === norm(first) ? "btn-gold" : "btn-ghost"}"
                 data-approve-claim="${esc(r.email)}" data-approve-committee="${esc(c.committee)}"
                 title="Give them to ${esc(c.committee)} and decline the others">
-                ${esc(c.committee)} · ${esc(c.position)} of ${esc(c.headRole)}${first && norm(c.committee) === norm(first) ? " (1st)" : ""}
+                ${esc(c.committee)} · ${esc(roleTitle(c.position, c.headRole))}${first && norm(c.committee) === norm(first) ? " (1st)" : ""}
               </button>`).join("")}
           </div>
         </div>`;
@@ -1369,8 +1382,6 @@ function renderHierarchy() {
     ${sections}`;
 }
 
-/* Sending one committee on its own, without waiting for the rest of the board
-   to be finished. Same endpoint the all-at-once button walks in a loop. */
 /* Awarding a contested applicant to one committee. The rival claims are
    declined in the same call, so the losing committee's diagram stops showing
    them as theirs rather than silently keeping a claim that cannot win. */
@@ -1385,7 +1396,7 @@ async function approveClaim(applicantEmail, committee, btn) {
     const r = await api({ mode: "heads-admin-approve-claim", email: state.admin.email, applicantEmail, committee });
     state.teamMsg = {
       type: "ok",
-      text: `${who?.fullName || applicantEmail} goes to ${r.committee} as ${r.position} of ${r.headName}.${r.declined.length ? ` Declined: ${r.declined.join(", ")}.` : ""}`
+      text: `${who?.fullName || applicantEmail} goes to ${r.committee} as ${roleTitle(r.position, r.headName)}.${r.declined.length ? ` Declined: ${r.declined.join(", ")}.` : ""}`
     };
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
@@ -1491,41 +1502,6 @@ async function sendDrafts(btn) {
   renderHierarchy();
 }
 
-async function sendOneCommittee(rawCommittee, btn) {
-  const row = hierarchyRows().find((r) => norm(r.raw) === norm(rawCommittee));
-  if (!row || !row.staged.length) return;
-
-  const going = row.staged.filter((a) => !isContested(a, rawCommittee));
-  const skipping = row.staged.filter((a) => isContested(a, rawCommittee));
-  if (!going.length) {
-    state.teamMsg = {
-      type: "bad",
-      text: `${row.label}: everyone staged put another committee first. Tick them individually in Team diagrams if you are giving them to ${row.label}.`
-    };
-    renderHierarchy();
-    return;
-  }
-
-  if (!(await confirmDialog(
-    `Send the acceptance email to ${going.length} ${going.length === 1 ? "person" : "people"} in ${row.label}?\n\n` +
-    going.map((a) => `${a.fullName} — ${a.acceptedPosition} of ${a.acceptedRole}`).join("\n") +
-    (skipping.length
-      ? `\n\nHeld back — they put another committee first, and you have not decided yet:\n` +
-        skipping.map((a) => `${a.fullName} (${display(a.roleAppliedFor)} first)`).join("\n")
-      : "") +
-    `\n\nThis emails them immediately, cc the committee and HR. It cannot be undone.`
-  ))) return;
-
-  btn.disabled = true; btn.textContent = "Sending…";
-  try {
-    const res = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: rawCommittee });
-    state.teamMsg = { type: "ok", text: `${row.label}: sent ${res.sent.length}.` };
-  } catch (err) {
-    state.teamMsg = { type: "bad", text: `${row.label}: ${err.message}` };
-  }
-  await load(state.admin.email);
-  renderHierarchy();
-}
 
 /* One send for the whole board. Runs committee by committee because that is
    what the endpoint is scoped to, and reports per committee so a failure
@@ -1613,7 +1589,7 @@ function renderOnboarding() {
   const rows = accepted.map((a) => `
     <tr>
       <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.email)}</div></td>
-      <td>${esc(a.acceptedCommittee)}<div class="note">${esc(a.acceptedPosition)} of ${esc(a.acceptedRole)}</div></td>
+      <td>${esc(a.acceptedCommittee)}<div class="note">${esc(roleTitle(a.acceptedPosition, a.acceptedRole))}</div></td>
       <td>${yesNoBadge(a.roleConfirmed ? "Yes" : "")}</td>
       <td>${a.videoNotes
         ? `<span title="${esc(a.videoNotes)}">${esc(a.videoNotes.length > 90 ? a.videoNotes.slice(0, 90) + "…" : a.videoNotes)}</span>`

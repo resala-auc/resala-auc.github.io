@@ -839,6 +839,19 @@ function waitlistFor(headName) {
     .sort((a, b) => a.rank - b.rank);
 }
 
+/* Role names already carry their own title — "Head of Graphic Design",
+   "Discovery Head", "The Organizer" — so putting a position in front of them
+   unchanged gives "Head of Head of Graphic Design". Strip the position word
+   out of the name, then put it back once, in front. Mirrors roleTitle in the
+   edge function so the portals and the email never disagree. */
+function roleTitle(position, headName) {
+  const name = String(headName ?? "").trim();
+  if (!name) return String(position ?? "");
+  const core = name.replace(/^(?:co-)?heads?\s+of\s+/i, "").replace(/\s+heads?$/i, "").trim() || name;
+  if (/^the\s+/i.test(core)) return `${position} — ${core}`;
+  return `${position} of ${core}`;
+}
+
 function slotChip(applicant) {
   const p = placementOn(applicant);
   const contested = isContested(applicant);
@@ -952,7 +965,7 @@ function strandedCard(applicant, heads) {
   return `
     <div class="pool-card stranded">
       <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
-      <div class="meta">Was placed as ${esc(p.position)} of ${esc(p.role)}</div>
+      <div class="meta">Was placed as ${esc(roleTitle(p.position, p.role))}</div>
       <div class="note" style="margin-top:6px;">That role is no longer part of ${esc(display(state.access.department))}. Move them into a current one, or take them off.</div>
       <div class="row2" style="margin-top:9px;">
         <div><select data-pool-head="${esc(applicant.email)}">
