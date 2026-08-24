@@ -163,6 +163,8 @@
   .chip-status.sent { background: #e8f6ee; color: var(--good); }
   .chip-status.pending { background: #fdecec; color: var(--bad); }
   .chip-x { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 14px; line-height: 1; padding: 2px 4px; flex: 0 0 auto; }
+  .chip-force { margin-left: auto; background: var(--blue); color: #fff; border: 0; border-radius: 999px;
+    font-size: 11px; font-weight: 700; padding: 3px 9px; flex: 0 0 auto; }
   .chip-x:hover { color: var(--bad); }
   .cov-ok { background: #e8f6ee; color: var(--good); font-weight: 700; }
   .cov-short { background: #fdecec; color: var(--bad); font-weight: 700; }
@@ -938,18 +940,27 @@ function roleTitle(position, headName) {
   return `${position} of ${core}`;
 }
 
-function adminChip(a, rawCommittee) {
+function adminChip(a, rawCommittee, headId) {
   const pending = isHeldForFirstPreference(a, rawCommittee);
   const contested = isContested(a, rawCommittee);
+  const draft = a.acceptedStatus === "Draft";
   const label = a.acceptedStatus === "Yes" ? "Sent" : a.acceptedStatus === "Submitted" ? "Submitted" : pending ? "Pending" : "Draft";
   const cls = a.acceptedStatus === "Yes" ? "sent" : a.acceptedStatus === "Submitted" ? "submitted" : pending ? "pending" : "draft";
   const selectable = a.acceptedStatus === "Submitted";
   const sent = a.acceptedStatus === "Yes";
+  /* A Draft is the committee's own working state — placed on the diagram, not
+     yet handed to the admin. It never appears in the "add someone" picker
+     either, since that only offers people with no placement at all, so
+     without this a Draft nobody has submitted is a dead end: not selectable,
+     not re-addable, just sitting there until the committee gets to it. This
+     lets the admin push it straight to Submitted themselves. */
+  const forceKey = draft && headId ? `${rawCommittee}|${headId}|${a.acceptedPosition}|${a.email}` : "";
   return `<div class="slot-chip">
     ${selectable ? `<input type="checkbox" class="chip-check" data-select="${esc(a.email)}" data-select-committee="${esc(rawCommittee)}"${contested ? "" : " checked"} title="${contested ? "Their first preference is " + esc(display(a.roleAppliedFor)) + " — tick only if you are giving them to this committee" : "Include in the acceptance send"}">` : ""}
     <span class="chip-name" data-open="${esc(a.email)}" title="Open their application and scores">${esc(a.fullName)}</span>
     <span class="chip-status ${cls}">${label}</span>
     ${contested ? `<span class="chip-status pending" title="First preference: ${esc(display(a.roleAppliedFor))}">2nd · ${esc(display(a.roleAppliedFor))} first</span>` : ""}
+    ${forceKey ? `<button type="button" class="chip-force" data-force-submit="${esc(forceKey)}" title="Skip waiting on the committee — submit this on their behalf">Submit</button>` : ""}
     ${selectable ? `<button type="button" class="chip-x" data-reject="${esc(a.email)}" data-reject-committee="${esc(rawCommittee)}" title="Send back to the committee as a Draft">↺</button>` : ""}
     ${sent ? "" : `<button type="button" class="chip-x" data-unassign="${esc(a.email)}" title="Take them out of this role">×</button>`}
   </div>`;
@@ -1017,11 +1028,11 @@ function renderTeamCommittee(rawCommittee, guideId) {
     return `<div class="role-box ${headHolders.length ? "" : "missing"}">
       <div class="role-box-title">${esc(h.name)}</div>
       <div class="slot-group"><div class="slot-label">Head</div>
-        ${headHolders.length ? headHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">No head assigned yet.</div>`}</div>
+        ${headHolders.length ? headHolders.map((a) => adminChip(a, rawCommittee, h.id)).join("") : `<div class="note">No head assigned yet.</div>`}</div>
       <div class="slot-group"><div class="slot-label">Co-Head</div>
-        ${coHeadHolders.length ? coHeadHolders.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
+        ${coHeadHolders.length ? coHeadHolders.map((a) => adminChip(a, rawCommittee, h.id)).join("") : `<div class="note">None yet.</div>`}</div>
       <div class="slot-group"><div class="slot-label">Members</div>
-        ${members.length ? members.map((a) => adminChip(a, rawCommittee)).join("") : `<div class="note">None yet.</div>`}</div>
+        ${members.length ? members.map((a) => adminChip(a, rawCommittee, h.id)).join("") : `<div class="note">None yet.</div>`}</div>
       <div class="slot-group">
         ${adminRolePicker(rawCommittee, h, headHolders.length === 0, coHeadHolders.length === 0, candidates)}
       </div>
@@ -1100,6 +1111,34 @@ async function approveTeam(rawCommittee, btn) {
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
     renderTeams();
+  }
+}
+
+/* Pushes an already-Draft placement straight to Submitted, on the admin's own
+   say-so, without waiting on the committee to click their own submit. Reuses
+   heads-admin-assign-applicant with exactly the role and position already on
+   record — this is not a different placement, just who is the one confirming
+   it. */
+async function adminForceSubmit(key, rerender) {
+  const [rawCommittee, headId, position, applicantEmail] = key.split("|");
+  const who = state.data.applicants.find((a) => norm(a.email) === norm(applicantEmail));
+
+  state.teamMsg = null;
+  try {
+    await api({
+      mode: "heads-admin-assign-applicant",
+      email: state.admin.email,
+      applicantEmail,
+      committee: rawCommittee,
+      headId,
+      position
+    });
+    state.teamMsg = { type: "ok", text: `${who?.fullName || applicantEmail} submitted. Tick them and send when ready.` };
+    await load(state.admin.email);
+    rerender();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+    rerender();
   }
 }
 
@@ -1373,9 +1412,9 @@ function renderHierarchy() {
           <div class="role-box ${x.headHolders.length || x.head.retired ? "" : "missing"}">
             <div class="role-box-title">${esc(x.head.name)}${x.head.retired ? `<span class="retired-tag" title="No longer recruited for — placeable here only">closed</span>` : ""}</div>
             <div class="slot-group"><div class="slot-label">Head</div>
-              ${x.headHolders.length ? x.headHolders.map((a) => adminChip(a, r.raw)).join("") : `<div class="note">Not chosen yet.</div>`}</div>
-            ${x.coHeads.length ? `<div class="slot-group"><div class="slot-label">Co-Head</div>${x.coHeads.map((a) => adminChip(a, r.raw)).join("")}</div>` : ""}
-            ${x.members.length ? `<div class="slot-group"><div class="slot-label">Members</div>${x.members.map((a) => adminChip(a, r.raw)).join("")}</div>` : ""}
+              ${x.headHolders.length ? x.headHolders.map((a) => adminChip(a, r.raw, x.head.id)).join("") : `<div class="note">Not chosen yet.</div>`}</div>
+            ${x.coHeads.length ? `<div class="slot-group"><div class="slot-label">Co-Head</div>${x.coHeads.map((a) => adminChip(a, r.raw, x.head.id)).join("")}</div>` : ""}
+            ${x.members.length ? `<div class="slot-group"><div class="slot-label">Members</div>${x.members.map((a) => adminChip(a, r.raw, x.head.id)).join("")}</div>` : ""}
             ${(() => {
               const wl = (state.data.waitlist ?? []).filter((w) => norm(w.headRole) === norm(x.head.name)).sort((p, q) => p.rank - q.rank);
               return wl.length
@@ -1800,6 +1839,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   }
   const sendAll = e.target.closest("#send-all");
   if (sendAll) { sendAllAcceptances(sendAll); return; }
+  const forceBtn = e.target.closest("[data-force-submit]");
+  if (forceBtn) { adminForceSubmit(forceBtn.dataset.forceSubmit, renderHierarchy); return; }
   const claimBtn = e.target.closest("[data-approve-claim]");
   if (claimBtn) { approveClaim(claimBtn.dataset.approveClaim, claimBtn.dataset.approveCommittee, claimBtn); return; }
   const sendOne = e.target.closest("[data-send-committee]");
@@ -1823,6 +1864,8 @@ document.getElementById("view-teams").addEventListener("click", (e) => {
   }
   const approveBtn = e.target.closest("[data-approve]");
   if (approveBtn) { approveTeam(approveBtn.dataset.approve, approveBtn); return; }
+  const forceBtn = e.target.closest("[data-force-submit]");
+  if (forceBtn) { adminForceSubmit(forceBtn.dataset.forceSubmit, renderTeams); return; }
   const rejectBtn = e.target.closest("[data-reject]");
   if (rejectBtn) { rejectSubmission(rejectBtn.dataset.reject, rejectBtn.dataset.rejectCommittee); return; }
   const addBtn = e.target.closest("[data-add-go]");
