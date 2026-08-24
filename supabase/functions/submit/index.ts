@@ -7646,6 +7646,9 @@ async function sendAcceptanceEmail({
     "",
     "STEP 2 — YOUR ONBOARDING CHECKLIST",
     "",
+    "Completing this checklist is mandatory. It is part of the recruitment",
+    "process, not an extra, and it cannot be skipped.",
+    "",
     "  1. Confirm you're taking the role.",
     `  2. Watch the leadership vs. management video: ${LEADERSHIP_VIDEO_URL}`,
     `  3. Send us your notes on what stuck with you, by ${VIDEO_NOTES_DEADLINE}.`,
@@ -7949,6 +7952,13 @@ export function buildAcceptanceEmailHtml({
             <tr>
               <td class="pad" style="padding:24px 40px 0;">
                 ${stepHeading("2", "Finish your onboarding checklist")}
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 14px;">
+                  <tr>
+                    <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:13px 16px;">
+                      <div class="body-text ink" style="font-size:15px;line-height:1.6;color:#1b1f23;"><b>This is mandatory.</b> The checklist is part of the recruitment process, not an extra on top of it, and it cannot be skipped.</div>
+                    </td>
+                  </tr>
+                </table>
                 ${bullet("Confirm you&rsquo;re taking the role.")}
                 ${bullet(`Watch the <a href="${escapeHtml(LEADERSHIP_VIDEO_URL)}" target="_blank" rel="noopener" style="color:#0c2c80;font-weight:bold;">leadership vs. management video</a>.`)}
                 ${bullet(`Send us your notes on what stuck with you, <b>by ${escapeHtml(VIDEO_NOTES_DEADLINE)}</b>.`)}

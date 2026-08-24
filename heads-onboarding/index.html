@@ -72,7 +72,8 @@
         resize: vertical;
       }
       textarea#videoNotes:focus { outline: 2px solid var(--color-accent-orange); outline-offset: 1px; }
-      .notes-hint { font-size: 13px; color: var(--color-muted); margin-top: 6px; }
+      .notes-hint { font-size: 13.5px; line-height: 1.55; color: var(--color-ink); margin-top: 8px;
+        background: #fdf4e0; border-left: 3px solid #eac262; border-radius: 4px; padding: 9px 12px; }
       .step-deadline { font-size: 14px; color: #8a4706; background: #fdf4e0; border-radius: 6px;
         padding: 7px 11px; margin: 0 0 12px; display: inline-block; }
       .saved-note { font-size: 13px; color: #2f9e5c; margin-top: 8px; }
@@ -134,13 +135,13 @@
 
         <div class="onboarding-step" id="step-video">
           <p class="step-title"><span class="step-number">2</span> Watch: Leadership vs. Management</p>
-          <p class="step-desc">Watch it properly, then write a few lines on what stuck with you.</p>
+          <p class="step-desc">Watch it, then write what you took from it.</p>
           <p class="step-deadline"><b>Due Tuesday 26 August, 9:00 PM.</b></p>
           <a class="button button-secondary" id="video-link" href="#" target="_blank" rel="noopener">Watch the video</a>
           <div style="margin-top:16px;">
             <label for="videoNotes" style="display:block;font-weight:600;font-size:14px;color:var(--color-ink);margin-bottom:2px;">Your notes</label>
-            <textarea id="videoNotes" placeholder="What was the one distinction that landed for you? How does it change how you'll run your role?"></textarea>
-            <p class="notes-hint">A few honest sentences is enough — this isn't graded, it's read.</p>
+            <textarea id="videoNotes" placeholder="What is the difference between leading people and managing them? What does that mean for how you will carry this role?"></textarea>
+            <p class="notes-hint">These notes are how we see whether you understand what a leader actually is. Not carrying that responsibility will affect your final acceptance at the board meeting.</p>
           </div>
           <p class="saved-note" id="notes-saved" hidden></p>
         </div>
