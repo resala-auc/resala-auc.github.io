@@ -206,6 +206,8 @@
   .wl-rank { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 999px; background: var(--blue);
     color: #fff; font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center;
     justify-content: center; }
+  .onb-notes { margin-top: 8px; padding: 9px 11px; background: var(--soft); border-radius: 8px;
+    font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; }
   .pool-card.contested { border-color: #e3b96a; background: #fffaf0; }
   .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
   .stranded-block { background: #fdf4e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
@@ -268,6 +270,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="team" aria-selected="false">Team diagram</button>
+      <button class="tab" data-view="onboarding" aria-selected="false">Onboarding</button>
       <button class="tab" data-view="slots" aria-selected="false">Slots</button>
     </div>
 
@@ -283,6 +286,7 @@
     </div>
 
     <div id="view-team" class="hidden"></div>
+    <div id="view-onboarding" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
 </div>
@@ -1287,6 +1291,63 @@ async function unassignFromTeam(email) {
   }
 }
 
+/* Where an accepted applicant has actually got to on their own checklist.
+   The committee sees this for the people they had accepted, so a director
+   chasing someone knows which of the two steps is outstanding rather than
+   asking the admin. */
+/** Kept in step with VIDEO_NOTES_DEADLINE in the edge function. */
+const NOTES_DEADLINE = "Tuesday 26 August, 9:00 PM";
+
+function onboardingRows() {
+  return teamPool()
+    .filter((a) => placementOn(a)?.status === "Yes")
+    .sort((x, y) => String(x.fullName).localeCompare(String(y.fullName)));
+}
+
+function checklistState(a) {
+  const confirmed = Boolean(a.roleConfirmed);
+  const notes = String(a.videoNotes || "").trim();
+  if (confirmed && notes) return { label: "Done", cls: "sent" };
+  if (confirmed || notes) return { label: "Part done", cls: "submitted" };
+  return { label: "Not started", cls: "pending" };
+}
+
+function renderOnboarding() {
+  const el = document.getElementById("view-onboarding");
+  if (!state.access) return;
+  const rows = onboardingRows();
+
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty">Nobody from ${esc(display(state.access.department))} has been sent their acceptance yet. The checklist opens for them once it goes out.</div>`;
+    return;
+  }
+
+  const done = rows.filter((a) => checklistState(a).label === "Done").length;
+  const none = rows.filter((a) => checklistState(a).label === "Not started").length;
+
+  el.innerHTML = `
+    <div class="team-summary">
+      <span class="count"><b>${rows.length}</b> accepted</span>
+      <span class="count"><b>${done}</b> finished the checklist</span>
+      <span class="count"><b>${none}</b> haven't started</span>
+    </div>
+    <div class="note" style="margin:-10px 0 18px;">They fill this in themselves from the link in their acceptance email. Notes are due ${esc(NOTES_DEADLINE)}.</div>
+    <div class="pool-grid">
+      ${rows.map((a) => {
+        const st = checklistState(a);
+        const notes = String(a.videoNotes || "").trim();
+        return `
+        <div class="pool-card">
+          <div class="nm">${esc(a.fullName)} <span class="chip-status ${st.cls}">${st.label}</span></div>
+          <div class="meta">${esc(roleTitle(placementOn(a).position, placementOn(a).role))}</div>
+          <div class="note" style="margin-top:7px;">Role confirmed: <b>${a.roleConfirmed ? "yes" : "not yet"}</b></div>
+          <div class="note">Video notes: <b>${notes ? "submitted" : "not yet"}</b></div>
+          ${notes ? `<div class="onb-notes">${esc(notes)}</div>` : ""}
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
 async function confirmTeam() {
   // Only what is actually submittable — a placement still waiting on the
   // applicant's first-preference committee is excluded here the same way the
@@ -1690,11 +1751,13 @@ document.getElementById("views").addEventListener("click", (e) => {
   state.view = view.dataset.view; state.teamMsg = null;
   document.getElementById("view-applicants").classList.toggle("hidden", state.view !== "applicants");
   document.getElementById("view-team").classList.toggle("hidden", state.view !== "team");
+  document.getElementById("view-onboarding").classList.toggle("hidden", state.view !== "onboarding");
   document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
     btn.setAttribute("aria-selected", btn.dataset.view === state.view);
   }
   if (state.view === "team") renderTeam();
+  if (state.view === "onboarding") renderOnboarding();
   if (state.view === "slots") renderSlotsForm();
 });
 

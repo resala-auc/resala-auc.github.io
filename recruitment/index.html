@@ -138,6 +138,13 @@
   .contested-row:first-of-type { border-top: 0; }
   .contested-who { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
   .contested-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .onb-line { background: #f4f8f6; border: 1px solid #d9e8e0; border-radius: 11px;
+    padding: 10px 13px; margin-bottom: 10px; }
+  .onb-head { font-size: 13.5px; color: var(--muted); margin-bottom: 7px; }
+  .onb-head b { color: var(--ink); }
+  .onb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .onb-chip { display: inline-flex; align-items: center; gap: 6px; background: #fff;
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
   .chip-name { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
   .chip-name:hover { color: var(--blue); }
   .wl-rank { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 999px; background: var(--blue);
@@ -459,7 +466,7 @@ function renderGroups() {
           const assigned = (a.assignments || []).map((x) => x.assigneeName || x.assigneeEmail).join(", ");
           return `<tr data-email="${esc(a.email)}" aria-current="${norm(a.email) === norm(state.selected)}">
             <td class="num">${avg === null ? "—" : i + 1}</td>
-            <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.email)}</div></td>
+            <td><b class="chip-name" data-open="${esc(a.email)}">${esc(a.fullName)}</b><div class="note">${esc(a.email)}</div></td>
             <td>${esc(a.headName || "—")}</td>
             <td>${esc(a.interviewSlot || "Not booked")}
                 <div class="note">${esc(a.interviewStatus || "")}</div></td>
@@ -1304,6 +1311,30 @@ function renderContestedBlock() {
     </div>`;
 }
 
+/* Once a committee's acceptances have gone out, what matters about them is no
+   longer whether they were sent but whether the people have done their
+   checklist — so that lives here, next to the send, rather than only in the
+   separate Onboarding tab across every committee at once. */
+function onboardingLine(r) {
+  const sent = r.sent;
+  if (!sent.length) return "";
+  const state1 = (a) => Boolean(a.roleConfirmed) && String(a.videoNotes || "").trim();
+  const done = sent.filter(state1).length;
+  const started = sent.filter((a) => Boolean(a.roleConfirmed) || String(a.videoNotes || "").trim()).length;
+  const chips = sent.map((a) => {
+    const confirmed = Boolean(a.roleConfirmed);
+    const notes = String(a.videoNotes || "").trim();
+    const cls = confirmed && notes ? "sent" : confirmed || notes ? "submitted" : "pending";
+    const label = confirmed && notes ? "done" : confirmed ? "role only" : notes ? "notes only" : "not started";
+    return `<span class="onb-chip"><span class="chip-name" data-open="${esc(a.email)}">${esc(a.fullName)}</span><span class="chip-status ${cls}">${label}</span></span>`;
+  }).join("");
+  return `
+    <div class="onb-line">
+      <div class="onb-head"><b>${done}</b> of <b>${sent.length}</b> finished their checklist${started > done ? ` · ${started - done} part way` : ""}</div>
+      <div class="onb-chips">${chips}</div>
+    </div>`;
+}
+
 function renderHierarchy() {
   const el = document.getElementById("view-hierarchy");
   if (!state.data) return;
@@ -1327,6 +1358,7 @@ function renderHierarchy() {
       <h2>${esc(r.label)}
         <span class="c">${r.roles.filter((x) => !x.head.retired && x.headHolders.length).length}/${r.roles.filter((x) => !x.head.retired).length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
       </h2>
+      ${onboardingLine(r)}
       ${r.stranded.length ? `
         <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
@@ -1567,16 +1599,30 @@ function renderOnboarding() {
   const el = document.getElementById("view-onboarding");
   if (!state.data) return;
 
-  const accepted = state.data.applicants
+  const pick = state.onboardingCommittee || "";
+  const all = state.data.applicants
     .filter((a) => a.accepted)
     .sort((a, b) => String(a.acceptedCommittee).localeCompare(String(b.acceptedCommittee)) || String(a.fullName).localeCompare(String(b.fullName)));
+  const accepted = pick ? all.filter((a) => norm(a.acceptedCommittee) === norm(pick)) : all;
+  const committees = [...new Set(all.map((a) => String(a.acceptedCommittee)).filter(Boolean))].sort();
 
   const complete = accepted.filter((a) => a.roleConfirmed && a.videoNotes).length;
   const notStarted = accepted.filter((a) => !a.roleConfirmed && !a.videoNotes).length;
 
-  const summary = `
+  const filter = committees.length > 1 ? `
+    <div class="filters">
+      <div>
+        <label for="onb-committee">Committee</label>
+        <select id="onb-committee">
+          <option value=""${pick ? "" : " selected"}>All committees</option>
+          ${committees.map((c) => `<option value="${esc(c)}"${norm(c) === norm(pick) ? " selected" : ""}>${esc(c)}</option>`).join("")}
+        </select>
+      </div>
+    </div>` : "";
+
+  const summary = `${filter}
     <div class="team-summary">
-      <span class="count"><b>${accepted.length}</b> accepted</span>
+      <span class="count"><b>${accepted.length}</b> accepted${pick ? ` in ${esc(display(pick))}` : ""}</span>
       <span class="count"><b>${complete}</b> completed the checklist</span>
       <span class="count"><b>${notStarted}</b> haven't started</span>
     </div>`;
@@ -1732,6 +1778,19 @@ document.getElementById("views").addEventListener("click", (e) => {
 
 /* The hierarchy tab reuses the same add/remove controls as the team diagrams,
    so it shares their handlers and only adds its own single send. */
+document.getElementById("view-onboarding").addEventListener("change", (e) => {
+  if (e.target.id !== "onb-committee") return;
+  state.onboardingCommittee = e.target.value;
+  renderOnboarding();
+});
+
+document.getElementById("view-onboarding").addEventListener("click", (e) => {
+  const openBtn = e.target.closest("[data-open]");
+  if (!openBtn) return;
+  const a = state.data.applicants.find((x) => norm(x.email) === norm(openBtn.dataset.open));
+  if (a) { state.selected = a.email; renderDialog(a); }
+});
+
 document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   const openBtn = e.target.closest("[data-open]");
   if (openBtn) {
