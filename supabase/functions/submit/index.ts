@@ -7615,28 +7615,28 @@ async function sendAcceptanceEmail({
     "",
     "It wasn't an easy call. We went through every interview and every task submission, and out of everyone who applied, we believe you're right for this. We're genuinely happy to have you.",
     "",
-    "This is your initial acceptance. It becomes final at the onboarding meeting on 30 August, where you sign the letter of responsibility for the role. Between now and then, start meeting your committee and getting to know the people you will be working with.",
+    "This is your initial acceptance. It becomes final at the board meeting on 31 August, where you sign the letter of responsibility for the role. Between now and then, start meeting your committee and getting to know the people you will be working with.",
     "",
     "",
     "STEP 1 — REPLY TO THIS EMAIL WITHIN 24 HOURS",
     "",
-    "Reply directly to this email confirming both:",
-    `  1) You're ${fullName}, and you're taking this role.`,
-    "  2) You can attend all three dates below.",
+    "Reply directly to this email confirming all three:",
+    `  - You're ${fullName}, and you're taking this role.`,
+    "  - You can attend both dates below.",
+    "  - You consent to your WhatsApp number being added to the board group,",
+    "    which is where the team coordinates day to day.",
     "",
     "",
-    "THREE DATES — ATTENDANCE AT ALL THREE IS MANDATORY",
-    "",
-    "  Sunday 30 August, 4:30-7:00 PM",
-    "  Onboarding meeting (offline, in person)",
+    "BOTH DAYS ARE MANDATORY",
     "",
     "  Monday 31 August",
-    "  Engagement Fair - day 1",
+    "    2:00 - 4:00 PM   Engagement Fair, day one",
+    "    4:00 - 8:00 PM   Board meeting, offline and in person",
     "",
     "  Tuesday 1 September",
-    "  Engagement Fair - day 2",
+    "    2:00 - 4:00 PM   Engagement Fair, day two",
     "",
-    "Put all three in your calendar now. If any of them is a problem, say so in your reply.",
+    "Put both days in your calendar now. If either is a problem, say so in your reply.",
     "",
     "",
     "STEP 2 — YOUR ONBOARDING CHECKLIST",
@@ -7706,9 +7706,17 @@ export function buildAcceptanceEmailHtml({
    * itself carrying the weight — never buried inside a checklist sentence.
    */
   const dates = [
-    { when: "Sunday 30 August", detail: "4:30 &ndash; 7:00 PM &middot; Onboarding meeting, offline and in person" },
-    { when: "Monday 31 August", detail: "Engagement Fair &middot; day one" },
-    { when: "Tuesday 1 September", detail: "Engagement Fair &middot; day two" }
+    {
+      when: "Monday 31 August",
+      events: [
+        "2:00 &ndash; 4:00 PM &middot; Engagement Fair, day one",
+        "4:00 &ndash; 8:00 PM &middot; Board meeting, offline and in person"
+      ]
+    },
+    {
+      when: "Tuesday 1 September",
+      events: ["2:00 &ndash; 4:00 PM &middot; Engagement Fair, day two"]
+    }
   ];
 
   /*
@@ -7828,7 +7836,7 @@ export function buildAcceptanceEmailHtml({
   </head>
   <body class="wrap" style="margin:0;padding:0;background:#fdf9f3;color:#1b1f23;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
     <!-- Preheader: what the inbox shows, and the two things actually due. -->
-    <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You're in. Reply within 24 hours, and keep 30 Aug, 31 Aug and 1 Sep free.</div>
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You're in. Reply within 24 hours, and keep 31 Aug and 1 Sep free.</div>
 
     <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fdf9f3;margin:0;padding:18px 0;">
       <tr>
@@ -7876,7 +7884,7 @@ export function buildAcceptanceEmailHtml({
                   <tr>
                     <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:17px 20px;">
                       <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:9px;">This is an initial acceptance</div>
-                      <div class="body-text ink" style="font-size:15.5px;line-height:1.65;color:#1b1f23;">It becomes final at the onboarding meeting on <b>30 August</b>, where you sign the <b>letter of responsibility</b> for the role.</div>
+                      <div class="body-text ink" style="font-size:15.5px;line-height:1.65;color:#1b1f23;">It becomes final at the board meeting on <b>31 August</b>, where you sign the <b>letter of responsibility</b> for the role.</div>
                       <div class="body-text muted" style="font-size:15px;line-height:1.6;color:#3f4650;margin-top:7px;">Between now and then, start meeting your committee and getting to know the people you will be working with.</div>
                     </td>
                   </tr>
@@ -7892,7 +7900,7 @@ export function buildAcceptanceEmailHtml({
                 ${stepHeading("1", "Reply to this email within 24 hours")}
                 <div class="body-text muted" style="font-size:15.5px;line-height:1.6;color:#3f4650;margin:0 0 12px;">Just hit reply and confirm all three:</div>
                 ${bullet(`You&rsquo;re <b>${escapeHtml(fullName)}</b>, and you&rsquo;re taking this role.`)}
-                ${bullet("You can attend <b>all three dates</b> below.")}
+                ${bullet("You can attend <b>both dates</b> below.")}
                 ${bullet("You consent to your <b>WhatsApp number</b> being added to the board group, which is where the team coordinates day to day.")}
               </td>
             </tr>
@@ -7904,7 +7912,7 @@ export function buildAcceptanceEmailHtml({
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
                   <tr>
                     <td class="askbox" style="background:#fdf9f3;border-left:5px solid #eac262;border-radius:4px;padding:17px 20px;">
-                      <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:15px;">All three are mandatory</div>
+                      <div class="goldlbl" style="font-size:11px;color:#0c2c80;text-transform:uppercase;letter-spacing:2px;font-weight:bold;margin-bottom:15px;">Both days are mandatory</div>
                       ${dates
                         .map(
                           (d, i) => `
@@ -7912,7 +7920,12 @@ export function buildAcceptanceEmailHtml({
                         <tr>
                           <td class="datecell" style="background:#ffffff;border:1px solid #ece2d2;border-left:4px solid #eac262;border-radius:4px;padding:11px 14px;">
                             <div class="datewhen blue" style="font-size:17px;line-height:1.3;font-weight:bold;color:#0c2c80;">${d.when}</div>
-                            <div class="muted" style="font-size:14px;line-height:1.5;color:#3f4650;margin-top:3px;">${d.detail}</div>
+                            ${d.events
+                              .map(
+                                (e) =>
+                                  `<div class="muted" style="font-size:14px;line-height:1.5;color:#3f4650;margin-top:4px;">${e}</div>`
+                              )
+                              .join("")}
                           </td>
                         </tr>
                       </table>`
@@ -7921,7 +7934,7 @@ export function buildAcceptanceEmailHtml({
                     </td>
                   </tr>
                 </table>
-                <div class="faint" style="font-size:13.5px;line-height:1.6;color:#6b7280;margin-top:11px;">Put all three in your calendar now. If any of them is a problem, say so in your reply.</div>
+                <div class="faint" style="font-size:13.5px;line-height:1.6;color:#6b7280;margin-top:11px;">Put both days in your calendar now. If either is a problem, say so in your reply.</div>
               </td>
             </tr>
 
