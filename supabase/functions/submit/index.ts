@@ -1383,6 +1383,13 @@ type HeadsAdminAssignApplicantPayload = {
 
 /** The recruitment admin pulling a placement back off, before it is emailed. */
 /** The admin awarding a contested applicant to one committee over the others. */
+type HeadsAdminPreviewAcceptancePayload = {
+  mode: "heads-admin-preview-acceptance";
+  email: string;
+  committee: string;
+  applicantEmails?: string[];
+};
+
 type HeadsAdminApproveClaimPayload = {
   mode: "heads-admin-approve-claim";
   email: string;
@@ -1510,6 +1517,7 @@ type SubmissionPayload =
   | HeadsAdminAssignApplicantPayload
   | HeadsAdminUnassignApplicantPayload
   | HeadsAdminApproveClaimPayload
+  | HeadsAdminPreviewAcceptancePayload
   | HeadsOnboardingStatusPayload
   | HeadsOnboardingSubmitPayload
   | HeadsReleaseFirstPreferencePayload
@@ -2082,6 +2090,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await adminAssignHeadsApplicant(token, payload)) });
     }
 
+    if (isHeadsAdminPreviewAcceptancePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await previewHeadsAcceptances(token, payload)) });
+    }
+
     if (isHeadsAdminApproveClaimPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2336,6 +2350,12 @@ function isHeadsAdminAssignApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminAssignApplicantPayload {
   return (payload as HeadsAdminAssignApplicantPayload).mode === "heads-admin-assign-applicant";
+}
+
+function isHeadsAdminPreviewAcceptancePayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminPreviewAcceptancePayload {
+  return (payload as HeadsAdminPreviewAcceptancePayload).mode === "heads-admin-preview-acceptance";
 }
 
 function isHeadsAdminApproveClaimPayload(
@@ -7258,6 +7278,79 @@ async function sendHeadsTeamAcceptances(
  * revise it before submitting again. Nothing is emailed either way; a Yes
  * has already gone out and cannot be undone from here.
  */
+/**
+ * What the send would produce, without sending it. Built by the same builder
+ * the send uses and addressed with the same cc resolution, so the preview
+ * cannot show one thing and the mail say another — the only difference is that
+ * nothing reaches Gmail.
+ */
+async function previewHeadsAcceptances(
+  token: string,
+  payload: HeadsAdminPreviewAcceptancePayload
+): Promise<{
+  committee: string;
+  messages: Array<{ applicantEmail: string; fullName: string; subject: string; to: string; cc: string; html: string }>;
+  skippedContested: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }>;
+}> {
+  const committee = String(payload.committee ?? "").trim();
+  if (!committee) throw new Error("Committee is required.");
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+
+  const onlyEmails = new Set(
+    (payload.applicantEmails ?? []).map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean)
+  );
+
+  const contested = (row: string[]): boolean =>
+    normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee) &&
+    String(row[RELEASED_COLUMN] ?? "").trim() !== "Yes";
+
+  const skippedContested: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
+  const ccPanel = await getCommitteePanel(token, committee).catch(() => []);
+  const messages: Array<{ applicantEmail: string; fullName: string; subject: string; to: string; cc: string; html: string }> = [];
+
+  for (const row of rows) {
+    if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Submitted") continue;
+    if (normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) continue;
+    const applicantEmail = String(row[emailColumn] ?? "").trim();
+    if (!applicantEmail) continue;
+
+    if (onlyEmails.size > 0) {
+      if (!onlyEmails.has(applicantEmail.toLowerCase())) continue;
+    } else if (contested(row)) {
+      skippedContested.push({
+        applicantEmail,
+        fullName: String(row[nameColumn] ?? "").trim(),
+        firstPreferenceCommittee: displayCommitteeName(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""))
+      });
+      continue;
+    }
+
+    const fullName = String(row[nameColumn] ?? "").trim();
+    messages.push({
+      applicantEmail,
+      fullName,
+      subject: `Resala AUC: welcome to ${displayCommitteeName(committee)} — you're in!`,
+      to: applicantEmail,
+      cc: await buildApplicantCc(token, committee, applicantEmail, ccPanel),
+      html: buildAcceptanceEmailHtml({
+        fullName,
+        committee: displayCommitteeName(committee),
+        headName: String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim(),
+        position: String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member",
+        onboardingUrl: headsOnboardingUrl(applicantEmail)
+      })
+    });
+  }
+
+  return { committee: displayCommitteeName(committee), messages, skippedContested };
+}
+
 async function rejectHeadsSubmission(
   token: string,
   payload: HeadsAdminRejectApplicantPayload
@@ -7757,9 +7850,10 @@ export function buildAcceptanceEmailHtml({
             <tr>
               <td class="pad" style="padding:24px 40px 0;">
                 ${stepHeading("1", "Reply to this email within 24 hours")}
-                <div class="body-text muted" style="font-size:15.5px;line-height:1.6;color:#3f4650;margin:0 0 11px;">Just hit reply and confirm both:</div>
+                <div class="body-text muted" style="font-size:15.5px;line-height:1.6;color:#3f4650;margin:0 0 11px;">Just hit reply and confirm all three:</div>
                 <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:6px;">You&rsquo;re <b>${escapeHtml(fullName)}</b>, and you&rsquo;re taking this role.</div>
-                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;">You can attend <b>all three dates</b> below.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;margin-bottom:6px;">You can attend <b>all three dates</b> below.</div>
+                <div class="body-text ink" style="font-size:16px;line-height:1.65;color:#1b1f23;">You consent to your <b>WhatsApp number</b> being added to the board group, which is where the team coordinates day to day.</div>
               </td>
             </tr>
 

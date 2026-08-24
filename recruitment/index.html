@@ -1320,7 +1320,7 @@ function renderHierarchy() {
       <div class="row2" style="align-items:center;margin-bottom:10px;">
         <div class="note">${sendStatus(r)}</div>
         <div style="flex:0 0 auto;">
-          <button class="btn btn-sm btn-gold" data-send-committee="${esc(r.raw)}"${r.staged.length ? "" : " disabled"}>Send ${esc(r.label)} only${r.staged.length ? ` (${r.staged.length})` : ""}</button>
+          <button class="btn btn-sm btn-gold" data-send-committee="${esc(r.raw)}"${r.staged.length ? "" : " disabled"}>Review ${esc(r.label)} drafts${r.staged.length ? ` (${r.staged.length})` : ""}</button>
         </div>
       </div>
       <div class="team-grid">
@@ -1352,6 +1352,7 @@ function renderHierarchy() {
       <div class="go">
         <button class="btn btn-gold" id="send-all"${staged ? "" : " disabled"}>Send all acceptance emails${staged ? ` (${staged})` : ""}</button>
       </div>
+      <div class="note" style="flex:1 1 100%;margin-top:2px;">Reviewing one committee's drafts first is safer — the all-at-once button sends without showing you the messages.</div>
     </div>
     ${renderContestedBlock()}
     ${missing.length ? `
@@ -1388,6 +1389,103 @@ async function approveClaim(applicantEmail, committee, btn) {
     };
   } catch (err) {
     state.teamMsg = { type: "bad", text: err.message };
+  }
+  await load(state.admin.email);
+  renderHierarchy();
+}
+
+/* The send button opens the drafts rather than firing. Every message is
+   rendered by the same builder the send uses, with the same cc, so what is on
+   screen is what leaves — and the actual send is a second, deliberate click. */
+async function openAcceptanceDrafts(rawCommittee, btn) {
+  const label = display(rawCommittee);
+  btn.disabled = true; btn.textContent = "Loading…";
+  let res;
+  try {
+    res = await api({ mode: "heads-admin-preview-acceptance", email: state.admin.email, committee: rawCommittee });
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: `${label}: ${err.message}` };
+    renderHierarchy();
+    return;
+  }
+  btn.disabled = false;
+
+  if (!res.messages.length) {
+    state.teamMsg = {
+      type: "bad",
+      text: res.skippedContested.length
+        ? `${label}: everyone staged put another committee first. Settle that above, or tick them individually in Team diagrams.`
+        : `${label}: nothing ready to send.`
+    };
+    renderHierarchy();
+    return;
+  }
+
+  state.drafts = { committee: rawCommittee, label, ...res, index: 0 };
+  renderDrafts();
+}
+
+function renderDrafts() {
+  const d = state.drafts;
+  const m = d.messages[d.index];
+  document.getElementById("dlg-body").innerHTML = `
+    <button class="close" id="dlg-close" aria-label="Close">×</button>
+    <h2>Draft ${d.index + 1} of ${d.messages.length}</h2>
+    <div class="sub">${esc(d.label)} · nothing has been sent yet</div>
+
+    <div class="facts">
+      <div><b>To</b>${esc(m.to)}</div>
+      <div><b>Cc</b>${esc(m.cc || "— nobody on file")}</div>
+      <div><b>Subject</b>${esc(m.subject)}</div>
+    </div>
+    ${d.skippedContested.length ? `<div class="note" style="margin-bottom:10px;color:var(--warn);">
+      Held back — another committee is their first preference: ${esc(d.skippedContested.map((x) => `${x.fullName} (${x.firstPreferenceCommittee})`).join(", "))}</div>` : ""}
+
+    <iframe id="draft-frame" title="Acceptance email preview"
+      style="width:100%;height:min(58vh,620px);border:1px solid var(--line);border-radius:10px;background:#fff;"></iframe>
+
+    <div class="row2" style="align-items:center;margin-top:14px;">
+      <div style="flex:0 0 auto;display:flex;gap:6px;">
+        <button class="btn btn-sm btn-ghost" id="draft-prev"${d.index === 0 ? " disabled" : ""}>‹ Previous</button>
+        <button class="btn btn-sm btn-ghost" id="draft-next"${d.index >= d.messages.length - 1 ? " disabled" : ""}>Next ›</button>
+      </div>
+      <div class="note">Reading ${d.index + 1} of ${d.messages.length}. Sending goes to all ${d.messages.length}.</div>
+      <div style="flex:0 0 auto;">
+        <button class="btn btn-gold" id="draft-send">Send all ${d.messages.length} now</button>
+      </div>
+    </div>
+    <div class="msg" id="draft-msg"></div>`;
+
+  const dlg = document.getElementById("dlg");
+  if (!dlg.open) dlg.showModal();
+  // srcdoc keeps the preview sandboxed from the portal's own styles.
+  document.getElementById("draft-frame").srcdoc = m.html;
+  document.getElementById("dlg-close").onclick = () => dlg.close();
+  document.getElementById("draft-prev").onclick = () => { d.index -= 1; renderDrafts(); };
+  document.getElementById("draft-next").onclick = () => { d.index += 1; renderDrafts(); };
+  document.getElementById("draft-send").onclick = (e) => sendDrafts(e.currentTarget);
+}
+
+async function sendDrafts(btn) {
+  const d = state.drafts;
+  const msg = document.getElementById("draft-msg");
+  if (!(await confirmDialog(
+    `Send ${d.messages.length} acceptance ${d.messages.length === 1 ? "email" : "emails"} for ${d.label}?\n\n` +
+    d.messages.map((m) => `${m.fullName} — ${m.to}`).join("\n") +
+    `\n\nThis cannot be undone.`
+  ))) return;
+
+  btn.disabled = true; btn.textContent = "Sending…";
+  msg.className = "msg"; msg.textContent = "Sending…";
+  try {
+    const r = await api({ mode: "heads-admin-confirm-team", email: state.admin.email, committee: d.committee });
+    state.teamMsg = { type: "ok", text: `${d.label}: sent ${r.sent.length}.` };
+    document.getElementById("dlg").close();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: `${d.label}: ${err.message}` };
+    msg.className = "msg bad"; msg.textContent = err.message;
+    btn.disabled = false; btn.textContent = `Send all ${d.messages.length} now`;
+    return;
   }
   await load(state.admin.email);
   renderHierarchy();
@@ -1670,7 +1768,7 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   const claimBtn = e.target.closest("[data-approve-claim]");
   if (claimBtn) { approveClaim(claimBtn.dataset.approveClaim, claimBtn.dataset.approveCommittee, claimBtn); return; }
   const sendOne = e.target.closest("[data-send-committee]");
-  if (sendOne) { sendOneCommittee(sendOne.dataset.sendCommittee, sendOne); return; }
+  if (sendOne) { openAcceptanceDrafts(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
   if (moveBtn) { adminMoveStranded(moveBtn.dataset.moveGo, renderHierarchy, e.currentTarget); return; }
   const addBtn = e.target.closest("[data-add-go]");
