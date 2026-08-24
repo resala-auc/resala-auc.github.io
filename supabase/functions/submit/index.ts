@@ -6762,6 +6762,23 @@ async function assignHeadsApplicant(
  * application rows. Only this committee's own claims count — another
  * committee wanting the same person says nothing about who holds a seat here.
  */
+/*
+ * (applicant, committee) pairs the admin has already approved — via
+ * approveClaim, or via placing/force-submitting someone directly, both of
+ * which write an Approved claim. A send that skipped anyone still holding
+ * the old first-preference-unreleased flag would otherwise re-block a
+ * placement the admin already decided on, even though placing it was the
+ * decision: two checks of the same rule, and only one of them movable.
+ */
+async function approvedClaimKeys(token: string): Promise<Set<string>> {
+  const claims = await readHeadsClaims(token);
+  return new Set(
+    claims
+      .filter((c) => c.status === "Approved")
+      .map((c) => `${normalize(c.applicantEmail)}|${normalizeRole(c.committee)}`)
+  );
+}
+
 function assertRoleSlotFreeInClaims(
   claims: HeadsClaim[],
   applicantEmail: string,
@@ -7206,8 +7223,20 @@ async function sendHeadsTeamAcceptances(
    * it can be seen and decided on, but a bulk send skips it — only naming the
    * applicant explicitly in applicantEmails sends it, which is the admin
    * saying they have made that call.
+   *
+   * An Approved claim on this committee counts as that call already having
+   * been made — approveClaim writes one when settling a genuine two-committee
+   * conflict, and so does the admin placing or force-submitting someone
+   * directly. Without this, either of those would place someone the send step
+   * immediately re-blocks on the same rule the placement had just overridden.
    */
-  const isContested = (row: string[]): boolean => {
+  const approvedHere = await approvedClaimKeys(token);
+  const isContested = (row: string[], applicantEmail: string): boolean => {
+    // Claims store the committee's display name ("Tech Team"), while this
+    // function's own `committee` is the raw internal name ("Tech Director")
+    // — the same rename that keeps FIRST_PREFERENCE_COMMITTEE_COLUMN matching
+    // below, which is raw too. The two must not be normalized the same way.
+    if (approvedHere.has(`${normalize(applicantEmail)}|${normalizeRole(displayCommitteeName(committee))}`)) return false;
     const first = normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""));
     const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
     return first !== normalizeRole(committee) && !released;
@@ -7222,9 +7251,10 @@ async function sendHeadsTeamAcceptances(
       if (normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee)) return false;
       const named = onlyEmails.has(String(row[emailColumn] ?? "").trim().toLowerCase());
       if (onlyEmails.size > 0) return named;
-      if (isContested(row)) {
+      const applicantEmail = String(row[emailColumn] ?? "").trim();
+      if (isContested(row, applicantEmail)) {
         skippedContested.push({
-          applicantEmail: String(row[emailColumn] ?? "").trim(),
+          applicantEmail,
           fullName: String(row[nameColumn] ?? "").trim(),
           firstPreferenceCommittee: displayCommitteeName(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? ""))
         });
@@ -7311,9 +7341,21 @@ async function previewHeadsAcceptances(
     (payload.applicantEmails ?? []).map((e) => String(e ?? "").trim().toLowerCase()).filter(Boolean)
   );
 
-  const contested = (row: string[]): boolean =>
-    normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee) &&
-    String(row[RELEASED_COLUMN] ?? "").trim() !== "Yes";
+  // Same rule, same claims override, as sendHeadsTeamAcceptances — the
+  // preview has to skip exactly what the send would skip, or the drafts shown
+  // and the drafts actually delivered are two different lists.
+  const approvedHere = await approvedClaimKeys(token);
+  const contested = (row: string[], applicantEmail: string): boolean => {
+    // Claims store the committee's display name ("Tech Team"), while this
+    // function's own `committee` is the raw internal name ("Tech Director")
+    // — the same rename that keeps FIRST_PREFERENCE_COMMITTEE_COLUMN matching
+    // below, which is raw too. The two must not be normalized the same way.
+    if (approvedHere.has(`${normalize(applicantEmail)}|${normalizeRole(displayCommitteeName(committee))}`)) return false;
+    return (
+      normalizeRole(String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) !== normalizeRole(committee) &&
+      String(row[RELEASED_COLUMN] ?? "").trim() !== "Yes"
+    );
+  };
 
   const skippedContested: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
   const ccPanel = await getCommitteePanel(token, committee).catch(() => []);
@@ -7327,7 +7369,7 @@ async function previewHeadsAcceptances(
 
     if (onlyEmails.size > 0) {
       if (!onlyEmails.has(applicantEmail.toLowerCase())) continue;
-    } else if (contested(row)) {
+    } else if (contested(row, applicantEmail)) {
       skippedContested.push({
         applicantEmail,
         fullName: String(row[nameColumn] ?? "").trim(),

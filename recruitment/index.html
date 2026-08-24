@@ -922,9 +922,18 @@ function isHeldForFirstPreference(a, rawCommittee) {
 /* Placed by a committee that is not this applicant's first preference, where
    that committee has not released them. The admin is the one who decides which
    committee needs them more, so this is flagged everywhere and left out of any
-   bulk send until they say otherwise. */
+   bulk send until they say otherwise — unless an Approved claim already says
+   they decided in this committee's favour: approveClaim writes one when
+   settling a genuine conflict, and so does the admin placing or force-
+   submitting someone directly. Without this check the button and the send it
+   opens would disagree with each other. Claims store the committee's display
+   name, so the comparison has to use that too. */
 function isContested(a, rawCommittee) {
-  return Boolean(a.acceptedStatus) && normRole(a.roleAppliedFor) !== normRole(rawCommittee) && !a.firstPreferenceReleased;
+  if (!a.acceptedStatus || normRole(a.roleAppliedFor) === normRole(rawCommittee) || a.firstPreferenceReleased) return false;
+  const approved = (state.data?.claims ?? []).some(
+    (c) => norm(c.applicantEmail) === norm(a.email) && norm(c.committee) === norm(display(rawCommittee)) && c.status === "Approved"
+  );
+  return !approved;
 }
 
 /* Role names already carry their own title — "Head of Graphic Design",
@@ -1250,7 +1259,14 @@ function hierarchyRows() {
       label: display(c.raw),
       roles,
       stranded,
-      staged: placed.filter((a) => a.acceptedStatus === "Submitted"),
+      /* Submitted, split by whether it is actually sendable. A contested one
+         — first preference is a different committee, unreleased — is still
+         Submitted, so it used to count toward "N ready to be emailed" and
+         enable the button, but the send skips it. That meant a committee
+         whose every submission was contested showed an enabled button that
+         opened nothing when clicked. */
+      staged: placed.filter((a) => a.acceptedStatus === "Submitted" && !isContested(a, c.raw)),
+      contestedStaged: placed.filter((a) => a.acceptedStatus === "Submitted" && isContested(a, c.raw)),
       sent: placed.filter((a) => a.acceptedStatus === "Yes"),
       /* Drafts are the committee's working state — only they can turn those
          into Submitted. Held ones are waiting on a different committee to
@@ -1293,6 +1309,7 @@ function strandedAdminCard(a, rawCommittee, heads) {
 function sendStatus(r) {
   const bits = [];
   if (r.staged.length) bits.push(`${r.staged.length} ready to be emailed`);
+  if (r.contestedStaged.length) bits.push(`${r.contestedStaged.length} submitted but their first preference is a different committee — resolve that above before this can send`);
   if (r.drafts.length) bits.push(`${r.drafts.length} still Draft — ${esc(r.label)} has not submitted ${r.drafts.length === 1 ? "them" : "these"} yet`);
   if (r.held.length) bits.push(`${r.held.length} waiting on another committee to release them`);
   if (r.sent.length) bits.push(`${r.sent.length} already sent`);
