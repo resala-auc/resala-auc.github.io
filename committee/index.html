@@ -206,6 +206,7 @@
   .wl-rank { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 999px; background: var(--blue);
     color: #fff; font-size: 10.5px; font-weight: 700; display: inline-flex; align-items: center;
     justify-content: center; }
+  .pool-card.contested { border-color: #e3b96a; background: #fffaf0; }
   .pool-card.stranded { border-color: #e3b96a; background: #fffaf0; }
   .stranded-block { background: #fdf4e0; border-radius: 12px; padding: 16px 18px; margin-bottom: 26px; }
   .stranded-block .pool-card.stranded { background: #fff; }
@@ -800,11 +801,27 @@ function teamPool() {
 /* Whichever role/position this applicant holds on THIS committee's diagram —
    null if they are unplaced, or placed on a different committee's diagram
    entirely (a second preference accepted elsewhere, say). */
+/* This committee's own claim on an applicant, if it has one. Reading claims
+   rather than the applicant's Accepted* columns is what lets two committees
+   want the same person at once: those columns hold a single placement and so
+   could only ever describe one of them. */
 function placementOn(applicant) {
-  if (!applicant.acceptedStatus) return null;
-  const committeeName = display(applicant.committee || applicant.roleAppliedFor);
-  if (norm(applicant.acceptedCommittee) !== norm(committeeName)) return null;
-  return { role: applicant.acceptedRole, position: applicant.acceptedPosition, status: applicant.acceptedStatus };
+  const mine = (state.data?.claims ?? []).find(
+    (c) => norm(c.applicantEmail) === norm(applicant.email) && norm(c.committee) === norm(display(state.access.department))
+  );
+  if (!mine || mine.status === "Declined") return null;
+  return { role: mine.headRole, position: mine.position, status: mine.status === "Approved" ? "Yes" : mine.status };
+}
+
+/* Another committee has also claimed them and nobody has decided yet. Both
+   claims stand; the admin picks. */
+function rivalClaims(applicant) {
+  return (state.data?.claims ?? []).filter(
+    (c) =>
+      norm(c.applicantEmail) === norm(applicant.email) &&
+      norm(c.committee) !== norm(display(state.access.department)) &&
+      ["Draft", "Submitted"].includes(c.status)
+  );
 }
 
 /* Placed here, but this is not who they put first, and that committee has not
@@ -869,9 +886,18 @@ function notesSummary(applicant) {
    options once the role already has one, since each is capped at one per role. */
 function candidateCard(applicant, headId, headOpen, coHeadOpen) {
   return `
-    <div class="pool-card">
+    <div class="pool-card${rivalClaims(applicant).length ? " contested" : ""}">
       <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
       <div class="meta">${esc(display(applicant.committee || applicant.roleAppliedFor))}${applicant.preference !== "First" ? ` · their ${esc(applicant.preference.toLowerCase())} preference` : ""}</div>
+      ${(() => {
+        const rivals = rivalClaims(applicant);
+        if (!rivals.length) return "";
+        return `<div class="note" style="margin-top:5px;"><b>${esc(rivals.map((r) => r.committee).join(", "))}</b> also want them${
+          applicant.preference === "First"
+            ? " — but you are their first preference. Claim them and the admin will settle it."
+            : ". Claim them anyway; the admin decides who gets them."
+        }</div>`;
+      })()}
       ${notesSummary(applicant)}
       <div class="row2" style="margin-top:9px;">
         <div><select data-pool-position="${esc(applicant.email)}">
@@ -984,24 +1010,24 @@ function waitlistBlock(head, contestedHere, candidates) {
 }
 
 function poolCard(applicant, heads) {
-  const elsewhere = applicant.acceptedStatus && !placementOn(applicant);
-  if (elsewhere) {
-    return `
-      <div class="pool-card">
-        <div class="nm">${esc(applicant.fullName)}</div>
-        <div class="meta">${esc(applicant.headName || display(applicant.roleAppliedFor))} · ${esc(display(applicant.committee || applicant.roleAppliedFor))}</div>
-        <div class="note" style="margin-top:6px;">Already placed on ${esc(applicant.acceptedCommittee)}'s diagram, as
-          ${esc(applicant.acceptedPosition)} of ${esc(applicant.acceptedRole)}.</div>
-      </div>`;
-  }
+  /* Another committee wanting them used to end the conversation here — a dead
+     card with no picker, which is how a committee could be locked out of an
+     applicant who had put them first. Now it is shown as context and the
+     picker stays: both claims stand and the admin decides between them. */
+  const rivals = rivalClaims(applicant);
   const appliedHeadId = headIdOf(applicant, heads);
   const headOptions = heads
     .map((h) => `<option value="${esc(h.id)}"${h.id === appliedHeadId ? " selected" : ""}>${esc(h.name)}</option>`)
     .join("");
   return `
-    <div class="pool-card">
-      <div class="nm">${esc(applicant.fullName)}</div>
+    <div class="pool-card${rivals.length ? " contested" : ""}">
+      <div class="nm">${esc(applicant.fullName)} ${scoreSummary(applicant)}</div>
       <div class="meta">${esc(applicant.headName || display(applicant.roleAppliedFor))} · ${esc(display(applicant.committee || applicant.roleAppliedFor))}</div>
+      ${rivals.length ? `<div class="note" style="margin-top:6px;"><b>${esc(rivals.map((r) => r.committee).join(", "))}</b> also want them${
+        norm(display(applicant.roleAppliedFor)) === norm(display(state.access.department))
+          ? " — but you are their first preference. Claim them and the admin will settle it."
+          : ". Claim them anyway; the admin decides who gets them."
+      }</div>` : ""}
       <div class="row2" style="margin-top:9px;">
         <div><select data-pool-head="${esc(applicant.email)}">${headOptions}</select></div>
         <div><select data-pool-position="${esc(applicant.email)}">
@@ -1035,8 +1061,8 @@ function renderTeam() {
      rather than silently disappearing from the diagram. */
   const stranded = placedHere.filter((a) => !heads.some((h) => norm(h.name) === norm(placementOn(a).role)));
   const here = placedHere.filter((a) => heads.some((h) => norm(h.name) === norm(placementOn(a).role)));
-  const unplaced = pool.filter((a) => !a.acceptedStatus);
-  const elsewhere = pool.filter((a) => a.acceptedStatus && !placementOn(a));
+  const unplaced = pool.filter((a) => !placementOn(a));
+  const elsewhere = [];
   /* Every Draft is submittable, second preferences included. They used to be
      held back here, which meant a committee whose picks were all second
      preference could not submit at all — the decision never reached the admin,

@@ -133,6 +133,11 @@
   .slot-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 700; margin-bottom: 5px; }
   .slot-chip { display: flex; align-items: center; gap: 7px; background: var(--soft); border-radius: 9px; padding: 6px 9px; margin-bottom: 6px; font-size: 13px; }
   .chip-check { flex: 0 0 auto; margin: 0; accent-color: var(--blue); }
+  .contested-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+    padding: 9px 0; border-top: 1px solid #f0e2c4; }
+  .contested-row:first-of-type { border-top: 0; }
+  .contested-who { flex: 1 1 200px; display: flex; flex-direction: column; gap: 2px; }
+  .contested-opts { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip-name { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
   .chip-name:hover { color: var(--blue); }
   .wl-rank { flex: 0 0 auto; width: 17px; height: 17px; border-radius: 999px; background: var(--blue);
@@ -1239,6 +1244,53 @@ function sendStatus(r) {
   return bits.join(" · ") + "." + tail;
 }
 
+/* Applicants more than one committee has claimed and nobody has settled.
+   These are the decisions only the admin can make, so they sit at the top of
+   the tab rather than being buried inside whichever committee happens to be
+   listed first. */
+function contestedApplicants() {
+  const live = (state.data.claims ?? []).filter((c) => ["Draft", "Submitted"].includes(c.status));
+  const byApplicant = new Map();
+  for (const c of live) {
+    const key = norm(c.applicantEmail);
+    if (!byApplicant.has(key)) byApplicant.set(key, []);
+    byApplicant.get(key).push(c);
+  }
+  return [...byApplicant.values()]
+    .filter((claims) => claims.length > 1)
+    .map((claims) => {
+      const a = state.data.applicants.find((x) => norm(x.email) === norm(claims[0].applicantEmail));
+      return { applicant: a, email: claims[0].applicantEmail, name: claims[0].applicantName, claims };
+    });
+}
+
+function renderContestedBlock() {
+  const rows = contestedApplicants();
+  if (!rows.length) return "";
+  return `
+    <div class="missing-summary">
+      <div class="missing-summary-title">${rows.length} applicant${rows.length === 1 ? "" : "s"} wanted by more than one committee — your call</div>
+      ${rows.map((r) => {
+        const first = r.applicant ? display(r.applicant.roleAppliedFor) : "";
+        return `
+        <div class="contested-row">
+          <div class="contested-who">
+            <span class="chip-name" data-open="${esc(r.email)}">${esc(r.name || r.email)}</span>
+            ${first ? `<span class="note">first preference: ${esc(first)}</span>` : ""}
+          </div>
+          <div class="contested-opts">
+            ${r.claims.map((c) => `
+              <button type="button" class="btn btn-sm ${first && norm(c.committee) === norm(first) ? "btn-gold" : "btn-ghost"}"
+                data-approve-claim="${esc(r.email)}" data-approve-committee="${esc(c.committee)}"
+                title="Give them to ${esc(c.committee)} and decline the others">
+                ${esc(c.committee)} · ${esc(c.position)} of ${esc(c.headRole)}${first && norm(c.committee) === norm(first) ? " (1st)" : ""}
+              </button>`).join("")}
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+}
+
 function renderHierarchy() {
   const el = document.getElementById("view-hierarchy");
   if (!state.data) return;
@@ -1301,6 +1353,7 @@ function renderHierarchy() {
         <button class="btn btn-gold" id="send-all"${staged ? "" : " disabled"}>Send all acceptance emails${staged ? ` (${staged})` : ""}</button>
       </div>
     </div>
+    ${renderContestedBlock()}
     ${missing.length ? `
       <div class="missing-summary">
         <div class="missing-summary-title">Still without a Head — you can still send, these just stay open</div>
@@ -1317,6 +1370,29 @@ function renderHierarchy() {
 
 /* Sending one committee on its own, without waiting for the rest of the board
    to be finished. Same endpoint the all-at-once button walks in a loop. */
+/* Awarding a contested applicant to one committee. The rival claims are
+   declined in the same call, so the losing committee's diagram stops showing
+   them as theirs rather than silently keeping a claim that cannot win. */
+async function approveClaim(applicantEmail, committee, btn) {
+  const who = state.data.applicants.find((a) => norm(a.email) === norm(applicantEmail));
+  if (!(await confirmDialog(
+    `Give ${who?.fullName || applicantEmail} to ${committee}?\n\nEvery other committee's claim on them is declined. Nothing is emailed yet — they still have to be sent from this tab.`
+  ))) return;
+
+  btn.disabled = true;
+  try {
+    const r = await api({ mode: "heads-admin-approve-claim", email: state.admin.email, applicantEmail, committee });
+    state.teamMsg = {
+      type: "ok",
+      text: `${who?.fullName || applicantEmail} goes to ${r.committee} as ${r.position} of ${r.headName}.${r.declined.length ? ` Declined: ${r.declined.join(", ")}.` : ""}`
+    };
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+  }
+  await load(state.admin.email);
+  renderHierarchy();
+}
+
 async function sendOneCommittee(rawCommittee, btn) {
   const row = hierarchyRows().find((r) => norm(r.raw) === norm(rawCommittee));
   if (!row || !row.staged.length) return;
@@ -1591,6 +1667,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   }
   const sendAll = e.target.closest("#send-all");
   if (sendAll) { sendAllAcceptances(sendAll); return; }
+  const claimBtn = e.target.closest("[data-approve-claim]");
+  if (claimBtn) { approveClaim(claimBtn.dataset.approveClaim, claimBtn.dataset.approveCommittee, claimBtn); return; }
   const sendOne = e.target.closest("[data-send-committee]");
   if (sendOne) { sendOneCommittee(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");

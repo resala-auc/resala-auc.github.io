@@ -282,6 +282,49 @@ const HEADS_SCORE_HEADERS = [
 
 const HEADS_ASSIGNMENT_SHEET_NAME = Deno.env.get("HEADS_ASSIGNMENT_SHEET_NAME") ?? "Interview Assignments";
 /*
+ * Who wants whom. One row per (applicant, committee), so two committees can
+ * both want the same person at once — which the Accepted* columns on the
+ * application row cannot express, being a single placement.
+ *
+ * Those columns stay the resolved outcome: they are written only when the
+ * admin approves one claim, and everything downstream (the acceptance email,
+ * the onboarding checklist) still reads them exactly as before. A claim is the
+ * asking; Accepted* is the answer.
+ *
+ * Status is Draft while the committee is still building, Submitted once handed
+ * to the admin, then Approved on the one that won and Declined on its rivals.
+ */
+const HEADS_CLAIM_SHEET_NAME = Deno.env.get("HEADS_CLAIM_SHEET_NAME") ?? "Heads Claims";
+const HEADS_CLAIM_HEADERS = [
+  "Applicant Email",
+  "Applicant Name",
+  "Committee",
+  "Head Role",
+  "Head ID",
+  "Position",
+  "Status",
+  "Claimed By",
+  "Claimed At",
+  "Submitted By",
+  "Submitted At"
+];
+
+type HeadsClaim = {
+  applicantEmail: string;
+  applicantName: string;
+  committee: string;
+  headRole: string;
+  headId: string;
+  position: string;
+  status: string;
+  claimedBy: string;
+  claimedAt: string;
+  submittedBy: string;
+  submittedAt: string;
+  rowIndex: number;
+};
+
+/*
  * Ranked backups per role. When a committee places someone who put them
  * second, that applicant may still go to their first-preference committee, so
  * the role needs a next-in-line recorded at the moment the decision is made —
@@ -1339,6 +1382,14 @@ type HeadsAdminAssignApplicantPayload = {
 };
 
 /** The recruitment admin pulling a placement back off, before it is emailed. */
+/** The admin awarding a contested applicant to one committee over the others. */
+type HeadsAdminApproveClaimPayload = {
+  mode: "heads-admin-approve-claim";
+  email: string;
+  applicantEmail: string;
+  committee: string;
+};
+
 type HeadsAdminUnassignApplicantPayload = {
   mode: "heads-admin-unassign-applicant";
   email: string;
@@ -1458,6 +1509,7 @@ type SubmissionPayload =
   | HeadsSetWaitlistPayload
   | HeadsAdminAssignApplicantPayload
   | HeadsAdminUnassignApplicantPayload
+  | HeadsAdminApproveClaimPayload
   | HeadsOnboardingStatusPayload
   | HeadsOnboardingSubmitPayload
   | HeadsReleaseFirstPreferencePayload
@@ -2030,6 +2082,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await adminAssignHeadsApplicant(token, payload)) });
     }
 
+    if (isHeadsAdminApproveClaimPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await approveHeadsClaim(token, payload)) });
+    }
+
     if (isHeadsAdminUnassignApplicantPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2278,6 +2336,12 @@ function isHeadsAdminAssignApplicantPayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminAssignApplicantPayload {
   return (payload as HeadsAdminAssignApplicantPayload).mode === "heads-admin-assign-applicant";
+}
+
+function isHeadsAdminApproveClaimPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminApproveClaimPayload {
+  return (payload as HeadsAdminApproveClaimPayload).mode === "heads-admin-approve-claim";
 }
 
 function isHeadsAdminUnassignApplicantPayload(
@@ -4776,6 +4840,152 @@ async function ensureHeadsScoreSheet(token: string): Promise<void> {
   await ensureSheetHeaders(token, HEADS_SCORE_SHEET_NAME, HEADS_SCORE_HEADERS);
 }
 
+async function ensureHeadsClaimSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, HEADS_CLAIM_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_CLAIM_SHEET_NAME, HEADS_CLAIM_HEADERS);
+}
+
+function claimFromRow(row: string[], rowIndex: number): HeadsClaim {
+  return {
+    applicantEmail: String(row[0] ?? "").trim(),
+    applicantName: String(row[1] ?? "").trim(),
+    committee: String(row[2] ?? "").trim(),
+    headRole: String(row[3] ?? "").trim(),
+    headId: String(row[4] ?? "").trim(),
+    position: String(row[5] ?? "").trim() || "Member",
+    status: String(row[6] ?? "").trim(),
+    claimedBy: String(row[7] ?? "").trim(),
+    claimedAt: String(row[8] ?? "").trim(),
+    submittedBy: String(row[9] ?? "").trim(),
+    submittedAt: String(row[10] ?? "").trim(),
+    rowIndex
+  };
+}
+
+async function readHeadsClaims(token: string): Promise<HeadsClaim[]> {
+  await ensureHeadsClaimSheet(token);
+  const width = columnLetter(HEADS_CLAIM_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  return rows
+    .map((row, i) => claimFromRow(row, i + 2))
+    .filter((claim) => claim.applicantEmail && claim.committee && claim.status !== "Declined");
+}
+
+/*
+ * Placements made before claims existed live only in the Accepted* columns.
+ * Seeding them across on first read means a committee's diagram survives the
+ * switch instead of appearing to have been wiped — and it runs once, because
+ * afterwards the claim exists and is skipped.
+ */
+async function backfillClaimsFromApplications(token: string, applicationRows: string[][]): Promise<void> {
+  const existing = await readHeadsClaims(token);
+  const seen = new Set(existing.map((c) => `${normalize(c.applicantEmail)}|${normalizeRole(c.committee)}`));
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+
+  const missing: string[][] = [];
+  for (const row of applicationRows) {
+    const status = String(row[ACCEPTED_COLUMN] ?? "").trim();
+    if (!["Draft", "Submitted", "Yes"].includes(status)) continue;
+    const applicantEmail = String(row[emailColumn] ?? "").trim();
+    const committee = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+    if (!applicantEmail || !committee) continue;
+    if (seen.has(`${normalize(applicantEmail)}|${normalizeRole(committee)}`)) continue;
+
+    const headRole = String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim();
+    const head = headsForHierarchy(committee).find((h) => normalizeRole(h.name) === normalizeRole(headRole));
+    missing.push([
+      applicantEmail,
+      String(row[nameColumn] ?? "").trim(),
+      committee,
+      headRole,
+      head?.id ?? "",
+      String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member",
+      status === "Yes" ? "Approved" : status,
+      String(row[ACCEPTED_BY_COLUMN] ?? "").trim(),
+      String(row[ACCEPTED_AT_COLUMN] ?? "").trim(),
+      String(row[SUBMITTED_BY_COLUMN] ?? "").trim(),
+      String(row[SUBMITTED_AT_COLUMN] ?? "").trim()
+    ]);
+  }
+
+  if (!missing.length) return;
+  const width = columnLetter(HEADS_CLAIM_HEADERS.length);
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A:${width}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: missing }
+  );
+}
+
+/** Adds or replaces one committee's claim on one applicant. */
+async function upsertHeadsClaim(
+  token: string,
+  claim: Omit<HeadsClaim, "rowIndex">
+): Promise<void> {
+  await ensureHeadsClaimSheet(token);
+  const width = columnLetter(HEADS_CLAIM_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const values = [
+    claim.applicantEmail,
+    claim.applicantName,
+    claim.committee,
+    claim.headRole,
+    claim.headId,
+    claim.position,
+    claim.status,
+    claim.claimedBy,
+    claim.claimedAt,
+    claim.submittedBy,
+    claim.submittedAt
+  ];
+
+  const at = rows.findIndex(
+    (row) =>
+      normalize(String(row[0] ?? "")) === normalize(claim.applicantEmail) &&
+      normalizeRole(String(row[2] ?? "")) === normalizeRole(claim.committee)
+  );
+
+  if (at === -1) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A:${width}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: [values] }
+    );
+    return;
+  }
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A${at + 2}:${width}${at + 2}`)}?valueInputOption=RAW`,
+    { values: [values] }
+  );
+}
+
+/** Drops one committee's claim entirely. */
+async function removeHeadsClaim(token: string, applicantEmail: string, committee: string): Promise<void> {
+  await ensureHeadsClaimSheet(token);
+  const width = columnLetter(HEADS_CLAIM_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const at = rows.findIndex(
+    (row) =>
+      normalize(String(row[0] ?? "")) === normalize(applicantEmail) &&
+      normalizeRole(String(row[2] ?? "")) === normalizeRole(committee)
+  );
+  if (at === -1) return;
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HEADS_CLAIM_SHEET_NAME, `A${at + 2}:${width}${at + 2}`)}?valueInputOption=RAW`,
+    { values: [["", "", "", "", "", "", "", "", "", "", ""]] }
+  );
+}
+
 async function ensureHeadsWaitlistSheet(token: string): Promise<void> {
   await ensureSheetTab(token, HEADS_WAITLIST_SHEET_NAME);
   await ensureSheetHeaders(token, HEADS_WAITLIST_SHEET_NAME, HEADS_WAITLIST_HEADERS);
@@ -5157,13 +5367,15 @@ async function loadCommitteePortal(
   secondPreference: Array<Record<string, unknown>>;
   assigned: Array<Record<string, unknown>>;
   waitlist: Array<{ committee: string; headRole: string; rank: number; applicantEmail: string; applicantName: string }>;
+  claims: HeadsClaim[];
 }> {
   const access = await requireCommitteeAccess(token, email);
-  const [applicants, scores, assignments, waitlist] = await Promise.all([
+  const [applicants, scores, assignments, waitlist, claims] = await Promise.all([
     readHeadsApplicants(token),
     readHeadsScores(token),
     readHeadsAssignments(token),
-    readHeadsWaitlist(token)
+    readHeadsWaitlist(token),
+    readHeadsClaims(token)
   ]);
 
   const department = normalizeRole(access.department);
@@ -5223,7 +5435,7 @@ async function loadCommitteePortal(
     })
     .filter(Boolean) as Array<Record<string, unknown>>;
 
-  return { access, firstPreference, secondPreference, assigned, waitlist };
+  return { access, firstPreference, secondPreference, assigned, waitlist, claims };
 }
 
 /**
@@ -5652,14 +5864,16 @@ async function loadHeadsAdmin(
   assignments: Array<Record<string, string>>;
   panel: Array<{ name: string; email: string; department: string; positionType: string }>;
   waitlist: Array<{ committee: string; headRole: string; rank: number; applicantEmail: string; applicantName: string }>;
+  claims: HeadsClaim[];
 }> {
   const admin = await requireRecruitmentAdmin(token, email);
-  const [applicants, scores, assignments, hierarchy, waitlist] = await Promise.all([
+  const [applicants, scores, assignments, hierarchy, waitlist, claims] = await Promise.all([
     readHeadsApplicants(token),
     readHeadsScores(token),
     readHeadsAssignments(token),
     loadHierarchy(token),
-    readHeadsWaitlist(token)
+    readHeadsWaitlist(token),
+    readHeadsClaims(token)
   ]);
 
   const withScores = applicants.map((applicant) => ({
@@ -5683,7 +5897,7 @@ async function loadHeadsAdmin(
       positionType: String(entry.positionType ?? "").trim()
     }));
 
-  return { admin, applicants: withScores, assignments, panel, waitlist };
+  return { admin, applicants: withScores, assignments, panel, waitlist, claims };
 }
 
 /**
@@ -6486,63 +6700,28 @@ async function assignHeadsApplicant(
   }
 
   /*
-   * The applicant's own first-preference committee always has first claim —
-   * it can draft (or redraft) them regardless of who else already has, which
-   * is what actually reclaims them. Anyone else is blocked from touching a
-   * slot another committee is already holding, so a second-preference or
-   * assigned committee cannot silently steal a draft from a different one.
+   * A claim, not a placement. Another committee wanting the same applicant no
+   * longer blocks this one: both claims stand, both reach the admin, and the
+   * admin decides. That is the whole point — the first-preference committee
+   * used to be locked out entirely by whoever drafted first.
    */
-  const isFirstPreference =
-    normalizeRole(String(rows[index][FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee);
-  const currentHolder = String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
-  if (!isFirstPreference && currentStatus === "Draft" && normalizeRole(currentHolder) !== normalizeRole(committee)) {
-    throw new Error(`Already drafted onto ${currentHolder || "another committee"}'s diagram.`);
-  }
+  await backfillClaimsFromApplications(token, rows);
+  assertRoleSlotFreeInClaims(await readHeadsClaims(token), applicantEmail, committee, head.name, position);
 
-  // Only one Head, and separately only one Co-Head, per role. A different
-  // applicant already holding the same position has to be pulled off the
-  // diagram first — replacing them silently would be too easy to do by
-  // accident from a role's candidate list.
-  assertRoleSlotFree(rows, index, committee, head.name, position);
-
-  const draftedAt = new Date().toISOString();
-
-  await sheetsFetch(
-    token,
-    "PUT",
-    `${sheetRange(
-      HEADS_APPLICATION_SHEET_NAME,
-      isFirstPreference
-        ? `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
-        : `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
-    )}?valueInputOption=RAW`,
-    {
-      values: [
-        isFirstPreference
-          // Reclaiming as first preference also clears any release and any
-          // prior submission — both are moot once the committee that
-          // mattered wants them after all, and this draft needs its own
-          // fresh confirm before it can go to the admin again.
-          ? ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee), "", "", "", "", ""]
-          : ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]
-      ]
-    }
-  );
-
-  // Redrafting a non-first-preference placement (say, changing the role)
-  // un-submits it too, so a stale "Submitted" does not linger for the admin
-  // to approve against what the committee actually meant.
-  if (!isFirstPreference) {
-    await sheetsFetch(
-      token,
-      "PUT",
-      `${sheetRange(
-        HEADS_APPLICATION_SHEET_NAME,
-        `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
-      )}?valueInputOption=RAW`,
-      { values: [["", ""]] }
-    );
-  }
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+  await upsertHeadsClaim(token, {
+    applicantEmail,
+    applicantName: String(rows[index][nameColumn] ?? "").trim(),
+    committee: displayCommitteeName(committee),
+    headRole: head.name,
+    headId: head.id,
+    position,
+    status: "Draft",
+    claimedBy: access.email,
+    claimedAt: new Date().toISOString(),
+    submittedBy: "",
+    submittedAt: ""
+  });
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
 }
@@ -6553,6 +6732,33 @@ async function assignHeadsApplicant(
  * placement so the two can never disagree about what a role can hold.
  * Members are uncapped and never checked here.
  */
+/*
+ * One Head and one Co-Head per role, counted across claims rather than the
+ * application rows. Only this committee's own claims count — another
+ * committee wanting the same person says nothing about who holds a seat here.
+ */
+function assertRoleSlotFreeInClaims(
+  claims: HeadsClaim[],
+  applicantEmail: string,
+  committee: string,
+  headName: string,
+  position: string
+): void {
+  if (position !== "Head" && position !== "Co-Head") return;
+  const taken = claims.find(
+    (c) =>
+      normalize(c.applicantEmail) !== normalize(applicantEmail) &&
+      normalizeRole(c.committee) === normalizeRole(committee) &&
+      normalizeRole(c.headRole) === normalizeRole(headName) &&
+      c.position === position &&
+      ["Draft", "Submitted", "Approved"].includes(c.status)
+  );
+  if (!taken) return;
+  throw new Error(
+    `${taken.applicantName || "Someone else"} is already ${position} of ${headName}. Remove them first to replace them.`
+  );
+}
+
 function assertRoleSlotFree(
   rows: string[][],
   skipIndex: number,
@@ -6619,9 +6825,31 @@ async function adminAssignHeadsApplicant(
     throw new Error("Already confirmed and emailed — remove them first if this needs to change.");
   }
 
-  assertRoleSlotFree(rows, index, committee, head.name, position);
+  await backfillClaimsFromApplications(token, rows);
+  assertRoleSlotFreeInClaims(await readHeadsClaims(token), applicantEmail, committee, head.name, position);
 
   const now = new Date().toISOString();
+  // The admin placing someone is also the admin deciding, so their claim goes
+  // straight in as Approved and the resolved columns are written with it.
+  await upsertHeadsClaim(token, {
+    applicantEmail,
+    applicantName: String(rows[index][HEADS_APPLICATION_HEADERS.indexOf("Full Name")] ?? "").trim(),
+    committee: displayCommitteeName(committee),
+    headRole: head.name,
+    headId: head.id,
+    position,
+    status: "Approved",
+    claimedBy: admin.email,
+    claimedAt: now,
+    submittedBy: admin.email,
+    submittedAt: now
+  });
+  for (const rival of (await readHeadsClaims(token)).filter(
+    (c) => normalize(c.applicantEmail) === normalize(applicantEmail) && normalizeRole(c.committee) !== normalizeRole(committee)
+  )) {
+    await upsertHeadsClaim(token, { ...rival, status: "Declined" });
+  }
+
   await sheetsFetch(
     token,
     "PUT",
@@ -6646,6 +6874,83 @@ async function adminAssignHeadsApplicant(
   );
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
+}
+
+/**
+ * The admin settling who gets an applicant two committees both want. The
+ * winning claim becomes Approved and is written into the Accepted* columns —
+ * which is what the acceptance email and the onboarding checklist read, so
+ * nothing downstream had to learn about claims. Every rival claim on the same
+ * applicant is Declined in the same pass, so the losing committee's diagram
+ * stops showing them as theirs.
+ */
+async function approveHeadsClaim(
+  token: string,
+  payload: HeadsAdminApproveClaimPayload
+): Promise<{ applicantEmail: string; committee: string; headName: string; position: string; declined: string[] }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  const committee = String(payload.committee ?? "").trim();
+  if (!applicantEmail || !committee) throw new Error("Applicant and committee are required.");
+
+  await requireRecruitmentAdmin(token, payload.email);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = findCurrentRowIndex(rows, HEADS_APPLICATION_HEADERS.indexOf("AUC Email"), applicantEmail);
+  if (index === -1) throw new Error("No application found for that applicant.");
+  if (String(rows[index][ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+    throw new Error("Their acceptance email has already gone out.");
+  }
+
+  await backfillClaimsFromApplications(token, rows);
+  const claims = await readHeadsClaims(token);
+  const mine = claims.filter((c) => normalize(c.applicantEmail) === normalize(applicantEmail));
+  const winner = mine.find((c) => normalizeRole(c.committee) === normalizeRole(committee));
+  if (!winner) throw new Error(`${displayCommitteeName(committee)} has not claimed that applicant.`);
+
+  const declined: string[] = [];
+  for (const rival of mine) {
+    if (normalizeRole(rival.committee) === normalizeRole(committee)) continue;
+    await upsertHeadsClaim(token, { ...rival, status: "Declined" });
+    declined.push(displayCommitteeName(rival.committee));
+  }
+
+  await upsertHeadsClaim(token, { ...winner, status: "Approved" });
+
+  // The resolved placement, in the columns everything downstream already reads.
+  const now = new Date().toISOString();
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      HEADS_APPLICATION_SHEET_NAME,
+      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+    )}?valueInputOption=RAW`,
+    {
+      values: [[
+        "Submitted",
+        winner.headRole,
+        winner.position,
+        winner.claimedBy || payload.email,
+        winner.claimedAt || now,
+        displayCommitteeName(winner.committee),
+        "",
+        "",
+        "",
+        winner.submittedBy || payload.email,
+        winner.submittedAt || now
+      ]]
+    }
+  );
+
+  return {
+    applicantEmail,
+    committee: displayCommitteeName(winner.committee),
+    headName: winner.headRole,
+    position: winner.position,
+    declined
+  };
 }
 
 /** The recruitment admin pulling a placement back off entirely. Blocked once it has been emailed. */
@@ -6679,6 +6984,15 @@ async function adminUnassignHeadsApplicant(
     { values: [["", "", "", "", "", "", "", "", "", "", ""]] }
   );
 
+  // Drop every committee's claim: the admin removing someone is removing them
+  // from the board, not handing them back to one of the rivals.
+  await backfillClaimsFromApplications(token, rows);
+  for (const claim of (await readHeadsClaims(token)).filter(
+    (c) => normalize(c.applicantEmail) === normalize(applicantEmail)
+  )) {
+    await removeHeadsClaim(token, claim.applicantEmail, claim.committee);
+  }
+
   return { applicantEmail };
 }
 
@@ -6700,28 +7014,14 @@ async function unassignHeadsApplicant(
   if (index === -1) throw new Error("No application found for that applicant.");
 
   const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
-  if (status === "Yes") {
+  if (status === "Yes" && normalizeRole(String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)) {
     throw new Error("Already approved and emailed — this can't be undone from the diagram.");
   }
 
-  await sheetsFetch(
-    token,
-    "PUT",
-    `${sheetRange(
-      HEADS_APPLICATION_SHEET_NAME,
-      `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
-    )}?valueInputOption=RAW`,
-    { values: [["", "", "", "", "", ""]] }
-  );
-  await sheetsFetch(
-    token,
-    "PUT",
-    `${sheetRange(
-      HEADS_APPLICATION_SHEET_NAME,
-      `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
-    )}?valueInputOption=RAW`,
-    { values: [["", ""]] }
-  );
+  // Only this committee's own claim goes. Another committee wanting the same
+  // applicant is none of this committee's business to withdraw.
+  await backfillClaimsFromApplications(token, rows);
+  await removeHeadsClaim(token, applicantEmail, displayCommitteeName(committee));
 
   return { applicantEmail };
 }
@@ -6782,57 +7082,48 @@ async function submitHeadsTeam(
   const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
   const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
 
-  const drafted = rows
-    .map((row, index) => ({ row, index }))
-    .filter(
-      ({ row }) =>
-        String(row[ACCEPTED_COLUMN] ?? "").trim() === "Draft" &&
-        normalizeRole(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee)
-    );
+  await backfillClaimsFromApplications(token, rows);
+  const claims = await readHeadsClaims(token);
 
   const submittedAt = new Date().toISOString();
   const submitted: Array<{ applicantEmail: string; fullName: string; headName: string; position: string }> = [];
   const held: Array<{ applicantEmail: string; fullName: string; firstPreferenceCommittee: string }> = [];
+  const emailColumn2 = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
 
-  for (const { row, index } of drafted) {
-    const applicantEmail = String(row[emailColumn] ?? "").trim();
-    const fullName = String(row[nameColumn] ?? "").trim();
-    const headName = String(row[ACCEPTED_ROLE_COLUMN] ?? "").trim();
-    const position = String(row[ACCEPTED_POSITION_COLUMN] ?? "").trim() || "Member";
-    if (!applicantEmail) continue;
+  /*
+   * Only this committee's own Draft claims. A rival claim on the same
+   * applicant is left exactly as it is — both go to the admin, who is the one
+   * who decides between them.
+   */
+  const mine = claims.filter(
+    (c) => normalizeRole(c.committee) === normalizeRole(committee) && c.status === "Draft"
+  );
 
-    /*
-     * This committee is not who the applicant put first, and the
-     * first-preference committee has not released them. It still goes to the
-     * admin — blocking it here meant the decision never reached the person
-     * who is supposed to make it — but it is reported back as `held` so the
-     * director knows it is contested, and sendHeadsTeamAcceptances leaves it
-     * out of a send until the admin names it explicitly.
-     */
-    const firstPreferenceCommittee = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
+  for (const claim of mine) {
+    const rowIndex = findCurrentRowIndex(rows, emailColumn2, claim.applicantEmail);
+    const firstPreferenceCommittee =
+      rowIndex === -1 ? "" : String(rows[rowIndex][FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
     const isFirstPreference = normalizeRole(firstPreferenceCommittee) === normalizeRole(committee);
-    const released = String(row[RELEASED_COLUMN] ?? "").trim() === "Yes";
-    if (!isFirstPreference && !released) {
-      held.push({ applicantEmail, fullName, firstPreferenceCommittee: displayCommitteeName(firstPreferenceCommittee) });
+    if (!isFirstPreference) {
+      held.push({
+        applicantEmail: claim.applicantEmail,
+        fullName: claim.applicantName,
+        firstPreferenceCommittee: displayCommitteeName(firstPreferenceCommittee)
+      });
     }
 
-    await sheetsFetch(
-      token,
-      "PUT",
-      `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}`)}?valueInputOption=RAW`,
-      { values: [["Submitted"]] }
-    );
-    await sheetsFetch(
-      token,
-      "PUT",
-      `${sheetRange(
-        HEADS_APPLICATION_SHEET_NAME,
-        `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
-      )}?valueInputOption=RAW`,
-      { values: [[access.email, submittedAt]] }
-    );
-
-    submitted.push({ applicantEmail, fullName, headName, position });
+    await upsertHeadsClaim(token, {
+      ...claim,
+      status: "Submitted",
+      submittedBy: access.email,
+      submittedAt
+    });
+    submitted.push({
+      applicantEmail: claim.applicantEmail,
+      fullName: claim.applicantName,
+      headName: claim.headRole,
+      position: claim.position
+    });
   }
 
   return {
