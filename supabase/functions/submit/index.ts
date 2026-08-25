@@ -1402,6 +1402,13 @@ type HeadsAdminApproveClaimPayload = {
   committee: string;
 };
 
+/** Repairs any claim not currently mirrored into Accepted*. Committee optional — omit to check the whole board. */
+type HeadsAdminResyncAcceptedPayload = {
+  mode: "heads-admin-resync-accepted";
+  email: string;
+  committee?: string;
+};
+
 type HeadsAdminUnassignApplicantPayload = {
   mode: "heads-admin-unassign-applicant";
   email: string;
@@ -1522,6 +1529,7 @@ type SubmissionPayload =
   | HeadsAdminAssignApplicantPayload
   | HeadsAdminUnassignApplicantPayload
   | HeadsAdminApproveClaimPayload
+  | HeadsAdminResyncAcceptedPayload
   | HeadsAdminPreviewAcceptancePayload
   | HeadsOnboardingStatusPayload
   | HeadsOnboardingSubmitPayload
@@ -2120,6 +2128,12 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await previewHeadsAcceptances(token, payload)) });
     }
 
+    if (isHeadsAdminResyncAcceptedPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await resyncAcceptedFromClaims(token, payload)) });
+    }
+
     if (isHeadsAdminApproveClaimPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -2380,6 +2394,12 @@ function isHeadsAdminPreviewAcceptancePayload(
   payload: SubmissionPayload
 ): payload is HeadsAdminPreviewAcceptancePayload {
   return (payload as HeadsAdminPreviewAcceptancePayload).mode === "heads-admin-preview-acceptance";
+}
+
+function isHeadsAdminResyncAcceptedPayload(
+  payload: SubmissionPayload
+): payload is HeadsAdminResyncAcceptedPayload {
+  return (payload as HeadsAdminResyncAcceptedPayload).mode === "heads-admin-resync-accepted";
 }
 
 function isHeadsAdminApproveClaimPayload(
@@ -6971,6 +6991,116 @@ async function adminAssignHeadsApplicant(
   );
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
+}
+
+/**
+ * Repairs exactly the gap assignHeadsApplicant and submitHeadsTeam used to
+ * leave behind before they mirrored into Accepted*: a claim that says Draft
+ * or Submitted while the applicant's own row still shows blank, or points at
+ * a committee that no longer has a live claim on them at all. Never touches
+ * anyone already sent ("Yes"), never marks anyone as sent, and never emails
+ * anyone — it only makes the display columns catch up to what the Claims
+ * sheet has said all along. Every change made is returned, so this is
+ * auditable rather than a silent bulk write.
+ *
+ * Optionally scoped to one committee. Where more than one live claim exists
+ * for the same applicant, the applicant's own first-preference committee
+ * wins the mirror if it is one of them, then the most-decided status
+ * (Approved over Submitted over Draft), then whichever was claimed first —
+ * the same priority assignHeadsApplicant already applies when a fresh draft
+ * is placed.
+ */
+async function resyncAcceptedFromClaims(
+  token: string,
+  payload: HeadsAdminResyncAcceptedPayload
+): Promise<{
+  fixed: Array<{ applicantEmail: string; fullName: string; committee: string; headRole: string; position: string; status: string }>;
+}> {
+  await requireRecruitmentAdmin(token, payload.email);
+  const scopeCommittee = String(payload.committee ?? "").trim();
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const emailColumn = HEADS_APPLICATION_HEADERS.indexOf("AUC Email");
+  const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+
+  await backfillClaimsFromApplications(token, rows);
+  const claims = await readHeadsClaims(token);
+
+  const byApplicant = new Map<string, HeadsClaim[]>();
+  for (const c of claims) {
+    if (!["Draft", "Submitted", "Approved"].includes(c.status)) continue;
+    if (scopeCommittee && committeeKey(c.committee) !== committeeKey(scopeCommittee)) continue;
+    const key = normalize(c.applicantEmail);
+    if (!byApplicant.has(key)) byApplicant.set(key, []);
+    byApplicant.get(key)!.push(c);
+  }
+
+  const rank: Record<string, number> = { Approved: 3, Submitted: 2, Draft: 1 };
+  const fixed: Array<{ applicantEmail: string; fullName: string; committee: string; headRole: string; position: string; status: string }> = [];
+
+  for (const mine of byApplicant.values()) {
+    const rowIndex = findCurrentRowIndex(rows, emailColumn, mine[0].applicantEmail);
+    if (rowIndex === -1) continue;
+    const row = rows[rowIndex];
+    if (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes") continue;
+
+    const currentHolder = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+    const alreadyValid = Boolean(currentHolder) && mine.some((c) => committeeKey(c.committee) === committeeKey(currentHolder));
+    if (alreadyValid) continue;
+
+    const firstPreference = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
+    const best = [...mine].sort((a, b) => {
+      const aFirst = committeeKey(a.committee) === committeeKey(firstPreference) ? 1 : 0;
+      const bFirst = committeeKey(b.committee) === committeeKey(firstPreference) ? 1 : 0;
+      if (aFirst !== bFirst) return bFirst - aFirst;
+      const aRank = rank[a.status] ?? 0;
+      const bRank = rank[b.status] ?? 0;
+      if (aRank !== bRank) return bRank - aRank;
+      return (a.claimedAt || "").localeCompare(b.claimedAt || "");
+    })[0];
+
+    // A repair never marks someone sent — only sendHeadsTeamAcceptances and
+    // approveHeadsClaim are allowed to write "Yes", because that is the one
+    // action that emails an applicant.
+    const acceptedStatus = best.status === "Draft" ? "Draft" : "Submitted";
+
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(ACCEPTED_COLUMN + 1)}${rowIndex + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${rowIndex + 2}`
+      )}?valueInputOption=RAW`,
+      {
+        values: [[
+          acceptedStatus,
+          best.headRole,
+          best.position,
+          best.claimedBy,
+          best.claimedAt,
+          displayCommitteeName(best.committee),
+          "",
+          "",
+          "",
+          best.submittedBy,
+          best.submittedAt
+        ]]
+      }
+    );
+
+    fixed.push({
+      applicantEmail: best.applicantEmail,
+      fullName: String(row[nameColumn] ?? "").trim() || best.applicantName,
+      committee: displayCommitteeName(best.committee),
+      headRole: best.headRole,
+      position: best.position,
+      status: acceptedStatus
+    });
+  }
+
+  return { fixed };
 }
 
 /**

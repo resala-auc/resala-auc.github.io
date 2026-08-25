@@ -1420,7 +1420,8 @@ function renderHierarchy() {
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
       <div class="row2" style="align-items:center;margin-bottom:10px;">
         <div class="note">${sendStatus(r)}</div>
-        <div style="flex:0 0 auto;">
+        <div style="flex:0 0 auto;display:flex;gap:6px;">
+          <button class="btn btn-sm btn-ghost" data-resync-committee="${esc(r.raw)}" title="Fix anyone whose claim never made it into the visible status — safe to run any time, never sends anything">Fix stuck claims</button>
           <button class="btn btn-sm btn-gold" data-send-committee="${esc(r.raw)}"${r.staged.length ? "" : " disabled"}>Review ${esc(r.label)} drafts${r.staged.length ? ` (${r.staged.length})` : ""}</button>
         </div>
       </div>
@@ -1491,6 +1492,29 @@ async function approveClaim(applicantEmail, committee, btn) {
   }
   await load(state.admin.email);
   renderHierarchy();
+}
+
+/* Catches up the visible status for any claim that never made it there — the
+   gap that let a committee's own submit report success while the admin's
+   dashboard kept showing nothing. Never marks anyone sent and never emails
+   anyone; it only makes Accepted* agree with what the Claims sheet already
+   says. Reports exactly who it touched. */
+async function resyncStuckClaims(rawCommittee, btn) {
+  const label = display(rawCommittee);
+  btn.disabled = true; const original = btn.textContent; btn.textContent = "Checking…";
+  try {
+    const res = await api({ mode: "heads-admin-resync-accepted", email: state.admin.email, committee: rawCommittee });
+    state.teamMsg = res.fixed.length
+      ? { type: "ok", text: `${label}: caught up ${res.fixed.length} — ${res.fixed.map((f) => `${f.fullName} (${f.status})`).join(", ")}.` }
+      : { type: "ok", text: `${label}: nothing was stuck — every claim already matches its visible status.` };
+    await load(state.admin.email);
+    renderHierarchy();
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: `${label}: ${err.message}` };
+    renderHierarchy();
+  } finally {
+    btn.disabled = false; btn.textContent = original;
+  }
 }
 
 /* The send button opens the drafts rather than firing. Every message is
@@ -1860,6 +1884,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   if (forceBtn) { adminForceSubmit(forceBtn.dataset.forceSubmit, renderHierarchy); return; }
   const claimBtn = e.target.closest("[data-approve-claim]");
   if (claimBtn) { approveClaim(claimBtn.dataset.approveClaim, claimBtn.dataset.approveCommittee, claimBtn); return; }
+  const resyncBtn = e.target.closest("[data-resync-committee]");
+  if (resyncBtn) { resyncStuckClaims(resyncBtn.dataset.resyncCommittee, resyncBtn); return; }
   const sendOne = e.target.closest("[data-send-committee]");
   if (sendOne) { openAcceptanceDrafts(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
