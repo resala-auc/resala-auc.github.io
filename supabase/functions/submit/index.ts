@@ -6753,6 +6753,7 @@ async function assignHeadsApplicant(
   assertRoleSlotFreeInClaims(await readHeadsClaims(token), applicantEmail, committee, head.name, position);
 
   const nameColumn = HEADS_APPLICATION_HEADERS.indexOf("Full Name");
+  const draftedAt = new Date().toISOString();
   await upsertHeadsClaim(token, {
     applicantEmail,
     applicantName: String(rows[index][nameColumn] ?? "").trim(),
@@ -6762,10 +6763,68 @@ async function assignHeadsApplicant(
     position,
     status: "Draft",
     claimedBy: access.email,
-    claimedAt: new Date().toISOString(),
+    claimedAt: draftedAt,
     submittedBy: "",
     submittedAt: ""
   });
+
+  /*
+   * Accepted* is the single-value "what everyone else reads" mirror of
+   * claims — readHeadsApplicants, every dashboard, and the send functions all
+   * read it directly and know nothing about the Claims sheet. A claim alone
+   * is invisible everywhere else, so it has to be mirrored here too, not just
+   * recorded. Only mirrored when doing so does not clobber a different,
+   * currently-standing claim: the applicant's own first-preference committee
+   * always wins the mirror (matching the old, pre-claims priority rule), and
+   * anyone else only takes it while nobody else currently holds it. A
+   * genuine conflict — two committees, neither first preference, both
+   * wanting the mirror — is exactly what the admin's contested-claims view
+   * exists to settle; the claim itself is still recorded and visible there
+   * either way.
+   */
+  const isFirstPreference =
+    normalizeRole(String(rows[index][FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "")) === normalizeRole(committee);
+  const currentHolder = String(rows[index][ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+  const mirrorAccepted = isFirstPreference || !currentHolder || committeeKey(currentHolder) === committeeKey(committee);
+
+  if (mirrorAccepted) {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        isFirstPreference
+          ? `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+          : `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(ACCEPTED_COMMITTEE_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      {
+        values: [
+          isFirstPreference
+            // Reclaiming as first preference also clears any release and any
+            // prior submission — both are moot once the committee that
+            // mattered wants them after all, and this draft needs its own
+            // fresh confirm before it can go to the admin again.
+            ? ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee), "", "", "", "", ""]
+            : ["Draft", head.name, position, access.email, draftedAt, displayCommitteeName(committee)]
+        ]
+      }
+    );
+
+    // Redrafting a non-first-preference placement (say, changing the role)
+    // un-submits it too, so a stale "Submitted" does not linger for the
+    // admin to approve against what the committee actually meant.
+    if (!isFirstPreference) {
+      await sheetsFetch(
+        token,
+        "PUT",
+        `${sheetRange(
+          HEADS_APPLICATION_SHEET_NAME,
+          `${columnLetter(SUBMITTED_BY_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+        )}?valueInputOption=RAW`,
+        { values: [["", ""]] }
+      );
+    }
+  }
 
   return { applicantEmail, committee: displayCommitteeName(committee), headName: head.name, position };
 }
@@ -7052,7 +7111,8 @@ async function unassignHeadsApplicant(
   if (index === -1) throw new Error("No application found for that applicant.");
 
   const status = String(rows[index][ACCEPTED_COLUMN] ?? "").trim();
-  if (status === "Yes" && committeeKey(rows[index][ACCEPTED_COMMITTEE_COLUMN]) === committeeKey(committee)) {
+  const mirroredByThisCommittee = committeeKey(rows[index][ACCEPTED_COMMITTEE_COLUMN]) === committeeKey(committee);
+  if (status === "Yes" && mirroredByThisCommittee) {
     throw new Error("Already approved and emailed — this can't be undone from the diagram.");
   }
 
@@ -7060,6 +7120,28 @@ async function unassignHeadsApplicant(
   // applicant is none of this committee's business to withdraw.
   await backfillClaimsFromApplications(token, rows);
   await removeHeadsClaim(token, applicantEmail, displayCommitteeName(committee));
+
+  /*
+   * Accepted* is a mirror of whichever claim currently owns it — see
+   * assignHeadsApplicant. If it was mirroring THIS committee's claim, the
+   * mirror is now stale: removing the claim above leaves the row still
+   * reading Draft/Submitted for a committee that no longer wants them, which
+   * is exactly the diagram-says-removed-but-admin-still-shows-them bug. It is
+   * only cleared here, never handed to a rival claim automatically — a
+   * remaining rival is left for the admin to see and settle explicitly via
+   * the contested view, rather than guessed at.
+   */
+  if (mirroredByThisCommittee && status !== "Yes") {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(
+        HEADS_APPLICATION_SHEET_NAME,
+        `${columnLetter(ACCEPTED_COLUMN + 1)}${index + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${index + 2}`
+      )}?valueInputOption=RAW`,
+      { values: [["", "", "", "", "", "", "", "", "", "", ""]] }
+    );
+  }
 
   return { applicantEmail };
 }
@@ -7156,6 +7238,47 @@ async function submitHeadsTeam(
       submittedBy: access.email,
       submittedAt
     });
+
+    /*
+     * Mirror into Accepted* — see the same note in assignHeadsApplicant. The
+     * send functions read Accepted* directly and know nothing about claims,
+     * so a claim that flips to Submitted here but is never mirrored is
+     * invisible to them: reachable in the Hierarchy tab's contested view, but
+     * never actually sendable. Same eligibility rule as the draft: this
+     * committee's first-preference claim always mirrors; anyone else only
+     * while nobody else's claim currently occupies the mirror.
+     */
+    if (rowIndex !== -1) {
+      const currentHolder = String(rows[rowIndex][ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+      const mirrorAccepted =
+        isFirstPreference || !currentHolder || committeeKey(currentHolder) === committeeKey(committee);
+      if (mirrorAccepted) {
+        await sheetsFetch(
+          token,
+          "PUT",
+          `${sheetRange(
+            HEADS_APPLICATION_SHEET_NAME,
+            `${columnLetter(ACCEPTED_COLUMN + 1)}${rowIndex + 2}:${columnLetter(SUBMITTED_AT_COLUMN + 1)}${rowIndex + 2}`
+          )}?valueInputOption=RAW`,
+          {
+            values: [[
+              "Submitted",
+              claim.headRole,
+              claim.position,
+              claim.claimedBy || access.email,
+              claim.claimedAt || submittedAt,
+              displayCommitteeName(committee),
+              "",
+              "",
+              "",
+              access.email,
+              submittedAt
+            ]]
+          }
+        );
+      }
+    }
+
     submitted.push({
       applicantEmail: claim.applicantEmail,
       fullName: claim.applicantName,
