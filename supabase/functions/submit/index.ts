@@ -7146,7 +7146,7 @@ async function approveHeadsClaim(
   const committee = String(payload.committee ?? "").trim();
   if (!applicantEmail || !committee) throw new Error("Applicant and committee are required.");
 
-  await requireRecruitmentAdmin(token, payload.email);
+  const admin = await requireRecruitmentAdmin(token, payload.email);
 
   const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
   const response = await sheetsFetch(token, "GET", `${sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)}`);
@@ -7160,19 +7160,28 @@ async function approveHeadsClaim(
   await backfillClaimsFromApplications(token, rows);
   const claims = await readHeadsClaims(token);
   const mine = claims.filter((c) => normalize(c.applicantEmail) === normalize(applicantEmail));
-  const winner = mine.find((c) => normalizeRole(c.committee) === normalizeRole(committee));
+  // committeeKey rather than a bare normalizeRole: this is reachable from a
+  // caller passing either form (the contested-claims picker passes a claim's
+  // own display name; the "held back, release" action below passes the raw
+  // committee it already had on hand), and the two must resolve the same way
+  // regardless of which one shows up.
+  const winner = mine.find((c) => committeeKey(c.committee) === committeeKey(committee));
   if (!winner) throw new Error(`${displayCommitteeName(committee)} has not claimed that applicant.`);
 
   const declined: string[] = [];
   for (const rival of mine) {
-    if (normalizeRole(rival.committee) === normalizeRole(committee)) continue;
+    if (committeeKey(rival.committee) === committeeKey(committee)) continue;
     await upsertHeadsClaim(token, { ...rival, status: "Declined" });
     declined.push(displayCommitteeName(rival.committee));
   }
 
   await upsertHeadsClaim(token, { ...winner, status: "Approved" });
 
-  // The resolved placement, in the columns everything downstream already reads.
+  // The resolved placement, in the columns everything downstream already
+  // reads. Released is written here too, not left blank — the admin
+  // approving this claim is exactly what a first-preference release means:
+  // the applicant is decisively this committee's, so nothing downstream
+  // should keep reading them as held for someone else.
   const now = new Date().toISOString();
   await sheetsFetch(
     token,
@@ -7189,9 +7198,9 @@ async function approveHeadsClaim(
         winner.claimedBy || payload.email,
         winner.claimedAt || now,
         displayCommitteeName(winner.committee),
-        "",
-        "",
-        "",
+        "Yes",
+        admin.email,
+        now,
         winner.submittedBy || payload.email,
         winner.submittedAt || now
       ]]

@@ -1566,7 +1566,7 @@ async function openAcceptanceDrafts(rawCommittee, btn) {
     // who or why. Submitted-but-contested is the one way Accepted* can be
     // completely correct and the send still finds nothing — so this is
     // exactly the situation that needs names, not a count.
-    state.sendBlockedReport = { label, skippedContested: res.skippedContested };
+    state.sendBlockedReport = { label, raw: rawCommittee, skippedContested: res.skippedContested };
     state.teamMsg = null;
     renderHierarchy();
     return;
@@ -1594,8 +1594,9 @@ function renderSendBlockedReport() {
         <div class="slot-chip">
           <span class="chip-name" data-open="${esc(a.applicantEmail)}">${esc(a.fullName)}</span>
           <span class="chip-status pending">first pref: ${esc(a.firstPreferenceCommittee)}</span>
+          <button type="button" class="chip-force" data-approve-claim="${esc(a.applicantEmail)}" data-approve-committee="${esc(r.raw)}" title="Release them from ${esc(a.firstPreferenceCommittee)} and give them to ${esc(r.label)} — this one person only, this one time">Release &amp; give to ${esc(r.label)}</button>
         </div>`).join("")}
-      <div class="note" style="margin-top:8px;">To send anyway, tick them individually in Team diagrams — that is the admin explicitly deciding for ${esc(r.label)}.</div>
+      <div class="note" style="margin-top:8px;">Releasing one here does not change the rule for anyone else — every future submission still gets checked the same way. Review again after releasing to pick them up.</div>
       <button type="button" class="btn btn-sm btn-ghost" data-sendblock-dismiss style="margin-top:8px;">Dismiss</button>
     </div>`;
 }
