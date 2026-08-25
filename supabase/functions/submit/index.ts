@@ -36,7 +36,7 @@ const TASK_SUBMISSION_URL = (Deno.env.get("TASK_SUBMISSION_URL") ?? "https://res
 const LEADERSHIP_VIDEO_URL =
   Deno.env.get("LEADERSHIP_VIDEO_URL") ?? "https://www.youtube.com/watch?v=qzoIAJYPQwo";
 /** When their notes on it are due. */
-const VIDEO_NOTES_DEADLINE = Deno.env.get("VIDEO_NOTES_DEADLINE") ?? "Tuesday 26 August, 9:00 PM";
+const VIDEO_NOTES_DEADLINE = Deno.env.get("VIDEO_NOTES_DEADLINE") ?? "Saturday 29 August, 9:00 PM";
 const HEADS_ONBOARDING_URL = (
   Deno.env.get("HEADS_ONBOARDING_URL") ?? "https://resala-auc.github.io/heads-onboarding/"
 ).replace(/\/*$/, "/");
