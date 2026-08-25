@@ -7015,6 +7015,15 @@ async function resyncAcceptedFromClaims(
   payload: HeadsAdminResyncAcceptedPayload
 ): Promise<{
   fixed: Array<{ applicantEmail: string; fullName: string; committee: string; headRole: string; position: string; status: string }>;
+  /*
+   * The full live picture, not just what changed — so "nothing was stuck" is
+   * never ambiguous between "there was nothing to check" and "I checked and
+   * it was all already fine". Every applicant with a live claim in scope ends
+   * up in exactly one of these three, whether or not anything was written.
+   */
+  alreadyOk: Array<{ applicantEmail: string; fullName: string; committee: string; status: string }>;
+  noRow: Array<{ applicantEmail: string; committee: string }>;
+  alreadySent: Array<{ applicantEmail: string; fullName: string; committee: string }>;
 }> {
   await requireRecruitmentAdmin(token, payload.email);
   const scopeCommittee = String(payload.committee ?? "").trim();
@@ -7039,16 +7048,34 @@ async function resyncAcceptedFromClaims(
 
   const rank: Record<string, number> = { Approved: 3, Submitted: 2, Draft: 1 };
   const fixed: Array<{ applicantEmail: string; fullName: string; committee: string; headRole: string; position: string; status: string }> = [];
+  const alreadyOk: Array<{ applicantEmail: string; fullName: string; committee: string; status: string }> = [];
+  const noRow: Array<{ applicantEmail: string; committee: string }> = [];
+  const alreadySent: Array<{ applicantEmail: string; fullName: string; committee: string }> = [];
 
   for (const mine of byApplicant.values()) {
     const rowIndex = findCurrentRowIndex(rows, emailColumn, mine[0].applicantEmail);
-    if (rowIndex === -1) continue;
+    if (rowIndex === -1) {
+      noRow.push({ applicantEmail: mine[0].applicantEmail, committee: displayCommitteeName(mine[0].committee) });
+      continue;
+    }
     const row = rows[rowIndex];
-    if (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes") continue;
+    const fullName = String(row[nameColumn] ?? "").trim() || mine[0].applicantName;
+    if (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes") {
+      alreadySent.push({ applicantEmail: mine[0].applicantEmail, fullName, committee: String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim() });
+      continue;
+    }
 
     const currentHolder = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
     const alreadyValid = Boolean(currentHolder) && mine.some((c) => committeeKey(c.committee) === committeeKey(currentHolder));
-    if (alreadyValid) continue;
+    if (alreadyValid) {
+      alreadyOk.push({
+        applicantEmail: mine[0].applicantEmail,
+        fullName,
+        committee: currentHolder,
+        status: String(row[ACCEPTED_COLUMN] ?? "").trim()
+      });
+      continue;
+    }
 
     const firstPreference = String(row[FIRST_PREFERENCE_COMMITTEE_COLUMN] ?? "").trim();
     const best = [...mine].sort((a, b) => {
@@ -7092,7 +7119,7 @@ async function resyncAcceptedFromClaims(
 
     fixed.push({
       applicantEmail: best.applicantEmail,
-      fullName: String(row[nameColumn] ?? "").trim() || best.applicantName,
+      fullName,
       committee: displayCommitteeName(best.committee),
       headRole: best.headRole,
       position: best.position,
@@ -7100,7 +7127,7 @@ async function resyncAcceptedFromClaims(
     });
   }
 
-  return { fixed };
+  return { fixed, alreadyOk, noRow, alreadySent };
 }
 
 /**

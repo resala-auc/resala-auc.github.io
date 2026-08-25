@@ -1415,6 +1415,7 @@ function renderHierarchy() {
         <span class="c">${r.roles.filter((x) => !x.head.retired && x.headHolders.length).length}/${r.roles.filter((x) => !x.head.retired).length} roles have a Head${r.staged.length ? ` · ${r.staged.length} ready to send` : ""}${r.sent.length ? ` · ${r.sent.length} sent` : ""}</span>
       </h2>
       ${onboardingLine(r)}
+      ${state.resyncReport && norm(state.resyncReport.label) === norm(r.label) ? renderResyncReport() : ""}
       ${r.stranded.length ? `
         <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
@@ -1498,15 +1499,40 @@ async function approveClaim(applicantEmail, committee, btn) {
    gap that let a committee's own submit report success while the admin's
    dashboard kept showing nothing. Never marks anyone sent and never emails
    anyone; it only makes Accepted* agree with what the Claims sheet already
-   says. Reports exactly who it touched. */
+   says.
+   The result is kept on screen rather than a toast that scrolls away — the
+   whole point is answering "what is actually going on", and a live claim
+   count of zero versus "every claim was already fine" are very different
+   answers that need to stay readable. */
+function renderResyncReport() {
+  const r = state.resyncReport;
+  if (!r) return "";
+  const total = r.fixed.length + r.alreadyOk.length + r.noRow.length + r.alreadySent.length;
+  const row = (a, tag, tagClass) => `
+    <div class="slot-chip">
+      <span>${esc(a.fullName || a.applicantEmail)}</span>
+      <span class="chip-status ${tagClass}">${esc(tag)}</span>
+    </div>`;
+  return `
+    <div class="onb-line" style="border-color:#dde7f0;background:#f6f9fc;">
+      <div class="onb-head"><b>${total}</b> live claim${total === 1 ? "" : "s"} found for ${esc(r.label)}${
+    total === 0 ? " — nobody has claimed this committee at all right now." : "."
+  }</div>
+      ${r.fixed.length ? `<div class="note" style="margin:6px 0 4px;"><b>${r.fixed.length} just caught up:</b></div>${r.fixed.map((a) => row(a, a.status, a.status === "Submitted" ? "submitted" : "draft")).join("")}` : ""}
+      ${r.alreadyOk.length ? `<div class="note" style="margin:6px 0 4px;"><b>${r.alreadyOk.length} already correct:</b></div>${r.alreadyOk.map((a) => row(a, a.status, a.status === "Submitted" ? "submitted" : a.status === "Yes" ? "sent" : "draft")).join("")}` : ""}
+      ${r.alreadySent.length ? `<div class="note" style="margin:6px 0 4px;"><b>${r.alreadySent.length} already sent, left untouched:</b></div>${r.alreadySent.map((a) => row(a, "Sent", "sent")).join("")}` : ""}
+      ${r.noRow.length ? `<div class="note" style="margin:6px 0 4px;color:var(--bad);"><b>${r.noRow.length} claim${r.noRow.length === 1 ? "" : "s"} with no matching application row</b> — data problem, not a status one.</div>${r.noRow.map((a) => row(a, "no row", "pending")).join("")}` : ""}
+      <button type="button" class="btn btn-sm btn-ghost" data-resync-dismiss style="margin-top:8px;">Dismiss</button>
+    </div>`;
+}
+
 async function resyncStuckClaims(rawCommittee, btn) {
   const label = display(rawCommittee);
   btn.disabled = true; const original = btn.textContent; btn.textContent = "Checking…";
   try {
     const res = await api({ mode: "heads-admin-resync-accepted", email: state.admin.email, committee: rawCommittee });
-    state.teamMsg = res.fixed.length
-      ? { type: "ok", text: `${label}: caught up ${res.fixed.length} — ${res.fixed.map((f) => `${f.fullName} (${f.status})`).join(", ")}.` }
-      : { type: "ok", text: `${label}: nothing was stuck — every claim already matches its visible status.` };
+    state.resyncReport = { label, ...res };
+    state.teamMsg = null;
     await load(state.admin.email);
     renderHierarchy();
   } catch (err) {
@@ -1886,6 +1912,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   if (claimBtn) { approveClaim(claimBtn.dataset.approveClaim, claimBtn.dataset.approveCommittee, claimBtn); return; }
   const resyncBtn = e.target.closest("[data-resync-committee]");
   if (resyncBtn) { resyncStuckClaims(resyncBtn.dataset.resyncCommittee, resyncBtn); return; }
+  const resyncDismiss = e.target.closest("[data-resync-dismiss]");
+  if (resyncDismiss) { state.resyncReport = null; renderHierarchy(); return; }
   const sendOne = e.target.closest("[data-send-committee]");
   if (sendOne) { openAcceptanceDrafts(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
