@@ -1416,6 +1416,7 @@ function renderHierarchy() {
       </h2>
       ${onboardingLine(r)}
       ${state.resyncReport && norm(state.resyncReport.label) === norm(r.label) ? renderResyncReport() : ""}
+      ${state.sendBlockedReport && norm(state.sendBlockedReport.label) === norm(r.label) ? renderSendBlockedReport() : ""}
       ${r.stranded.length ? `
         <div class="note" style="margin-bottom:8px;color:var(--warn);font-weight:700;">${r.stranded.length} placed in a role that no longer exists</div>
         <div class="team-grid">${r.stranded.map((a) => strandedAdminCard(a, r.raw, r.roles.map((x) => x.head))).join("")}</div>` : ""}
@@ -1560,18 +1561,43 @@ async function openAcceptanceDrafts(rawCommittee, btn) {
   btn.disabled = false;
 
   if (!res.messages.length) {
-    state.teamMsg = {
-      type: "bad",
-      text: res.skippedContested.length
-        ? `${label}: everyone staged put another committee first. Settle that above, or tick them individually in Team diagrams.`
-        : `${label}: nothing ready to send.`
-    };
+    // Same reasoning as the resync report: a collapsed toast saying "0" or
+    // "everyone was contested" cannot be checked afterward and does not say
+    // who or why. Submitted-but-contested is the one way Accepted* can be
+    // completely correct and the send still finds nothing — so this is
+    // exactly the situation that needs names, not a count.
+    state.sendBlockedReport = { label, skippedContested: res.skippedContested };
+    state.teamMsg = null;
     renderHierarchy();
     return;
   }
 
+  state.sendBlockedReport = null;
   state.drafts = { committee: rawCommittee, label, ...res, index: 0 };
   renderDrafts();
+}
+
+function renderSendBlockedReport() {
+  const r = state.sendBlockedReport;
+  if (!r) return "";
+  if (!r.skippedContested.length) {
+    return `
+      <div class="onb-line" style="border-color:#f3d2d2;background:#fdf4f4;">
+        <div class="onb-head">Nothing Submitted for ${esc(r.label)} right now — there is nothing to review yet.</div>
+        <button type="button" class="btn btn-sm btn-ghost" data-sendblock-dismiss style="margin-top:8px;">Dismiss</button>
+      </div>`;
+  }
+  return `
+    <div class="onb-line" style="border-color:#f3d2d2;background:#fdf4f4;">
+      <div class="onb-head"><b>${r.skippedContested.length}</b> submitted for ${esc(r.label)}, but held back — their own first preference is a different committee, and it has not released them:</div>
+      ${r.skippedContested.map((a) => `
+        <div class="slot-chip">
+          <span class="chip-name" data-open="${esc(a.applicantEmail)}">${esc(a.fullName)}</span>
+          <span class="chip-status pending">first pref: ${esc(a.firstPreferenceCommittee)}</span>
+        </div>`).join("")}
+      <div class="note" style="margin-top:8px;">To send anyway, tick them individually in Team diagrams — that is the admin explicitly deciding for ${esc(r.label)}.</div>
+      <button type="button" class="btn btn-sm btn-ghost" data-sendblock-dismiss style="margin-top:8px;">Dismiss</button>
+    </div>`;
 }
 
 function renderDrafts() {
@@ -1914,6 +1940,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   if (resyncBtn) { resyncStuckClaims(resyncBtn.dataset.resyncCommittee, resyncBtn); return; }
   const resyncDismiss = e.target.closest("[data-resync-dismiss]");
   if (resyncDismiss) { state.resyncReport = null; renderHierarchy(); return; }
+  const sendBlockDismiss = e.target.closest("[data-sendblock-dismiss]");
+  if (sendBlockDismiss) { state.sendBlockedReport = null; renderHierarchy(); return; }
   const sendOne = e.target.closest("[data-send-committee]");
   if (sendOne) { openAcceptanceDrafts(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
