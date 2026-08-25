@@ -203,6 +203,7 @@
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="teams">Team diagrams</button>
       <button class="tab" data-view="hierarchy">Hierarchy</button>
+      <button class="tab" data-view="send">Send</button>
       <button class="tab" data-view="onboarding">Onboarding</button>
       <button class="tab" data-view="slots">Slots</button>
     </div>
@@ -229,6 +230,7 @@
 
     <div id="view-teams" class="hidden"></div>
     <div id="view-hierarchy" class="hidden"></div>
+    <div id="view-send" class="hidden"></div>
     <div id="view-onboarding" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
@@ -1767,6 +1769,222 @@ async function rejectSubmission(email, rawCommittee, rerender = renderTeams) {
   }
 }
 
+/* ── send dashboard: one flat list, across every committee ───────────────
+   Team diagrams and Hierarchy answer "is this committee's board built
+   correctly" — role by role, closed roles, stranded placements, backups.
+   None of that matters once the question is just "who is accepted, and have
+   I emailed them yet". This tab answers only that, across the whole board at
+   once, so sending does not require walking committee by committee. */
+
+/** The raw committee name a row's display name came from — needed for the
+    same first-preference check every other tab already uses, and to call
+    the admin actions that still expect the raw form. */
+function rawCommitteeFor(displayName) {
+  const hit = CYCLE_COMMITTEES.find((c) => norm(display(c.raw)) === norm(displayName));
+  return hit ? hit.raw : displayName;
+}
+
+function sendDashboardRows() {
+  return state.data.applicants
+    .filter((a) => a.acceptedStatus)
+    .map((a) => ({ a, raw: rawCommitteeFor(a.acceptedCommittee) }))
+    .sort((x, y) => norm(x.a.acceptedCommittee).localeCompare(norm(y.a.acceptedCommittee)) || String(x.a.fullName).localeCompare(String(y.a.fullName)));
+}
+
+function sendRowState(a, raw) {
+  if (a.acceptedStatus === "Yes") return { key: "sent", label: "Sent" };
+  if (a.acceptedStatus === "Draft") return { key: "draft", label: "Not submitted yet" };
+  // Submitted from here down.
+  if (isContested(a, raw)) return { key: "held", label: `Held — first pref: ${display(a.roleAppliedFor)}` };
+  return { key: "ready", label: "Ready" };
+}
+
+function renderSendDashboard() {
+  const el = document.getElementById("view-send");
+  if (!state.data) return;
+
+  const rows = sendDashboardRows();
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty">Nobody has been accepted anywhere yet.</div>`;
+    return;
+  }
+
+  const committees = [...new Set(rows.map((r) => r.a.acceptedCommittee))].sort();
+  const pick = state.sendFilterCommittee || "";
+  const visible = pick ? rows.filter((r) => norm(r.a.acceptedCommittee) === norm(pick)) : rows;
+
+  const sent = rows.filter((r) => r.a.acceptedStatus === "Yes").length;
+  const ready = rows.filter((r) => sendRowState(r.a, r.raw).key === "ready").length;
+  const held = rows.filter((r) => sendRowState(r.a, r.raw).key === "held").length;
+  const draft = rows.filter((r) => r.a.acceptedStatus === "Draft").length;
+
+  if (!state.sendSelected) state.sendSelected = new Set();
+  // Drop anything no longer valid to select (sent since, or filtered out of existence).
+  for (const email of [...state.sendSelected]) {
+    if (!rows.some((r) => norm(r.a.email) === norm(email) && sendRowState(r.a, r.raw).key === "ready")) {
+      state.sendSelected.delete(email);
+    }
+  }
+  const selectedCount = state.sendSelected.size;
+
+  const summary = `
+    <div class="team-summary">
+      <span class="count"><b>${rows.length}</b> accepted total</span>
+      <span class="count"><b>${sent}</b> already sent</span>
+      <span class="count"><b>${ready}</b> ready to send</span>
+      ${held ? `<span class="count"><b>${held}</b> held on a first-preference conflict</span>` : ""}
+      ${draft ? `<span class="count"><b>${draft}</b> not submitted yet</span>` : ""}
+    </div>`;
+
+  const filter = `
+    <div class="filters">
+      <div>
+        <label for="send-committee">Committee</label>
+        <select id="send-committee">
+          <option value=""${pick ? "" : " selected"}>All committees</option>
+          ${committees.map((c) => `<option value="${esc(c)}"${norm(c) === norm(pick) ? " selected" : ""}>${esc(c)}</option>`).join("")}
+        </select>
+      </div>
+    </div>`;
+
+  const rowsHtml = visible.map(({ a, raw }) => {
+    const st = sendRowState(a, raw);
+    const checked = state.sendSelected.has(norm(a.email));
+    return `
+      <tr>
+        <td>
+          ${st.key === "ready" ? `<input type="checkbox" class="chip-check" data-send-pick="${esc(a.email)}"${checked ? " checked" : ""}>` : ""}
+        </td>
+        <td><b class="chip-name" data-open="${esc(a.email)}">${esc(a.fullName)}</b></td>
+        <td>${esc(a.acceptedCommittee)}<div class="note">${esc(roleTitle(a.acceptedPosition, a.acceptedRole))}</div></td>
+        <td><span class="pill ${st.key === "sent" ? "done" : st.key === "ready" ? "open" : st.key === "held" ? "bad" : "part"}">${esc(st.label)}</span>
+          ${st.key === "held" ? `<button type="button" class="chip-force" style="margin-left:6px;" data-send-release="${esc(a.email)}" data-send-release-committee="${esc(raw)}">Release</button>` : ""}
+        </td>
+      </tr>`;
+  }).join("");
+
+  el.innerHTML = `
+    ${summary}
+    ${state.teamMsg ? `<div class="msg ${state.teamMsg.type}" style="margin:0 0 16px;">${esc(state.teamMsg.text)}</div>` : ""}
+    ${filter}
+    <div class="row2" style="align-items:center;margin-bottom:14px;">
+      <div class="note">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="send-select-all"${ready > 0 && selectedCount === ready ? " checked" : ""}${ready === 0 ? " disabled" : ""}>
+          Select all ready${pick ? ` in ${esc(pick)}` : ""}
+        </label>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="btn btn-gold" id="send-selected-btn"${selectedCount ? "" : " disabled"}>Send selected${selectedCount ? ` (${selectedCount})` : ""}</button>
+      </div>
+    </div>
+    <div class="wrap-x"><table>
+      <thead><tr><th></th><th>Applicant</th><th>Role</th><th>Status</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table></div>`;
+}
+
+async function sendDashboardSelected(btn) {
+  const rows = sendDashboardRows();
+  const chosen = rows.filter((r) => state.sendSelected.has(norm(r.a.email)));
+  if (!chosen.length) return;
+
+  const byCommittee = new Map();
+  for (const r of chosen) {
+    const key = r.a.acceptedCommittee;
+    if (!byCommittee.has(key)) byCommittee.set(key, []);
+    byCommittee.get(key).push(r.a);
+  }
+
+  const roster = [...byCommittee.entries()]
+    .map(([committee, people]) => `${committee}:\n  ${people.map((a) => a.fullName).join("\n  ")}`)
+    .join("\n\n");
+
+  if (!(await confirmDialog(
+    `Send the acceptance email to ${chosen.length} ${chosen.length === 1 ? "person" : "people"}?\n\n${roster}\n\nThis emails them immediately, cc the committee and HR. It cannot be undone.`
+  ))) return;
+
+  btn.disabled = true; btn.textContent = "Sending…";
+  const done = [];
+  const failed = [];
+  for (const [committee, people] of byCommittee) {
+    try {
+      const r = await api({
+        mode: "heads-admin-confirm-team",
+        email: state.admin.email,
+        committee,
+        applicantEmails: people.map((a) => a.email)
+      });
+      done.push(`${committee} (${r.sent.length})`);
+    } catch (err) {
+      failed.push(`${committee}: ${err.message}`);
+    }
+  }
+
+  state.sendSelected = new Set();
+  state.teamMsg = failed.length
+    ? { type: "bad", text: `Sent: ${done.join(", ") || "nobody"}. Failed — ${failed.join(" · ")}` }
+    : { type: "ok", text: `Sent: ${done.join(", ")}.` };
+
+  await load(state.admin.email);
+  renderSendDashboard();
+}
+
+async function sendDashboardRelease(applicantEmail, rawCommittee, btn) {
+  const who = state.data.applicants.find((x) => norm(x.email) === norm(applicantEmail));
+  const label = display(rawCommittee);
+  if (!(await confirmDialog(
+    `Release ${who?.fullName || applicantEmail} to ${label}?\n\nThis settles the first-preference conflict in ${label}'s favour. Nothing is emailed yet — tick them and send after this.`
+  ))) return;
+
+  btn.disabled = true;
+  try {
+    await api({ mode: "heads-admin-approve-claim", email: state.admin.email, applicantEmail, committee: rawCommittee });
+    state.teamMsg = { type: "ok", text: `${who?.fullName || applicantEmail} released to ${label}.` };
+  } catch (err) {
+    state.teamMsg = { type: "bad", text: err.message };
+  }
+  await load(state.admin.email);
+  renderSendDashboard();
+}
+
+document.getElementById("view-send").addEventListener("click", (e) => {
+  const openBtn = e.target.closest("[data-open]");
+  if (openBtn) {
+    const a = state.data.applicants.find((x) => norm(x.email) === norm(openBtn.dataset.open));
+    if (a) { state.selected = a.email; renderDialog(a); }
+    return;
+  }
+  const pickBtn = e.target.closest("[data-send-pick]");
+  if (pickBtn) {
+    if (!state.sendSelected) state.sendSelected = new Set();
+    const email = norm(pickBtn.dataset.sendPick);
+    if (pickBtn.checked) state.sendSelected.add(email); else state.sendSelected.delete(email);
+    renderSendDashboard();
+    return;
+  }
+  const releaseBtn = e.target.closest("[data-send-release]");
+  if (releaseBtn) { sendDashboardRelease(releaseBtn.dataset.sendRelease, releaseBtn.dataset.sendReleaseCommittee, releaseBtn); return; }
+  const sendBtn = e.target.closest("#send-selected-btn");
+  if (sendBtn) { sendDashboardSelected(sendBtn); return; }
+});
+
+document.getElementById("view-send").addEventListener("change", (e) => {
+  if (e.target.id === "send-committee") {
+    state.sendFilterCommittee = e.target.value;
+    renderSendDashboard();
+    return;
+  }
+  if (e.target.id === "send-select-all") {
+    if (!state.sendSelected) state.sendSelected = new Set();
+    const pick = state.sendFilterCommittee || "";
+    const ready = sendDashboardRows().filter((r) => (!pick || norm(r.a.acceptedCommittee) === norm(pick)) && sendRowState(r.a, r.raw).key === "ready");
+    if (e.target.checked) { for (const r of ready) state.sendSelected.add(norm(r.a.email)); }
+    else { for (const r of ready) state.sendSelected.delete(norm(r.a.email)); }
+    renderSendDashboard();
+  }
+});
+
 /* ── onboarding checklist status ───────────────────────────────────────── */
 
 function onboardingStatusBadge(a) {
@@ -1945,6 +2163,7 @@ document.getElementById("views").addEventListener("click", (e) => {
   document.getElementById("view-applicants").classList.toggle("hidden", view.dataset.view !== "applicants");
   document.getElementById("view-teams").classList.toggle("hidden", view.dataset.view !== "teams");
   document.getElementById("view-hierarchy").classList.toggle("hidden", view.dataset.view !== "hierarchy");
+  document.getElementById("view-send").classList.toggle("hidden", view.dataset.view !== "send");
   document.getElementById("view-onboarding").classList.toggle("hidden", view.dataset.view !== "onboarding");
   document.getElementById("view-slots").classList.toggle("hidden", view.dataset.view !== "slots");
   for (const btn of document.querySelectorAll("#views [data-view]")) {
@@ -1952,6 +2171,7 @@ document.getElementById("views").addEventListener("click", (e) => {
   }
   if (view.dataset.view === "teams") renderTeams();
   if (view.dataset.view === "hierarchy") renderHierarchy();
+  if (view.dataset.view === "send") renderSendDashboard();
   if (view.dataset.view === "onboarding") renderOnboarding();
   if (view.dataset.view === "slots") loadSlotsCoverage();
 });
