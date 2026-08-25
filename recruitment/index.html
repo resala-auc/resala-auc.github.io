@@ -1496,6 +1496,50 @@ async function approveClaim(applicantEmail, committee, btn) {
   renderHierarchy();
 }
 
+/* Releasing an entire held-back list in one pass, instead of the same click
+   repeated once per name — for a committee like Tech Team where nearly
+   everyone gets there as someone's second pick, one-by-one was the actual
+   friction, not the rule itself. One confirm names everyone up front, same
+   as any other bulk action in this tab; the check itself is untouched and
+   runs again on every future submission, for Tech Team same as anyone
+   else — this clears today's list, it does not turn the check off. */
+async function releaseAllHeld(rawCommittee, btn) {
+  const r = state.sendBlockedReport;
+  if (!r || !r.skippedContested.length) return;
+  const label = r.label;
+  const people = r.skippedContested;
+
+  if (!(await confirmDialog(
+    `Release all ${people.length} to ${label}?\n\n` +
+    people.map((a) => `${a.fullName} — currently held for ${a.firstPreferenceCommittee}`).join("\n") +
+    `\n\nEach becomes ${label}'s decisively. Nothing is emailed yet — you still review and send after this.`
+  ))) return;
+
+  btn.disabled = true; const original = btn.textContent; btn.textContent = "Releasing…";
+  const done = [];
+  const failed = [];
+  for (const a of people) {
+    try {
+      await api({ mode: "heads-admin-approve-claim", email: state.admin.email, applicantEmail: a.applicantEmail, committee: rawCommittee });
+      done.push(a.fullName);
+    } catch (err) {
+      failed.push(`${a.fullName}: ${err.message}`);
+    }
+  }
+
+  state.sendBlockedReport = null;
+  state.teamMsg = failed.length
+    ? { type: "bad", text: `${label}: released ${done.length}, failed on ${failed.join(" · ")}.` }
+    : null;
+  await load(state.admin.email);
+
+  // Straight back into Review with everyone now included — the same speed
+  // any other committee's send already has.
+  const reviewBtn = document.querySelector(`[data-send-committee="${CSS.escape(rawCommittee)}"]`);
+  if (reviewBtn) { await openAcceptanceDrafts(rawCommittee, reviewBtn); }
+  else { renderHierarchy(); }
+}
+
 /* Catches up the visible status for any claim that never made it there — the
    gap that let a committee's own submit report success while the admin's
    dashboard kept showing nothing. Never marks anyone sent and never emails
@@ -1596,8 +1640,11 @@ function renderSendBlockedReport() {
           <span class="chip-status pending">first pref: ${esc(a.firstPreferenceCommittee)}</span>
           <button type="button" class="chip-force" data-approve-claim="${esc(a.applicantEmail)}" data-approve-committee="${esc(r.raw)}" title="Release them from ${esc(a.firstPreferenceCommittee)} and give them to ${esc(r.label)} — this one person only, this one time">Release &amp; give to ${esc(r.label)}</button>
         </div>`).join("")}
-      <div class="note" style="margin-top:8px;">Releasing one here does not change the rule for anyone else — every future submission still gets checked the same way. Review again after releasing to pick them up.</div>
-      <button type="button" class="btn btn-sm btn-ghost" data-sendblock-dismiss style="margin-top:8px;">Dismiss</button>
+      <div class="note" style="margin:8px 0;">Releasing does not change the rule for anyone else — every future submission still gets checked the same way. This is settling today's list, one committee at a time.</div>
+      <div class="row2" style="align-items:center;">
+        <button type="button" class="btn btn-sm btn-gold" data-release-all-committee="${esc(r.raw)}">Release all ${r.skippedContested.length} &amp; review again</button>
+        <button type="button" class="btn btn-sm btn-ghost" data-sendblock-dismiss>Dismiss</button>
+      </div>
     </div>`;
 }
 
@@ -1943,6 +1990,8 @@ document.getElementById("view-hierarchy").addEventListener("click", (e) => {
   if (resyncDismiss) { state.resyncReport = null; renderHierarchy(); return; }
   const sendBlockDismiss = e.target.closest("[data-sendblock-dismiss]");
   if (sendBlockDismiss) { state.sendBlockedReport = null; renderHierarchy(); return; }
+  const releaseAllBtn = e.target.closest("[data-release-all-committee]");
+  if (releaseAllBtn) { releaseAllHeld(releaseAllBtn.dataset.releaseAllCommittee, releaseAllBtn); return; }
   const sendOne = e.target.closest("[data-send-committee]");
   if (sendOne) { openAcceptanceDrafts(sendOne.dataset.sendCommittee, sendOne); return; }
   const moveBtn = e.target.closest("[data-move-go]");
