@@ -27,7 +27,7 @@ export function ActIdentity({ identity, onChange, onContinue, onBack }: ActIdent
     if (!hasErrors(found)) onContinue();
   };
 
-  const field = (key: keyof Identity) => ({
+  const field = <K extends Exclude<keyof Identity, "whatsappConsent">>(key: K) => ({
     value: identity[key],
     error: errors[key],
     onChange: (value: string) => {
@@ -109,6 +109,29 @@ export function ActIdentity({ identity, onChange, onContinue, onBack }: ActIdent
                   {...field("yearLevel")}
                 />
               </div>
+
+              <motion.label
+                variants={rise}
+                htmlFor="whatsappConsent"
+                className="flex items-start gap-3 text-sm leading-relaxed text-brand-muted"
+              >
+                <input
+                  id="whatsappConsent"
+                  type="checkbox"
+                  checked={identity.whatsappConsent}
+                  onChange={(event) => {
+                    onChange({ whatsappConsent: event.target.checked });
+                    if (errors.whatsappConsent) setErrors((current) => ({ ...current, whatsappConsent: undefined }));
+                  }}
+                  className="mt-0.5 h-5 w-5 flex-none rounded border-brand-line text-brand-blue focus:ring-brand-blue"
+                />
+                <span>
+                  I consent to being added to a WhatsApp group with this number.
+                  {errors.whatsappConsent ? (
+                    <span className="mt-1 block text-brand-orange">{errors.whatsappConsent}</span>
+                  ) : null}
+                </span>
+              </motion.label>
 
               <motion.div variants={rise} className="mt-4 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6">
                 <PrimaryButton type="submit">Sign and continue</PrimaryButton>

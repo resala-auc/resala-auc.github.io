@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { Mail } from "lucide-react";
 import { rise } from "../lib/motion";
 import { fetchCommitteeContacts } from "../lib/api";
-import type { Committee, CommitteeContact } from "../data/committees";
+import type { Committee, CommitteeContact } from "../data/members";
 
 /**
  * Applicants take questions to the people who will actually interview them —

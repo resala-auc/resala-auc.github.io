@@ -5,7 +5,7 @@ import { AnimatedHeading } from "../components/AnimatedHeading";
 import { GhostButton } from "../components/ui";
 import { ContactBlock } from "../components/ContactBlock";
 import { CHAPTER_EASE, actTransition, rise, stagger } from "../lib/motion";
-import type { Committee, CommitteeRole } from "../data/committees";
+import type { Committee, CommitteeRole } from "../data/members";
 import type { InterviewSlot } from "../types";
 
 type ActSealedProps = {
@@ -72,8 +72,8 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
               variants={rise}
               className="mb-10 max-w-lg text-lg leading-relaxed font-light text-brand-ink"
             >
-              Your chapter is reserved and your application is with the board. A confirmation email
-              is on its way to your AUC inbox.
+              Your chapter is reserved and your application is with the committee. A confirmation
+              email is on its way to your AUC inbox.
             </motion.p>
 
             <motion.dl

@@ -5,7 +5,7 @@ import { ActLayout, TopNav } from "../components/Chrome";
 import { TextAreaField } from "../components/Field";
 import { BackLink, PrimaryButton } from "../components/ui";
 import { rise, stagger } from "../lib/motion";
-import type { ApplicationQuestion, Committee, CommitteeRole } from "../data/committees";
+import type { ApplicationQuestion, Committee, CommitteeRole } from "../data/members";
 
 
 type ActQuestionsProps = {

@@ -7,7 +7,7 @@ import { BackLink, Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { CHAPTER_EASE, TOUCH_SPRING, actTransition, popIn, popStagger, rise, stagger } from "../lib/motion";
 import { ContactBlock } from "../components/ContactBlock";
 import { fetchInterviewSlots } from "../lib/api";
-import type { Committee, CommitteeRole } from "../data/committees";
+import type { Committee, CommitteeRole } from "../data/members";
 import type { InterviewSlot } from "../types";
 
 type ActSlotProps = {

@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { X } from "lucide-react";
 import { GhostButton, PrimaryButton } from "./ui";
 import { CHAPTER_EASE } from "../lib/motion";
-import type { Committee, CommitteeRole } from "../data/committees";
+import type { Committee, CommitteeRole } from "../data/members";
 
 export function ChapterDetail({
   committee,

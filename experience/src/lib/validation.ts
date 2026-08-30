@@ -26,6 +26,9 @@ export function validateIdentity(identity: Identity): Errors<Identity> {
   if (!PHONE.test(identity.phone.trim())) {
     errors.phone = "Add a WhatsApp number we can actually reach you on.";
   }
+  if (!identity.whatsappConsent) {
+    errors.whatsappConsent = "We need your consent to add this number to the WhatsApp group.";
+  }
 
   return errors;
 }

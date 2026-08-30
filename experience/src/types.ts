@@ -18,6 +18,7 @@ export type Identity = {
   major: string;
   yearLevel: string;
   phone: string;
+  whatsappConsent: boolean;
 };
 
 
@@ -39,6 +40,8 @@ export type InterviewSlot = {
 
 /** Wire format expected by the Supabase submit function. Field names are fixed. */
 export type ApplicationPayload = {
+  /** Routes this submission to the members sheet/tabs instead of the classic fall-through path. */
+  mode: "member-submit";
   timestamp: string;
   fullName: string;
   aucEmail: string;
@@ -46,6 +49,7 @@ export type ApplicationPayload = {
   major: string;
   yearLevel: string;
   phone: string;
+  whatsappConsent: boolean;
   roleAppliedFor: string;
   roleStepTitle: string;
   roleDescription: string;

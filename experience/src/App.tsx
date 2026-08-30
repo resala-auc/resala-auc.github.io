@@ -11,8 +11,8 @@ import { ActBackup } from "./acts/ActBackup";
 import { ActQuestions } from "./acts/ActQuestions";
 import { ActSlot } from "./acts/ActSlot";
 import { ActSealed } from "./acts/ActSealed";
-import { findCommittee, findCommitteeRole } from "./data/committees";
-import type { Committee, CommitteeRole } from "./data/committees";
+import { findCommittee, findCommitteeRole } from "./data/members";
+import type { Committee, CommitteeRole } from "./data/members";
 import { submitApplication } from "./lib/api";
 import type { Act, ApplicationPayload, CommitteeGroup, Identity, InterviewSlot } from "./types";
 
@@ -24,7 +24,8 @@ const emptyIdentity: Identity = {
   studentId: "",
   major: "",
   yearLevel: "",
-  phone: ""
+  phone: "",
+  whatsappConsent: false
 };
 
 // Keyed by question id, because each committee asks a different set.
@@ -175,6 +176,7 @@ export default function App() {
       : secondCommittee.name;
 
     const payload: ApplicationPayload = {
+      mode: "member-submit",
       timestamp: now,
       createdAt: now,
       fullName: identity.fullName.trim(),
@@ -183,12 +185,13 @@ export default function App() {
       major: identity.major.trim(),
       yearLevel: identity.yearLevel,
       phone: identity.phone.trim(),
+      whatsappConsent: identity.whatsappConsent,
       // roleAppliedFor stays the bare committee name — the Supabase function looks it
       // up verbatim for task-doc and role-guide links. The chosen head goes into the
       // free-text step title instead, which nothing keys off of.
       roleAppliedFor: committee.name,
       roleStepTitle: role ? `${committee.stepTitle} · ${role.name}` : committee.stepTitle,
-      roleDescription: role ? role.description : committee.shortDescription,
+      roleDescription: role ? role.description : committee.whyChoose,
       secondPreference,
       committeeId: committee.id,
       roleId: role?.id ?? "",

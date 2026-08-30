@@ -7,7 +7,7 @@ import { BackLink, Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { CommitteeCard } from "../components/CommitteeCard";
 import { ChapterDetail } from "../components/ChapterDetail";
 import { TOUCH_SPRING, actTransition, popStagger, rise, stagger } from "../lib/motion";
-import { committees, type Committee } from "../data/committees";
+import { committees, type Committee } from "../data/members";
 import type { CommitteeGroup } from "../types";
 
 type ActChaptersProps = {

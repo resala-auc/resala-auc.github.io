@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Member Recruitment Admin — Resala AUC</title>
+<link rel="icon" href="../favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue: #0c2c80; --sky: #a7d4f2; --gold: #eac262;
+    --ivory: #fdf9f3; --ink: #1b1f23;
+    --line: #e4dccd; --muted: #6b7280; --soft: #f7f4ee;
+    --good: #1a7f4b; --warn: #9a6b00; --bad: #a3231b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ivory); color: var(--ink);
+         font: 15px/1.6 "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+  a { color: var(--blue); }
+
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--line);
+                border-radius: 18px; padding: 34px 30px; text-align: center; }
+  .login-card img { width: 68px; height: 68px; margin: 0 auto 16px; display: block; }
+  .login-card h1 { margin: 0 0 6px; font-size: 21px; color: var(--blue); }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  label { display: block; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: .8px; color: var(--muted); margin-bottom: 6px; }
+  input[type=email], select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--soft); color: var(--ink); }
+  input:focus, select:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .btn { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 700; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-gold { background: var(--gold); color: var(--ink); }
+  .btn-ghost { background: #fff; color: var(--blue); border: 1px solid var(--line); font-weight: 600; }
+  .btn-block { width: 100%; margin-top: 18px; }
+  .error { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: #fdecec; color: #8c1c1c;
+           font-size: 13px; text-align: left; }
+
+  header.bar { background: var(--blue); color: #fff; padding: 14px 20px; display: flex;
+               align-items: center; gap: 14px; flex-wrap: wrap; }
+  header.bar img { width: 38px; height: 38px; }
+  .bar-title { font-weight: 700; font-size: 17px; }
+  .bar-sub { color: var(--sky); font-size: 12.5px; }
+  .bar-spacer { flex: 1; }
+  header.bar button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+                      border-radius: 8px; padding: 7px 13px; font-size: 13px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 22px 20px 70px; }
+
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 12px 18px; min-width: 130px; }
+  .stat .v { font-size: 24px; font-weight: 700; color: var(--blue); line-height: 1.2; }
+  .stat .k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; }
+
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 18px; }
+  .filters > div { min-width: 180px; }
+
+  .views { display: flex; gap: 8px; margin-bottom: 20px; }
+  .tab { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: 14px; color: var(--ink); }
+  .tab[aria-selected="true"] { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; background: #fff;
+          border: 1px solid var(--line); border-radius: 13px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 13px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top; }
+  th { background: var(--soft); font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #fcfaf6; }
+  .pill { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 700; }
+  .pill.done { background: #e8f6ee; color: var(--good); }
+  .pill.open { background: var(--soft); color: var(--muted); }
+  .pill.part { background: #fdf4e0; color: var(--warn); }
+  .pill.bad { background: #fdecec; color: var(--bad); }
+  .wrap-x { overflow-x: auto; }
+
+  dialog { border: 0; border-radius: 16px; padding: 0; max-width: 760px; width: calc(100% - 32px);
+           box-shadow: 0 24px 60px rgba(0,0,0,.24); }
+  dialog::backdrop { background: rgba(12,26,50,.5); }
+  .dlg { padding: 24px 26px 26px; }
+  .dlg h2 { margin: 0 0 2px; font-size: 21px; color: var(--blue); }
+  .dlg .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 16px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13.5px; margin-bottom: 16px; }
+  .facts b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+             color: var(--muted); font-weight: 700; }
+  h3.sec { font-size: 11.5px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+           margin: 20px 0 9px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .qa .q { font-weight: 700; font-size: 13.5px; margin-bottom: 2px; }
+  .qa .a { white-space: pre-wrap; color: #3f4650; margin-bottom: 13px; font-size: 14px; }
+  .row2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .row2 > div { flex: 1 1 150px; }
+  .note { font-size: 13px; color: var(--muted); }
+  .msg { margin-top: 12px; font-size: 13.5px; }
+  .msg.ok { color: var(--good); }
+  .msg.bad { color: var(--bad); }
+  .empty { color: var(--muted); padding: 30px 4px; }
+  .close { float: right; background: transparent; border: 0; font-size: 22px; color: var(--muted); line-height: 1; }
+  .banner { background: #fdf4e0; border: 1px solid #e3b96a; border-radius: 12px; padding: 12px 16px;
+            font-size: 13.5px; color: #6b4c00; margin-bottom: 18px; }
+  .committee-group { margin-bottom: 26px; }
+  .committee-group > h2 { font-size: 15px; color: var(--blue); margin: 0 0 10px;
+                    display: flex; align-items: baseline; gap: 9px; }
+  .committee-group > h2 .c { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-card">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="Resala AUC">
+    <h1>Member Recruitment Admin</h1>
+    <p>Members cycle. Restricted to the people running this recruitment.</p>
+    <label for="email">AUC email</label>
+    <input type="email" id="email" placeholder="you@aucegypt.edu" autocomplete="email">
+    <button class="btn btn-block" id="login-btn">Enter</button>
+    <div class="error hidden" id="login-error"></div>
+  </div>
+</div>
+
+<div class="hidden" id="app">
+  <header class="bar">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
+    <div>
+      <div class="bar-title">Member Recruitment Admin</div>
+      <div class="bar-sub" id="bar-sub">—</div>
+    </div>
+    <div class="bar-spacer"></div>
+    <button id="refresh">Refresh</button>
+    <button id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <div class="stats" id="stats"></div>
+
+    <div class="views" role="tablist" id="views">
+      <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
+      <button class="tab" data-view="slots">Slots</button>
+    </div>
+
+    <div id="view-applicants">
+      <div class="filters">
+        <div>
+          <label for="f-committee">Committee</label>
+          <select id="f-committee"><option value="">All committees</option></select>
+        </div>
+        <div>
+          <label for="f-status">Status</label>
+          <select id="f-status">
+            <option value="">Any</option>
+            <option value="New">New</option>
+            <option value="Interviewed">Interviewed</option>
+            <option value="Accepted">Accepted</option>
+            <option value="Declined">Declined</option>
+            <option value="Waitlisted">Waitlisted</option>
+          </select>
+        </div>
+      </div>
+      <div id="applicant-groups"></div>
+      <div class="empty hidden" id="applicants-empty">No applications yet.</div>
+    </div>
+
+    <div id="view-slots" class="hidden"></div>
+  </main>
+</div>
+
+<dialog id="dlg"><div class="dlg" id="dlg-body"></div></dialog>
+
+<dialog id="confirm-dialog" style="max-width:420px;">
+  <div class="dlg" style="padding:22px 24px;">
+    <p id="confirm-message" style="margin:0 0 20px;font-size:14.5px;line-height:1.55;white-space:pre-wrap;"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
+
+<script type="module">
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+const STATUSES = ["New", "Interviewed", "Accepted", "Declined", "Waitlisted"];
+
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirm-dialog");
+    document.getElementById("confirm-message").textContent = message;
+    const okBtn = document.getElementById("confirm-ok");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const finish = (result) => {
+      dlg.close();
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+    dlg.showModal();
+  });
+}
+
+let state = { admin: null, data: null, msg: null, view: "applicants" };
+
+async function api(payload) {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json();
+  if (!res.ok || body.ok === false) throw new Error(body.error || "Something went wrong.");
+  return body;
+}
+
+async function load(email) {
+  const body = await api({ mode: "member-admin-load", email });
+  state.admin = body.admin;
+  state.data = { applicants: body.applicants ?? [], reservations: body.reservations ?? [] };
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("bar-sub").textContent = state.admin?.email ?? "";
+  sessionStorage.setItem("member-recruitment-admin-email", email);
+  renderAll();
+}
+
+function renderStats() {
+  const applicants = state.data.applicants;
+  const byStatus = {};
+  for (const a of applicants) byStatus[a.status || "New"] = (byStatus[a.status || "New"] ?? 0) + 1;
+  const el = document.getElementById("stats");
+  el.innerHTML = [
+    `<div class="stat"><div class="v">${applicants.length}</div><div class="k">Total</div></div>`,
+    ...STATUSES.map((s) => `<div class="stat"><div class="v">${byStatus[s] ?? 0}</div><div class="k">${esc(s)}</div></div>`)
+  ].join("");
+}
+
+function committeeOptions() {
+  return [...new Set(state.data.applicants.map((a) => a.committee).filter(Boolean))].sort();
+}
+
+function renderApplicantFilters() {
+  const sel = document.getElementById("f-committee");
+  const current = sel.value;
+  sel.innerHTML = `<option value="">All committees</option>` +
+    committeeOptions().map((c) => `<option value="${esc(c)}"${c === current ? " selected" : ""}>${esc(c)}</option>`).join("");
+}
+
+function renderApplicants() {
+  const committeeFilter = document.getElementById("f-committee").value;
+  const statusFilter = document.getElementById("f-status").value;
+  const rows = state.data.applicants.filter((a) =>
+    (!committeeFilter || a.committee === committeeFilter) &&
+    (!statusFilter || (a.status || "New") === statusFilter)
+  );
+
+  document.getElementById("applicants-empty").classList.toggle("hidden", state.data.applicants.length > 0);
+  const groupsEl = document.getElementById("applicant-groups");
+
+  if (!rows.length) {
+    groupsEl.innerHTML = state.data.applicants.length
+      ? `<div class="empty">No applicants match these filters.</div>`
+      : "";
+    return;
+  }
+
+  const byCommittee = new Map();
+  for (const a of rows) {
+    const key = a.committee || "—";
+    if (!byCommittee.has(key)) byCommittee.set(key, []);
+    byCommittee.get(key).push(a);
+  }
+
+  groupsEl.innerHTML = [...byCommittee.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([committee, people]) => `
+    <div class="committee-group">
+      <h2>${esc(committee)} <span class="c">${people.length}</span></h2>
+      <div class="wrap-x"><table>
+        <thead><tr><th>Applicant</th><th>Standing / Major</th><th>Interview</th><th>Status</th></tr></thead>
+        <tbody>
+          ${people.map((a) => `
+            <tr data-open="${esc(a.rowIndex)}">
+              <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
+              <td>${esc(a.yearLevel)}<div class="note">${esc(a.major)}</div></td>
+              <td>${esc(a.interviewSlot) || "—"}</td>
+              <td><span class="pill ${a.status === "Accepted" ? "done" : a.status === "Declined" ? "bad" : a.status === "Interviewed" ? "part" : "open"}">${esc(a.status || "New")}</span></td>
+            </tr>`).join("")}
+        </tbody>
+      </table></div>
+    </div>`).join("");
+}
+
+function renderDialog(a) {
+  const dlgBody = document.getElementById("dlg-body");
+  dlgBody.innerHTML = `
+    <button class="close" data-close>&times;</button>
+    <h2>${esc(a.fullName)}</h2>
+    <div class="sub">${esc(a.aucEmail)} · ${esc(a.studentId)}</div>
+    <div class="facts">
+      <div><b>Committee</b>${esc(a.committee)}</div>
+      <div><b>Backup</b>${esc(a.secondPreference) || "—"}</div>
+      <div><b>Major</b>${esc(a.major)}</div>
+      <div><b>Standing</b>${esc(a.yearLevel)}</div>
+      <div><b>Phone</b>${esc(a.phone)}</div>
+      <div><b>WhatsApp consent</b>${esc(a.whatsappConsent)}</div>
+      <div><b>Interview</b>${esc(a.interviewSlot) || "Not booked"}</div>
+    </div>
+    <h3 class="sec">Application</h3>
+    <div class="qa">
+      ${[a.answer1, a.answer2, a.answer3].filter(Boolean).map((ans) => `<div class="a">${esc(ans)}</div>`).join("")}
+    </div>
+    <h3 class="sec">Status</h3>
+    <div class="row2">
+      <div>
+        <select id="dlg-status">
+          ${STATUSES.map((s) => `<option value="${esc(s)}"${(a.status || "New") === s ? " selected" : ""}>${esc(s)}</option>`).join("")}
+        </select>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="btn btn-gold" id="dlg-save-status" data-row="${esc(a.rowIndex)}">Save status</button>
+      </div>
+    </div>
+    <div class="msg ${state.msg?.type ?? ""}">${state.msg ? esc(state.msg.text) : ""}</div>
+  `;
+  const dlg = document.getElementById("dlg");
+  if (!dlg.open) dlg.showModal();
+}
+
+function renderSlots() {
+  const el = document.getElementById("view-slots");
+  const reservations = state.data.reservations;
+  if (!reservations.length) {
+    el.innerHTML = `
+      <div class="banner">Late policy: interviewers give a member 5 minutes after the scheduled time before treating them as a no-show — a no-show becomes a general member, not a re-booked interview. No self-service rescheduling; if a head cannot attend, the committee director conducts it instead.</div>
+      <div class="empty">No interviews booked yet.</div>`;
+    return;
+  }
+
+  const byCommittee = new Map();
+  for (const r of reservations) {
+    const key = r.committeeId || "—";
+    if (!byCommittee.has(key)) byCommittee.set(key, []);
+    byCommittee.get(key).push(r);
+  }
+
+  el.innerHTML = `
+    <div class="banner">Late policy: interviewers give a member 5 minutes after the scheduled time before treating them as a no-show — a no-show becomes a general member, not a re-booked interview. No self-service rescheduling; if a head cannot attend, the committee director conducts it instead.</div>
+    ${[...byCommittee.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([committee, rows]) => `
+      <div class="committee-group">
+        <h2>${esc(committee)} <span class="c">${rows.length} booked</span></h2>
+        <div class="wrap-x"><table>
+          <thead><tr><th>When</th><th>Applicant</th></tr></thead>
+          <tbody>
+            ${rows.sort((a, b) => a.slotLabel.localeCompare(b.slotLabel)).map((r) => `
+              <tr><td>${esc(r.slotLabel)}</td><td>${esc(r.fullName)} · ${esc(r.aucEmail)}</td></tr>`).join("")}
+          </tbody>
+        </table></div>
+      </div>`).join("")}
+  `;
+}
+
+function renderAll() {
+  renderStats();
+  renderApplicantFilters();
+  renderApplicants();
+  renderSlots();
+}
+
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const errorEl = document.getElementById("login-error");
+  errorEl.classList.add("hidden");
+  if (!email) return;
+  try {
+    await load(email);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.classList.remove("hidden");
+  }
+});
+
+document.getElementById("refresh").addEventListener("click", () => load(state.admin.email));
+document.getElementById("logout").addEventListener("click", () => {
+  sessionStorage.removeItem("member-recruitment-admin-email");
+  location.reload();
+});
+
+document.getElementById("views").addEventListener("click", (e) => {
+  const btn = e.target.closest(".tab");
+  if (!btn) return;
+  state.view = btn.dataset.view;
+  for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t === btn));
+  document.getElementById("view-applicants").classList.toggle("hidden", state.view !== "applicants");
+  document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
+});
+
+document.getElementById("f-committee").addEventListener("change", renderApplicants);
+document.getElementById("f-status").addEventListener("change", renderApplicants);
+
+document.getElementById("applicant-groups").addEventListener("click", (e) => {
+  const row = e.target.closest("[data-open]");
+  if (!row) return;
+  const a = state.data.applicants.find((x) => String(x.rowIndex) === row.dataset.open);
+  if (a) { state.msg = null; renderDialog(a); }
+});
+
+document.getElementById("dlg-body").addEventListener("click", async (e) => {
+  if (e.target.closest("[data-close]")) {
+    document.getElementById("dlg").close();
+    return;
+  }
+  const saveBtn = e.target.closest("#dlg-save-status");
+  if (saveBtn) {
+    const rowIndex = Number(saveBtn.dataset.row);
+    const status = document.getElementById("dlg-status").value;
+    saveBtn.disabled = true;
+    try {
+      await api({ mode: "member-admin-set-status", email: state.admin.email, rowIndex, status });
+      const applicant = state.data.applicants.find((x) => x.rowIndex === rowIndex);
+      if (applicant) applicant.status = status;
+      state.msg = { type: "ok", text: "Status saved." };
+      renderApplicants();
+      renderStats();
+    } catch (err) {
+      state.msg = { type: "bad", text: err.message };
+    }
+    const applicant = state.data.applicants.find((x) => x.rowIndex === rowIndex);
+    if (applicant) renderDialog(applicant);
+  }
+});
+
+const cachedEmail = sessionStorage.getItem("member-recruitment-admin-email");
+if (cachedEmail) {
+  document.getElementById("email").value = cachedEmail;
+  load(cachedEmail).catch(() => {});
+}
+</script>
+</body>
+</html>

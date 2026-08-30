@@ -4,7 +4,7 @@ import { ActLayout, TopNav } from "../components/Chrome";
 import { AnimatedHeading } from "../components/AnimatedHeading";
 import { BackLink, Eyebrow, InkDivider } from "../components/ui";
 import { TOUCH_SPRING, actTransition, popIn, popStagger, stagger } from "../lib/motion";
-import { committees } from "../data/committees";
+import { committees } from "../data/members";
 import type { CommitteeGroup } from "../types";
 
 type ActPathProps = {

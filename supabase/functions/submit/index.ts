@@ -2,6 +2,16 @@ const SHEET_ID = Deno.env.get("SHEET_ID") ?? "";
 const SHEET_NAME = Deno.env.get("SHEET_NAME") ?? "Applications";
 const SLOT_SHEET_NAME = Deno.env.get("SLOT_SHEET_NAME") ?? "Interview Slots";
 const RESERVATION_SHEET_NAME = Deno.env.get("RESERVATION_SHEET_NAME") ?? "Interview Reservations";
+/*
+ * Members cycle (September 2026). A separate spreadsheet from the heads/
+ * classic SHEET_ID above — left blank until the real sheet is connected, at
+ * which point every member-* mode below starts working with no code change.
+ */
+const MEMBER_SHEET_ID = Deno.env.get("MEMBER_SHEET_ID") ?? "";
+const MEMBER_APPLICATIONS_SHEET_NAME =
+  Deno.env.get("MEMBER_APPLICATIONS_SHEET_NAME") ?? "Member Applications";
+const MEMBER_SLOT_RESERVATION_SHEET_NAME =
+  Deno.env.get("MEMBER_RESERVATION_SHEET_NAME") ?? "Member Interview Reservations";
 const GOOGLE_SERVICE_ACCOUNT_KEY = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") ?? "";
 const GOOGLE_CLIENT_EMAIL = Deno.env.get("GOOGLE_CLIENT_EMAIL") ?? "";
 const GOOGLE_PRIVATE_KEY = Deno.env.get("GOOGLE_PRIVATE_KEY") ?? "";
@@ -90,6 +100,36 @@ const APPLICATION_TASK_HEADERS = [
 ];
 
 const HEADERS = [...APPLICATION_BASE_HEADERS, ...APPLICATION_TASK_HEADERS];
+
+/**
+ * The members-cycle applications tab. A fresh layout rather than the classic/
+ * heads shape — members answer exactly 3 questions (mirrors
+ * experience/src/data/members.ts, which asks 3 per committee, not 4-6), have
+ * no head/role sub-choice, and carry a WhatsApp-consent column the older
+ * cycles never asked for.
+ */
+const MEMBER_APPLICATION_HEADERS = [
+  "Timestamp",
+  "Full Name",
+  "AUC Email",
+  "Student ID",
+  "Major",
+  "Class Standing",
+  "Phone",
+  "WhatsApp Consent",
+  "Committee",
+  "Committee Id",
+  "Second Preference",
+  "Second Preference Id",
+  "Answer 1",
+  "Answer 2",
+  "Answer 3",
+  "Interview Slot",
+  "Interview Slot Id",
+  "Status",
+  "Created At"
+];
+const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
@@ -966,6 +1006,44 @@ type ApplicationPayload = {
   createdAt: string;
 };
 
+/** Members cycle (September 2026) — a fresh applicant, not a heads mirror. */
+type MemberApplicationPayload = {
+  mode: "member-submit";
+  timestamp: string;
+  createdAt: string;
+  fullName: string;
+  aucEmail: string;
+  studentId: string;
+  major: string;
+  yearLevel: string;
+  phone: string;
+  whatsappConsent: boolean;
+  /** Committee display name — same field name/role the classic cycle used. */
+  roleAppliedFor: string;
+  committeeId: string;
+  secondPreference: string;
+  secondCommitteeId?: string;
+  answers?: Array<{ id: string; prompt: string; answer: string }>;
+  whyThisRole?: string;
+  whyChooseYourself?: string;
+  hopeToLearn?: string;
+  interviewSlot?: string;
+  interviewSlotId?: string;
+  interviewSlotLabel?: string;
+};
+
+type MemberAdminLoadPayload = {
+  mode: "member-admin-load";
+  email: string;
+};
+
+type MemberAdminSetStatusPayload = {
+  mode: "member-admin-set-status";
+  email: string;
+  rowIndex: number;
+  status: string;
+};
+
 type AdminResetPayload = {
   mode: "admin-reset-test";
   aucEmail: string;
@@ -1487,6 +1565,9 @@ type BoardOnboardingSubmitPayload = {
 
 type SubmissionPayload =
   | ApplicationPayload
+  | MemberApplicationPayload
+  | MemberAdminLoadPayload
+  | MemberAdminSetStatusPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -1716,12 +1797,32 @@ Deno.serve(async (request) => {
 
   if (request.method === "GET") {
     try {
+      const url = new URL(request.url);
+
+      // Members cycle reads its own spreadsheet — check these two params
+      // before the SHEET_ID guard below, since MEMBER_SHEET_ID is separate
+      // and may be configured (or not) independently of it.
+      const memberContactsFor = url.searchParams.get("memberContacts");
+      if (memberContactsFor) {
+        return jsonResponse({ ok: true, contacts: await getMemberCommitteePanel() });
+      }
+
+      const memberCommittee = url.searchParams.get("memberCommittee");
+      if (memberCommittee) {
+        if (!MEMBER_SHEET_ID) {
+          throw new Error("MEMBER_SHEET_ID is not configured.");
+        }
+        const memberToken = await getGoogleAccessToken();
+        const allMemberSlots = await getMemberInterviewSlots(memberToken, memberCommittee);
+        const memberSlots = allMemberSlots.filter((slot) => !slot.tooSoon);
+        return jsonResponse({ ok: true, slots: memberSlots, leadMinutes: MEMBER_BOOKING_LEAD_MINUTES });
+      }
+
       if (!SHEET_ID) {
         throw new Error("SHEET_ID is not configured.");
       }
 
       const token = await getGoogleAccessToken();
-      const url = new URL(request.url);
 
       /*
        * Public contact lookup: the Director and Vice-Director(s) an applicant
@@ -2213,6 +2314,48 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...result });
     }
 
+    if (isMemberAdminLoadPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      if (!MEMBER_SHEET_ID) throw new Error("MEMBER_SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      const admin = await requireRecruitmentAdmin(adminToken, payload.email);
+      const data = await loadMemberAdmin(adminToken);
+      return jsonResponse({ ok: true, admin, ...data });
+    }
+
+    if (isMemberAdminSetStatusPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      if (!MEMBER_SHEET_ID) throw new Error("MEMBER_SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(adminToken, payload.email);
+      await setMemberApplicationStatus(adminToken, payload.rowIndex, payload.status);
+      return jsonResponse({ ok: true });
+    }
+
+    if (isMemberSubmitPayload(payload)) {
+      validateMemberApplication(payload);
+
+      if (!MEMBER_SHEET_ID) {
+        throw new Error("MEMBER_SHEET_ID is not configured.");
+      }
+
+      const memberToken = await getGoogleAccessToken();
+      await ensureMemberSheetTab(memberToken, MEMBER_APPLICATIONS_SHEET_NAME);
+      await ensureMemberSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+      await ensureMemberApplicationNotDuplicate(memberToken, payload);
+
+      let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
+      if (payload.interviewSlotId) {
+        const reserved = await reserveMemberInterviewSlot(memberToken, payload);
+        memberSlotLabel = reserved.slot.label;
+      }
+
+      await appendMemberApplication(memberToken, payload, memberSlotLabel);
+      const emailSent = await trySendMemberConfirmationEmail(payload, memberSlotLabel);
+
+      return jsonResponse({ ok: true, emailSent });
+    }
+
     validateApplication(payload);
 
     if (!SHEET_ID) {
@@ -2274,6 +2417,18 @@ async function parsePayload(
   }
 
   return JSON.parse(text) as SubmissionPayload;
+}
+
+function isMemberSubmitPayload(payload: SubmissionPayload): payload is MemberApplicationPayload {
+  return (payload as MemberApplicationPayload).mode === "member-submit";
+}
+
+function isMemberAdminLoadPayload(payload: SubmissionPayload): payload is MemberAdminLoadPayload {
+  return (payload as MemberAdminLoadPayload).mode === "member-admin-load";
+}
+
+function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is MemberAdminSetStatusPayload {
+  return (payload as MemberAdminSetStatusPayload).mode === "member-admin-set-status";
 }
 
 function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is HeadsCommitteeLoadPayload {
@@ -2727,6 +2882,432 @@ async function appendApplication(token: string, payload: ApplicationPayload, she
       ]
     ]
   });
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Members cycle (September 2026).
+ *
+ * Deliberately self-contained rather than threading MEMBER_SHEET_ID through
+ * the existing sheetsFetch/ensureSheetTab/ensureSheetHeaders helpers above —
+ * those are called from ~40 existing heads/classic call sites and none of
+ * them pass a spreadsheet id today. Small member-* duplicates here carry zero
+ * risk of touching that live path while heads acceptance emails are still
+ * going out. If the two cycles' Sheets code drifts, this block is the one to
+ * update — nothing above it needs to change for members, and nothing here
+ * is read by any heads/classic code path.
+ * ---------------------------------------------------------------------------
+ */
+
+let memberResolvedSheetTitles: Set<string> | null = null;
+const memberVerifiedSheetHeaders = new Set<string>();
+
+async function memberSheetsFetch(token: string, method: string, path: string, body?: unknown): Promise<Response> {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}/values/${path}`;
+  const attempts = 4;
+
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+
+    if (response.ok) return response;
+
+    const errorText = await response.text();
+    const retriable = response.status === 429 || response.status >= 500;
+    if (!retriable || attempt >= attempts) {
+      throw new Error(`Google Sheets request failed: ${errorText}`);
+    }
+
+    const waitMs = 2000 * (2 ** attempt - 1);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
+async function getMemberSpreadsheetSheetTitles(token: string): Promise<Set<string>> {
+  if (memberResolvedSheetTitles) return memberResolvedSheetTitles;
+
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}?fields=sheets.properties.title`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) {
+    throw new Error(`Google Sheets metadata request failed: ${await response.text()}`);
+  }
+
+  const body = await response.json();
+  const titles = new Set<string>();
+  for (const sheet of body?.sheets ?? []) {
+    const title = sheet?.properties?.title;
+    if (typeof title === "string" && title.trim()) titles.add(title.trim());
+  }
+  memberResolvedSheetTitles = titles;
+  return titles;
+}
+
+async function ensureMemberSheetTab(token: string, tabName: string): Promise<void> {
+  const titles = await getMemberSpreadsheetSheetTitles(token);
+  if (titles.has(tabName)) return;
+
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}:batchUpdate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    if (!String(errorText).includes("already exists")) {
+      throw new Error(`Could not create sheet tab ${tabName}: ${errorText}`);
+    }
+  }
+  titles.add(tabName);
+}
+
+async function ensureMemberSheetHeaders(token: string, sheetName: string, headers: string[]): Promise<void> {
+  if (memberVerifiedSheetHeaders.has(sheetName)) return;
+
+  const width = headers.length;
+  const range = sheetRange(sheetName, `A1:${columnLetter(width)}1`);
+  const response = await memberSheetsFetch(token, "GET", range);
+  const currentValues = (await response.json()).values?.[0] ?? [];
+
+  if (currentValues.length === 0 || !headers.every((header, index) => currentValues[index] === header)) {
+    await memberSheetsFetch(token, "PUT", `${range}?valueInputOption=RAW`, { values: [headers] });
+  }
+  memberVerifiedSheetHeaders.add(sheetName);
+}
+
+function validateMemberApplication(payload: MemberApplicationPayload): void {
+  const requiredFields: Array<keyof MemberApplicationPayload> = [
+    "timestamp",
+    "fullName",
+    "aucEmail",
+    "studentId",
+    "major",
+    "yearLevel",
+    "phone",
+    "roleAppliedFor",
+    "committeeId",
+    "secondPreference",
+    "createdAt"
+  ];
+
+  const missing = requiredFields.filter((field) => !String(payload[field] ?? "").trim());
+  if (missing.length) {
+    throw new Error(`Missing required fields: ${missing.join(", ")}.`);
+  }
+
+  if (!isValidAucEmail(payload.aucEmail)) {
+    throw new Error("Invalid AUC email.");
+  }
+  if (!payload.whatsappConsent) {
+    throw new Error("WhatsApp consent is required.");
+  }
+  if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
+    throw new Error("Second preference must be different from the first committee preference.");
+  }
+}
+
+async function ensureMemberApplicationNotDuplicate(token: string, payload: MemberApplicationPayload): Promise<void> {
+  const response = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, "A2:C"));
+  const rows = (await response.json()).values ?? [];
+  const submittedEmail = normalize(payload.aucEmail);
+  const submittedStudentId = normalize(payload.studentId);
+
+  const duplicate = rows.some((row: string[]) => {
+    const email = normalize(row[2]);
+    const studentId = normalize(row[3]);
+    return email === submittedEmail || studentId === submittedStudentId;
+  });
+
+  if (duplicate) {
+    throw new Error("An application with this AUC email or Student ID already exists.");
+  }
+}
+
+function memberAnswerAt(payload: MemberApplicationPayload, index: number, fallback: string | undefined): string {
+  const answers = Array.isArray(payload.answers) ? payload.answers.filter((a) => a && (a.prompt || a.answer)) : [];
+  const entry = answers[index];
+  return entry ? String(entry.answer ?? "") : String(fallback ?? "");
+}
+
+async function appendMemberApplication(
+  token: string,
+  payload: MemberApplicationPayload,
+  slotLabel: string
+): Promise<void> {
+  const row = [
+    payload.timestamp,
+    payload.fullName,
+    payload.aucEmail,
+    payload.studentId,
+    payload.major,
+    payload.yearLevel,
+    payload.phone,
+    payload.whatsappConsent ? "Yes" : "No",
+    payload.roleAppliedFor,
+    payload.committeeId,
+    payload.secondPreference,
+    payload.secondCommitteeId ?? "",
+    memberAnswerAt(payload, 0, payload.whyThisRole),
+    memberAnswerAt(payload, 1, payload.whyChooseYourself),
+    memberAnswerAt(payload, 2, payload.hopeToLearn),
+    slotLabel,
+    payload.interviewSlotId ?? "",
+    "Submitted",
+    payload.createdAt
+  ];
+
+  await memberSheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [row] }
+  );
+}
+
+/*
+ * PLACEHOLDER interview grid — mirrors experience/src/data/members.ts's
+ * MEMBER_INTERVIEW_DAYS/TIMES by hand (Edge Functions cannot import site
+ * source). Keep the two in sync; both are marked PLACEHOLDER pending real
+ * per-committee availability from the brief, which only said "starts 2
+ * September."
+ */
+const MEMBER_INTERVIEW_DAYS = ["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-06", "2026-09-07"];
+const MEMBER_INTERVIEW_TIMES = [
+  "16:00", "16:20", "16:40", "17:00", "17:20", "17:40", "18:00", "18:20", "18:40", "19:00"
+];
+const MEMBER_SLOT_MINUTES = 20;
+const MEMBER_SLOT_CAPACITY = 1;
+const MEMBER_BOOKING_LEAD_MINUTES = 360;
+
+function memberAddMinutes(time: string, minutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + minutes;
+  const hh = Math.floor(total / 60) % 24;
+  const mm = total % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function memberFormatLabel(date: string, startTime: string, endTime: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  const dayPart = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  const to12h = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    const period = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${period}`;
+  };
+  return `${dayPart} · ${to12h(startTime)}–${to12h(endTime)}`;
+}
+
+function buildMemberSlotList(committeeId: string): InterviewSlotOption[] {
+  const slots: InterviewSlotOption[] = [];
+  for (const date of MEMBER_INTERVIEW_DAYS) {
+    for (const startTime of MEMBER_INTERVIEW_TIMES) {
+      const endTime = memberAddMinutes(startTime, MEMBER_SLOT_MINUTES);
+      const startDateTime = `${date}T${startTime}:00+02:00`;
+      const endDateTime = `${date}T${endTime}:00+02:00`;
+      slots.push({
+        id: `${committeeId}-${date}-${startTime}`,
+        label: memberFormatLabel(date, startTime, endTime),
+        date,
+        startTime,
+        endTime,
+        startDateTime,
+        endDateTime,
+        capacity: MEMBER_SLOT_CAPACITY,
+        active: true,
+        reservedCount: 0,
+        remaining: MEMBER_SLOT_CAPACITY,
+        full: false
+      });
+    }
+  }
+  return slots;
+}
+
+async function getMemberInterviewSlots(token: string, committeeId: string): Promise<InterviewSlotOption[]> {
+  await ensureMemberSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
+  await ensureMemberSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
+
+  const response = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:B"));
+  const rows = (await response.json()).values ?? [];
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const slotId = String(row[1] ?? "");
+    if (!slotId) continue;
+    counts.set(slotId, (counts.get(slotId) ?? 0) + 1);
+  }
+
+  const now = Date.now();
+  return buildMemberSlotList(committeeId).map((slot) => {
+    const reservedCount = counts.get(slot.id) ?? 0;
+    const remaining = Math.max(0, slot.capacity - reservedCount);
+    const tooSoon = new Date(slot.startDateTime).getTime() - now < MEMBER_BOOKING_LEAD_MINUTES * 60_000;
+    return { ...slot, reservedCount, remaining, full: remaining <= 0, tooSoon };
+  });
+}
+
+async function reserveMemberInterviewSlot(
+  token: string,
+  payload: MemberApplicationPayload
+): Promise<{ slot: InterviewSlotOption }> {
+  const slots = await getMemberInterviewSlots(token, payload.committeeId);
+  const selected = slots.find((slot) => slot.id === payload.interviewSlotId);
+
+  if (!selected) {
+    throw new Error("Selected interview slot is not available.");
+  }
+  if (selected.tooSoon) {
+    const hours = Math.round(MEMBER_BOOKING_LEAD_MINUTES / 60);
+    throw new Error(
+      `That time is no longer open — interviews have to be booked at least ${hours} hours ahead. Please choose a later slot.`
+    );
+  }
+  if (selected.full) {
+    throw new Error("That interview slot is already full. Please choose another slot.");
+  }
+
+  await memberSheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [[payload.timestamp, selected.id, selected.label, payload.fullName, payload.aucEmail]] }
+  );
+
+  return { slot: selected };
+}
+
+/** Mirrors experience/src/data/members.ts's committee ids — used to recover a committee id from a reservation's slot id, which has no separator boundary of its own (ids like "pr-fundraising" already contain hyphens). */
+const MEMBER_COMMITTEE_IDS = [
+  "tech",
+  "operations",
+  "branding-media",
+  "hr",
+  "pr-fundraising",
+  "visits",
+  "childrens-day",
+  "initiatives"
+];
+
+async function loadMemberAdmin(token: string): Promise<{
+  applicants: Array<Record<string, string | number>>;
+  reservations: Array<Record<string, string>>;
+}> {
+  await ensureMemberSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureMemberSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+
+  const appResponse = await memberSheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+  );
+  const appRows: string[][] = (await appResponse.json()).values ?? [];
+  const applicants = appRows.map((row, index) => ({
+    rowIndex: index + 2,
+    timestamp: row[0] ?? "",
+    fullName: row[1] ?? "",
+    aucEmail: row[2] ?? "",
+    studentId: row[3] ?? "",
+    major: row[4] ?? "",
+    yearLevel: row[5] ?? "",
+    phone: row[6] ?? "",
+    whatsappConsent: row[7] ?? "",
+    committee: row[8] ?? "",
+    committeeId: row[9] ?? "",
+    secondPreference: row[10] ?? "",
+    secondCommitteeId: row[11] ?? "",
+    answer1: row[12] ?? "",
+    answer2: row[13] ?? "",
+    answer3: row[14] ?? "",
+    interviewSlot: row[15] ?? "",
+    interviewSlotId: row[16] ?? "",
+    status: row[17] || "New",
+    createdAt: row[18] ?? ""
+  }));
+
+  let reservations: Array<Record<string, string>> = [];
+  try {
+    await ensureMemberSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
+    await ensureMemberSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
+    const slotResponse = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:E"));
+    const slotRows: string[][] = (await slotResponse.json()).values ?? [];
+    reservations = slotRows.map((row) => {
+      const slotId = row[1] ?? "";
+      const committeeId = MEMBER_COMMITTEE_IDS.find((id) => slotId.startsWith(`${id}-`)) ?? "";
+      return {
+        committeeId,
+        slotId,
+        slotLabel: row[2] ?? "",
+        fullName: row[3] ?? "",
+        aucEmail: row[4] ?? ""
+      };
+    });
+  } catch (error) {
+    console.error(`Member reservations load failed: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  return { applicants, reservations };
+}
+
+async function setMemberApplicationStatus(token: string, rowIndex: number, status: string): Promise<void> {
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) {
+    throw new Error("Invalid application row.");
+  }
+  const statusColumn = columnLetter(MEMBER_APPLICATION_HEADERS.indexOf("Status") + 1);
+  await memberSheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `${statusColumn}${rowIndex}`)}?valueInputOption=RAW`,
+    { values: [[status]] }
+  );
+}
+
+/** No live interview-panel roster exists for members yet — same general-enquiries fallback the heads flow uses when a committee has no contacts on file. */
+async function getMemberCommitteePanel(): Promise<Array<{ email: string; name: string; positionType: string }>> {
+  return [{ email: "resala@aucegypt.edu", name: "Resala AUC", positionType: "general" }];
+}
+
+async function trySendMemberConfirmationEmail(payload: MemberApplicationPayload, slotLabel: string): Promise<boolean> {
+  if (!gmailConfigured()) return false;
+
+  try {
+    const accessToken = await getGmailAccessToken();
+    const firstName = payload.fullName.trim().split(/\s+/)[0] || "there";
+    const subject = `Resala AUC — your ${payload.roleAppliedFor} application is in`;
+    const scheduleLine = slotLabel
+      ? `Your interview is booked for ${slotLabel}.`
+      : "We'll reach out to schedule your interview.";
+    const text = `Hi ${firstName},\n\nYour application to join ${payload.roleAppliedFor} at Resala AUC has been received.\n\n${scheduleLine}\n\n— Resala AUC`;
+    const html = `<p>Hi ${escapeHtml(firstName)},</p><p>Your application to join <b>${escapeHtml(payload.roleAppliedFor)}</b> at Resala AUC has been received.</p><p>${escapeHtml(scheduleLine)}</p><p>— Resala AUC</p>`;
+
+    const rawMessage = buildRawEmailMessage({
+      from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+      to: payload.aucEmail,
+      subject,
+      text,
+      html
+    });
+
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw: rawMessage })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error(
+      `Member confirmation email failed for ${payload.aucEmail}: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+    return false;
+  }
 }
 
 async function sendConfirmationEmail(

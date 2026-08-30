@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Check } from "lucide-react";
 import { TOUCH_SPRING, popIn } from "../lib/motion";
-import type { Committee } from "../data/committees";
+import type { Committee } from "../data/members";
 
 /**
  * A single chapter card. Multi-role chapters expose the head picker as chips
