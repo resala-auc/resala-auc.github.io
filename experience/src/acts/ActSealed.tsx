@@ -132,7 +132,12 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
             ) : null}
 
             <motion.div variants={rise} className="flex flex-col gap-4 sm:flex-row">
-              <GhostButton href="../tasks/">Submit your task links</GhostButton>
+              {/* Only a committee that actually sets a task has anything to
+                  hand in. Members are not asked for one, so the application
+                  ends here — nothing further for them to submit. */}
+              {task?.required ? (
+                <GhostButton href="../tasks/">Submit your task links</GhostButton>
+              ) : null}
               <GhostButton href="../" showArrow={false}>
                 Back to Resala AUC
               </GhostButton>
