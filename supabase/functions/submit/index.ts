@@ -130,7 +130,11 @@ const MEMBER_APPLICATION_HEADERS = [
   // Appended after the first applicants had already been written — never
   // insert into this list, or every existing row shifts under its headers.
   "Meet Link",
-  "Calendar Event Id"
+  "Calendar Event Id",
+  // Who took the decision on this applicant, and when. Appended after the
+  // first rows existed — never insert into this list.
+  "Decision By",
+  "Decision At"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
@@ -1054,6 +1058,25 @@ type MemberAdminSetStatusPayload = {
   status: string;
 };
 
+type MemberAdminReschedulePayload = {
+  mode: "member-admin-reschedule";
+  email: string;
+  rowIndex: number;
+  slotId: string;
+};
+
+type MemberAdminCancelInterviewPayload = {
+  mode: "member-admin-cancel-interview";
+  email: string;
+  rowIndex: number;
+};
+
+type MemberAdminGeneralVolunteerPayload = {
+  mode: "member-admin-general-volunteer";
+  email: string;
+  rowIndex: number;
+};
+
 type AdminResetPayload = {
   mode: "admin-reset-test";
   aucEmail: string;
@@ -1578,6 +1601,9 @@ type SubmissionPayload =
   | MemberApplicationPayload
   | MemberAdminLoadPayload
   | MemberAdminSetStatusPayload
+  | MemberAdminReschedulePayload
+  | MemberAdminCancelInterviewPayload
+  | MemberAdminGeneralVolunteerPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2334,6 +2360,36 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true });
     }
 
+    if (isMemberAdminReschedulePayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      const admin = await requireRecruitmentAdmin(adminToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        ...(await rescheduleMemberInterview(adminToken, payload.rowIndex, payload.slotId, admin.email))
+      });
+    }
+
+    if (isMemberAdminCancelInterviewPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      const admin = await requireRecruitmentAdmin(adminToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        ...(await cancelMemberInterview(adminToken, payload.rowIndex, admin.email))
+      });
+    }
+
+    if (isMemberAdminGeneralVolunteerPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      const admin = await requireRecruitmentAdmin(adminToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        ...(await acceptMemberAsGeneralVolunteer(adminToken, payload.rowIndex, admin.email))
+      });
+    }
+
     if (isMemberSubmitPayload(payload)) {
       validateMemberApplication(payload);
 
@@ -2446,6 +2502,22 @@ function isMemberAdminLoadPayload(payload: SubmissionPayload): payload is Member
 
 function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is MemberAdminSetStatusPayload {
   return (payload as MemberAdminSetStatusPayload).mode === "member-admin-set-status";
+}
+
+function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is MemberAdminReschedulePayload {
+  return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
+}
+
+function isMemberAdminCancelInterviewPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminCancelInterviewPayload {
+  return (payload as MemberAdminCancelInterviewPayload).mode === "member-admin-cancel-interview";
+}
+
+function isMemberAdminGeneralVolunteerPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminGeneralVolunteerPayload {
+  return (payload as MemberAdminGeneralVolunteerPayload).mode === "member-admin-general-volunteer";
 }
 
 function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is HeadsCommitteeLoadPayload {
@@ -3063,13 +3135,20 @@ function memberFormatLabel(date: string, startTime: string, endTime: string): st
   return `${dayPart} · ${to12h(startTime)}–${to12h(endTime)}`;
 }
 
-function buildMemberSlotList(committeeId: string, now: Date = new Date()): InterviewSlotOption[] {
+function buildMemberSlotList(
+  committeeId: string,
+  now: Date = new Date(),
+  /* Admins reschedule onto the whole board. The five-day window exists to stop
+     applicants booking themselves weeks out; it is not a rule about where an
+     admin may move someone. */
+  ignoreWindow = false
+): InterviewSlotOption[] {
   const from = cairoToday(now);
   const until = memberBookingWindowEnd(now);
   const slots: InterviewSlotOption[] = [];
   for (const date of MEMBER_INTERVIEW_DAYS) {
     // ISO dates compare correctly as plain strings.
-    if (date < from || date > until) continue;
+    if (!ignoreWindow && (date < from || date > until)) continue;
     for (const startTime of MEMBER_INTERVIEW_TIMES) {
       const endTime = memberAddMinutes(startTime, MEMBER_SLOT_MINUTES);
       const startDateTime = `${date}T${startTime}:00+02:00`;
@@ -3288,6 +3367,390 @@ async function loadMemberAdmin(token: string): Promise<{
 
   return { applicants, reservations };
 }
+
+/** The same card the confirmation uses, with whatever this notice needs in it. */
+function memberEmailShell({
+  heading,
+  subheading,
+  bodyHtml
+}: {
+  heading: string;
+  subheading: string;
+  bodyHtml: string;
+}): string {
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
+                <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
+                <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
+                <div style="font-size:28px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:22px;">${escapeHtml(heading)}</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${escapeHtml(subheading)}</div>
+              </td>
+            </tr>
+            <tr><td style="padding:26px 28px 8px;">${bodyHtml}</td></tr>
+            <tr>
+              <td style="background:#f7f3ea;border-top:1px solid #eadfca;padding:18px 28px;text-align:center;font-size:13px;line-height:1.6;color:#64748b;">
+                Resala AUC · Beyond Ana Maly
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+async function sendMemberEmail(to: string, subject: string, text: string, html: string): Promise<boolean> {
+  if (!gmailConfigured()) return false;
+  try {
+    const accessToken = await getGmailAccessToken();
+    const raw = buildRawEmailMessage({
+      from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+      to,
+      subject,
+      text,
+      html
+    });
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error(`Member email to ${to} failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    return false;
+  }
+}
+
+/** A short branded notice — currently the "your interview moved" mail. */
+async function trySendMemberNoticeEmail(
+  to: string,
+  fullName: string,
+  notice: { heading: string; committee: string; lead: string; slotLabel: string; meetLink: string; closing: string }
+): Promise<boolean> {
+  const firstName = fullName.trim().split(/\s+/)[0] || "there";
+  const text = [
+    `Hi ${firstName},`,
+    "",
+    notice.lead,
+    "",
+    `New time: ${notice.slotLabel} (15 minutes).`,
+    notice.meetLink ? `Google Meet link: ${notice.meetLink}` : "We will send the meeting link before your interview.",
+    "",
+    notice.closing,
+    "",
+    "— Resala AUC"
+  ]
+    .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
+    .join("\n");
+
+  const html = memberEmailShell({
+    heading: notice.heading,
+    subheading: notice.committee,
+    bodyHtml: `
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">${escapeHtml(notice.lead)}</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;background:#f7f3ea;border:1px solid #eadfca;border-radius:14px;">
+                  <tr><td style="padding:18px 20px;">
+                    <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">New time</div>
+                    <div style="font-size:19px;line-height:1.4;color:#0d2b45;font-weight:bold;margin-top:6px;">${escapeHtml(notice.slotLabel)}</div>
+                    <div style="font-size:14px;line-height:1.6;color:#64748b;margin-top:4px;">15 minutes · Google Meet</div>
+                    ${
+                      notice.meetLink
+                        ? `<div style="margin-top:14px;"><a href="${escapeHtml(notice.meetLink)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;padding:11px 22px;border-radius:999px;">Join the interview</a></div>`
+                        : `<div style="font-size:14px;line-height:1.6;color:#64748b;margin-top:10px;">We will send the meeting link before your interview.</div>`
+                    }
+                  </td></tr>
+                </table>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(notice.closing)}</p>`
+  });
+
+  return sendMemberEmail(to, `Resala AUC — your interview time has changed`, text, html);
+}
+
+/**
+ * The general-volunteer acceptance. Deliberately not worded as a rejection:
+ * it is a real place in Resala with a lighter commitment, and it is the only
+ * email this person gets about the decision.
+ */
+async function trySendGeneralVolunteerEmail(to: string, fullName: string, committee: string): Promise<boolean> {
+  const firstName = fullName.trim().split(/\s+/)[0] || "there";
+  const lead =
+    "Thank you for applying to Resala AUC. We would love to have you with us as a general volunteer.";
+  const explain =
+    "A general volunteer joins us for the events and initiatives you choose, without the weekly commitment a committee member carries. You come to what you can, and you are always welcome.";
+  const next = "We will add you to the volunteers group and let you know about upcoming activities there.";
+
+  const text = [
+    `Hi ${firstName},`,
+    "",
+    lead,
+    "",
+    explain,
+    "",
+    next,
+    "",
+    "— Resala AUC"
+  ].join("\n");
+
+  const html = memberEmailShell({
+    heading: "Welcome to Resala AUC",
+    subheading: "Accepted as a general volunteer",
+    bodyHtml: `
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">${escapeHtml(lead)}</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;background:#f7f3ea;border:1px solid #eadfca;border-radius:14px;">
+                  <tr><td style="padding:18px 20px;">
+                    <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">Your place</div>
+                    <div style="font-size:19px;line-height:1.4;color:#0d2b45;font-weight:bold;margin-top:6px;">General volunteer</div>
+                    <div style="font-size:15px;line-height:1.6;color:#172033;margin-top:10px;">${escapeHtml(explain)}</div>
+                  </td></tr>
+                </table>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(next)}${
+                  committee ? ` You applied to ${escapeHtml(committee)} — if a place opens there later, we will come back to you.` : ""
+                }</p>`
+  });
+
+  return sendMemberEmail(to, "Resala AUC — welcome as a general volunteer", text, html);
+}
+
+/** One member's row, read back by sheet row number. */
+async function readMemberApplicationRow(token: string, rowIndex: number): Promise<string[]> {
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) {
+    throw new Error("Invalid application row.");
+  }
+  const width = columnLetter(MEMBER_APPLICATION_HEADERS.length);
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A${rowIndex}:${width}${rowIndex}`)
+  );
+  const row = ((await response.json()).values ?? [])[0] as string[] | undefined;
+  if (!row || !String(row[2] ?? "").trim()) {
+    throw new Error("That applicant is no longer in the sheet.");
+  }
+  return row;
+}
+
+function memberColumn(header: string): string {
+  const index = MEMBER_APPLICATION_HEADERS.indexOf(header);
+  if (index < 0) throw new Error(`Unknown member column: ${header}`);
+  return columnLetter(index + 1);
+}
+
+/** Write one contiguous run of columns on a member's row. */
+async function writeMemberCells(
+  token: string,
+  rowIndex: number,
+  firstHeader: string,
+  values: string[]
+): Promise<void> {
+  const start = MEMBER_APPLICATION_HEADERS.indexOf(firstHeader);
+  const range = `${columnLetter(start + 1)}${rowIndex}:${columnLetter(start + values.length)}${rowIndex}`;
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, range)}?valueInputOption=RAW`,
+    { values: [values] }
+  );
+}
+
+/** Every reservation row held by this applicant, newest last. */
+async function findMemberReservationRows(token: string, aucEmail: string): Promise<number[]> {
+  const response = await sheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:E"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const wanted = normalize(aucEmail);
+  const found: number[] = [];
+  rows.forEach((row, index) => {
+    if (normalize(row[4] ?? "") === wanted) found.push(index + 2);
+  });
+  return found;
+}
+
+/** Drop this applicant's reservation rows, freeing the slot for someone else. */
+async function releaseMemberReservation(token: string, aucEmail: string): Promise<void> {
+  const rowIndexes = await findMemberReservationRows(token, aucEmail);
+  if (!rowIndexes.length) return;
+  const sheetIds = await getSpreadsheetSheetIds(token);
+  await batchUpdateSpreadsheet(
+    token,
+    buildDeleteRowRequests(sheetIds.get(MEMBER_SLOT_RESERVATION_SHEET_NAME), rowIndexes)
+  );
+}
+
+/**
+ * Admin reschedule. Not bound by the applicant's own five-day window — that
+ * rule exists to stop applicants booking themselves three weeks out, and an
+ * admin moving someone is a deliberate act, not a default. Capacity still
+ * counts: a slot someone else holds cannot be double-booked.
+ */
+async function rescheduleMemberInterview(
+  token: string,
+  rowIndex: number,
+  slotId: string,
+  adminEmail: string
+): Promise<{ slotLabel: string; meetLink: string; emailSent: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const applicantEmail = String(row[2] ?? "").trim();
+  const fullName = String(row[1] ?? "").trim();
+  const committeeId = String(row[9] ?? "").trim();
+  const previousSlotId = String(row[16] ?? "").trim();
+  const previousEventId = String(row[20] ?? "").trim();
+
+  const slot = buildMemberSlotList(committeeId, new Date(), true).find((candidate) => candidate.id === slotId);
+  if (!slot) throw new Error("That interview slot is not on this committee's board.");
+
+  const reservationResponse = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:E")
+  );
+  const reservationRows = ((await reservationResponse.json()).values ?? []) as string[][];
+  const takenByAnother = reservationRows.some(
+    (r) => String(r[1] ?? "").trim() === slotId && normalize(r[4] ?? "") !== normalize(applicantEmail)
+  );
+  if (takenByAnother) throw new Error("That interview slot is already taken.");
+
+  // Old booking goes first, so a failure part-way never leaves two live holds.
+  await releaseMemberReservation(token, applicantEmail);
+  if (previousEventId) {
+    await deleteCalendarEvent(previousEventId).catch((error) =>
+      console.error(`Member calendar delete failed for ${applicantEmail}: ${error instanceof Error ? error.message : error}`)
+    );
+  }
+
+  const recipients = await getMemberCommitteeRecipients(token, committeeId, applicantEmail);
+  let meetLink = "";
+  let calendarEventId = "";
+  try {
+    const calendarToken = await getGmailAccessToken();
+    const event = await createCalendarEvent(
+      calendarToken,
+      memberCalendarPayload({
+        mode: "member-submit",
+        timestamp: new Date().toISOString(),
+        createdAt: String(row[18] ?? ""),
+        fullName,
+        aucEmail: applicantEmail,
+        studentId: String(row[3] ?? ""),
+        major: String(row[4] ?? ""),
+        yearLevel: String(row[5] ?? ""),
+        phone: String(row[6] ?? ""),
+        whatsappConsent: true,
+        roleAppliedFor: String(row[8] ?? ""),
+        committeeId,
+        secondPreference: String(row[10] ?? ""),
+        interviewSlot: slot.startDateTime,
+        interviewSlotId: slot.id,
+        interviewSlotLabel: slot.label
+      }),
+      slot,
+      recipients
+    );
+    meetLink = event.meetLink;
+    calendarEventId = event.calendarEventId;
+  } catch (error) {
+    console.error(
+      `Member reschedule invite failed for ${applicantEmail}: ${error instanceof Error ? error.message : error}`
+    );
+  }
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [[new Date().toISOString(), slot.id, slot.label, fullName, applicantEmail]] }
+  );
+
+  await writeMemberCells(token, rowIndex, "Interview Slot", [slot.label, slot.id]);
+  await writeMemberCells(token, rowIndex, "Meet Link", [meetLink, calendarEventId, adminEmail, new Date().toISOString()]);
+
+  const emailSent = await trySendMemberNoticeEmail(applicantEmail, fullName, {
+    heading: "Your Interview Has Moved",
+    committee: String(row[8] ?? ""),
+    lead: previousSlotId
+      ? "Your interview has been moved to a new time."
+      : "Your interview has been scheduled.",
+    slotLabel: slot.label,
+    meetLink,
+    closing: "If this time does not work, reply to this email and we will find another."
+  });
+
+  return { slotLabel: slot.label, meetLink, emailSent };
+}
+
+/**
+ * Cancel without deciding anything: the slot is freed, the invite withdrawn,
+ * and the applicant drops back into the dashboard's "needs scheduling" list.
+ * Sends no email — the admin cancelling is usually mid-conversation with the
+ * person, and a surprise "your interview is cancelled" would undercut that.
+ */
+async function cancelMemberInterview(
+  token: string,
+  rowIndex: number,
+  adminEmail: string
+): Promise<{ cancelled: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const applicantEmail = String(row[2] ?? "").trim();
+  const eventId = String(row[20] ?? "").trim();
+
+  await releaseMemberReservation(token, applicantEmail);
+  if (eventId) {
+    await deleteCalendarEvent(eventId).catch((error) =>
+      console.error(`Member calendar delete failed for ${applicantEmail}: ${error instanceof Error ? error.message : error}`)
+    );
+  }
+
+  await writeMemberCells(token, rowIndex, "Interview Slot", ["", ""]);
+  await writeMemberCells(token, rowIndex, "Meet Link", ["", "", adminEmail, new Date().toISOString()]);
+
+  return { cancelled: true };
+}
+
+/**
+ * Accept someone as a general volunteer instead of a committee member: a real
+ * decision, taken once, that emails them immediately. Their interview slot is
+ * released in the same move — they no longer need it, and somebody else does.
+ */
+async function acceptMemberAsGeneralVolunteer(
+  token: string,
+  rowIndex: number,
+  adminEmail: string
+): Promise<{ fullName: string; emailSent: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const applicantEmail = String(row[2] ?? "").trim();
+  const fullName = String(row[1] ?? "").trim();
+  const eventId = String(row[20] ?? "").trim();
+
+  if (String(row[17] ?? "").trim() === MEMBER_GENERAL_VOLUNTEER_STATUS) {
+    throw new Error(`${fullName || applicantEmail} was already accepted as a general volunteer.`);
+  }
+
+  await releaseMemberReservation(token, applicantEmail);
+  if (eventId) {
+    await deleteCalendarEvent(eventId).catch((error) =>
+      console.error(`Member calendar delete failed for ${applicantEmail}: ${error instanceof Error ? error.message : error}`)
+    );
+  }
+
+  await writeMemberCells(token, rowIndex, "Interview Slot", ["", ""]);
+  await setMemberApplicationStatus(token, rowIndex, MEMBER_GENERAL_VOLUNTEER_STATUS);
+  await writeMemberCells(token, rowIndex, "Meet Link", ["", "", adminEmail, new Date().toISOString()]);
+
+  const emailSent = await trySendGeneralVolunteerEmail(applicantEmail, fullName, String(row[8] ?? ""));
+  return { fullName: fullName || applicantEmail, emailSent };
+}
+
+const MEMBER_GENERAL_VOLUNTEER_STATUS = "General Volunteer";
 
 async function setMemberApplicationStatus(token: string, rowIndex: number, status: string): Promise<void> {
   if (!Number.isInteger(rowIndex) || rowIndex < 2) {

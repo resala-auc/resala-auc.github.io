@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Member Recruitment Admin — Resala AUC</title>
+<title>Member Recruitment — Resala AUC</title>
 <link rel="icon" href="../favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,6 +106,17 @@
   .committee-group > h2 { font-size: 15px; color: var(--blue); margin: 0 0 10px;
                     display: flex; align-items: baseline; gap: 9px; }
   .committee-group > h2 .c { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .ccard { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+           text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; }
+  .ccard:hover { border-color: var(--blue); transform: translateY(-1px); }
+  .ccard .n { font-size: 16px; font-weight: 700; color: var(--blue); margin-bottom: 8px; }
+  .ccard .m { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+  .ccard .m b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .btn-back { margin-bottom: 14px; }
+  #committee-heading { font-size: 19px; color: var(--blue); margin: 0 0 16px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .danger { background: #fdecec; color: var(--bad); border: 1px solid #f0c7c4; }
 </style>
 </head>
 <body>
@@ -113,7 +124,7 @@
 <div class="login" id="login">
   <div class="login-card">
     <img src="https://resala-auc.github.io/join/resala-logo.png" alt="Resala AUC">
-    <h1>Member Recruitment Admin</h1>
+    <h1>Member Recruitment</h1>
     <p>Members cycle. Restricted to the people running this recruitment.</p>
     <label for="email">AUC email</label>
     <input type="email" id="email" placeholder="you@aucegypt.edu" autocomplete="email">
@@ -126,7 +137,7 @@
   <header class="bar">
     <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
     <div>
-      <div class="bar-title">Member Recruitment Admin</div>
+      <div class="bar-title">Member Recruitment</div>
       <div class="bar-sub" id="bar-sub">—</div>
     </div>
     <div class="bar-spacer"></div>
@@ -143,11 +154,12 @@
     </div>
 
     <div id="view-applicants">
+      <div id="committee-grid"></div>
+
+      <div id="committee-detail" class="hidden">
+        <button class="btn btn-ghost btn-back" id="back-to-committees">← All committees</button>
+        <h2 id="committee-heading"></h2>
       <div class="filters">
-        <div>
-          <label for="f-committee">Committee</label>
-          <select id="f-committee"><option value="">All committees</option></select>
-        </div>
         <div>
           <label for="f-status">Status</label>
           <select id="f-status">
@@ -169,6 +181,7 @@
         </div>
       </div>
       <div id="applicant-groups"></div>
+      </div>
       <div class="empty hidden" id="applicants-empty">No applications yet.</div>
     </div>
 
@@ -190,7 +203,55 @@
 
 <script type="module">
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
-const STATUSES = ["New", "Interviewed", "Accepted", "Declined", "Waitlisted"];
+const GENERAL_VOLUNTEER = "General Volunteer";
+
+/* The sheet stores three answers per applicant but not the questions they
+   answered — those live in experience/src/data/members.ts. Mirrored here so a
+   reviewer reads a question and its answer together instead of three
+   unlabelled paragraphs. Same three per committee, in the same order. */
+const COMMITTEE_QUESTIONS = {
+  "tech": [
+    "What interests you about joining the Tech Team?",
+    "Have you used or are you interested in learning any technical skills? (For example: coding, website building, spreadsheets, automation, design systems, etc.)",
+    "What is one thing you would like to help improve or build in Resala?"
+  ],
+  "operations": [
+    "Why do you want to join the Operations Team?",
+    "Do you enjoy planning, organizing, or solving problems? Tell us a little about why.",
+    "What do you think is most important when organizing an event or activity?"
+  ],
+  "branding-media": [
+    "What interests you about joining Branding/Media?",
+    "Which area interests you the most? (Design, photography, videography, editing, content creation, writing, or social media)",
+    "If you could help people see one side of Resala better, what would it be?"
+  ],
+  "hr": [
+    "Why do you want to join HR?",
+    "What do you think makes a community feel welcoming and connected?",
+    "How would you like to help make the Resala experience better for its members?"
+  ],
+  "pr-fundraising": [
+    "What interests you about PR/Fundraising?",
+    "Which part interests you the most? (Partnerships, sponsorships, outreach, fundraising, communication, or something else.)",
+    "What do you think makes someone good at representing Resala to other people or organizations?"
+  ],
+  "visits": [
+    "Why do you want to join the Visits Committee?",
+    "What type of visits or activities would you be interested in helping organize?",
+    "What do you think is important when interacting with the people and communities we visit?"
+  ],
+  "childrens-day": [
+    "Why do you want to join Children's Day?",
+    "Have you worked with or spent time with children before? (Tell us about any experience you have.)",
+    "What do you think makes a child enjoy and benefit from an activity?"
+  ],
+  "initiatives": [
+    "Why do you want to join Initiatives?",
+    "If you noticed a problem around you, what is one thing you would want to help change?",
+    "Do you prefer coming up with ideas, planning them, organizing them, or working during execution? Why?"
+  ]
+};
+const STATUSES = ["New", "Interviewed", "Accepted", GENERAL_VOLUNTEER, "Declined", "Waitlisted"];
 
 const norm = (v) => String(v ?? "").trim().toLowerCase();
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
@@ -218,7 +279,7 @@ function confirmDialog(message) {
   });
 }
 
-let state = { admin: null, data: null, msg: null, view: "applicants" };
+let state = { admin: null, data: null, msg: null, view: "applicants", committee: null };
 
 /* Two ways an applicant ends up without a usable interview: they applied
    before booking existed (no slot at all), or they booked while Google was
@@ -267,15 +328,42 @@ function committeeOptions() {
   return [...new Set(state.data.applicants.map((a) => a.committee).filter(Boolean))].sort();
 }
 
-function renderApplicantFilters() {
-  const sel = document.getElementById("f-committee");
-  const current = sel.value;
-  sel.innerHTML = `<option value="">All committees</option>` +
-    committeeOptions().map((c) => `<option value="${esc(c)}"${c === current ? " selected" : ""}>${esc(c)}</option>`).join("");
+/* The page opens on the committees, not on 400 rows: a committee is the unit
+   people actually work in, and its own list is one click away. */
+function renderCommitteeGrid() {
+  const grid = document.getElementById("committee-grid");
+  const detail = document.getElementById("committee-detail");
+  grid.classList.toggle("hidden", Boolean(state.committee));
+  detail.classList.toggle("hidden", !state.committee);
+
+  if (state.committee) {
+    const people = state.data.applicants.filter((a) => a.committee === state.committee);
+    document.getElementById("committee-heading").textContent = `${state.committee} · ${people.length} applicant${people.length === 1 ? "" : "s"}`;
+    return;
+  }
+
+  const committees = committeeOptions();
+  if (!committees.length) { grid.innerHTML = ""; return; }
+
+  grid.innerHTML = `<div class="cgrid">${committees.map((c) => {
+    const people = state.data.applicants.filter((a) => a.committee === c);
+    const booked = people.filter((a) => hasSlot(a) && !needsInvite(a)).length;
+    const waiting = people.filter(needsScheduling).length;
+    return `
+      <button type="button" class="ccard" data-committee="${esc(c)}">
+        <div class="n">${esc(c)}</div>
+        <div class="m">
+          <span><b>${people.length}</b> applicants</span>
+          <span><b>${booked}</b> booked</span>
+          ${waiting ? `<span><b>${waiting}</b> need scheduling</span>` : ""}
+        </div>
+      </button>`;
+  }).join("")}</div>`;
 }
 
 function renderApplicants() {
-  const committeeFilter = document.getElementById("f-committee").value;
+  if (!state.committee) { document.getElementById("applicant-groups").innerHTML = ""; return; }
+  const committeeFilter = state.committee;
   const statusFilter = document.getElementById("f-status").value;
   const schedulingFilter = document.getElementById("f-scheduling").value;
   const rows = state.data.applicants.filter((a) => {
@@ -304,9 +392,8 @@ function renderApplicants() {
     byCommittee.get(key).push(a);
   }
 
-  groupsEl.innerHTML = [...byCommittee.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([committee, people]) => `
+  groupsEl.innerHTML = [...byCommittee.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([, people]) => `
     <div class="committee-group">
-      <h2>${esc(committee)} <span class="c">${people.length}</span></h2>
       <div class="wrap-x"><table>
         <thead><tr><th>Applicant</th><th>Standing / Major</th><th>Interview</th><th>Status</th></tr></thead>
         <tbody>
@@ -352,8 +439,34 @@ function renderDialog(a) {
     </div>
     <h3 class="sec">Application</h3>
     <div class="qa">
-      ${[a.answer1, a.answer2, a.answer3].filter(Boolean).map((ans) => `<div class="a">${esc(ans)}</div>`).join("")}
+      ${[a.answer1, a.answer2, a.answer3]
+        .map((ans, i) => ({ ans, q: (COMMITTEE_QUESTIONS[a.committeeId] ?? [])[i] }))
+        .filter((pair) => pair.ans)
+        .map((pair) => `${pair.q ? `<div class="q">${esc(pair.q)}</div>` : ""}<div class="a">${esc(pair.ans)}</div>`)
+        .join("")}
     </div>
+    <h3 class="sec">Interview</h3>
+    <div class="row2">
+      <div>
+        <label for="dlg-slot">Move to</label>
+        <select id="dlg-slot"><option value="">Loading times…</option></select>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="btn" id="dlg-reschedule" data-row="${esc(a.rowIndex)}" disabled>Reschedule</button>
+      </div>
+      ${hasSlot(a) ? `<div style="flex:0 0 auto;">
+        <button class="btn btn-ghost" id="dlg-cancel-interview" data-row="${esc(a.rowIndex)}">Cancel interview</button>
+      </div>` : ""}
+    </div>
+
+    <h3 class="sec">Decision</h3>
+    <div class="actions">
+      <button class="btn danger" id="dlg-general-volunteer" data-row="${esc(a.rowIndex)}"${
+        (a.status || "") === GENERAL_VOLUNTEER ? " disabled" : ""
+      }>${(a.status || "") === GENERAL_VOLUNTEER ? "Already a general volunteer" : "Accept as general volunteer"}</button>
+    </div>
+    <div class="note" style="margin-top:6px;">Emails them straight away that they are in as a general volunteer, and frees their interview slot.</div>
+
     <h3 class="sec">Status</h3>
     <div class="row2">
       <div>
@@ -369,6 +482,32 @@ function renderDialog(a) {
   `;
   const dlg = document.getElementById("dlg");
   if (!dlg.open) dlg.showModal();
+  loadSlotChoices(a);
+}
+
+/* The admin picks from the committee's real board, with slots someone else
+   already holds marked rather than hidden — knowing a time is taken is more
+   useful than wondering where it went. */
+async function loadSlotChoices(a) {
+  const sel = document.getElementById("dlg-slot");
+  const btn = document.getElementById("dlg-reschedule");
+  if (!sel) return;
+  try {
+    const res = await fetch(`${ENDPOINT}?memberCommittee=${encodeURIComponent(a.committeeId)}`);
+    const body = await res.json();
+    const slots = Array.isArray(body?.slots) ? body.slots : [];
+    const taken = new Set(
+      state.data.reservations
+        .filter((r) => norm(r.aucEmail) !== norm(a.aucEmail))
+        .map((r) => r.slotId)
+    );
+    sel.innerHTML = `<option value="">Choose a time…</option>` + slots
+      .map((slot) => `<option value="${esc(slot.id)}"${taken.has(slot.id) ? " disabled" : ""}>${esc(slot.label)}${taken.has(slot.id) ? " — taken" : ""}</option>`)
+      .join("");
+    if (btn) btn.disabled = false;
+  } catch {
+    sel.innerHTML = `<option value="">Could not load times</option>`;
+  }
 }
 
 function renderSlots() {
@@ -406,7 +545,7 @@ function renderSlots() {
 
 function renderAll() {
   renderStats();
-  renderApplicantFilters();
+  renderCommitteeGrid();
   renderApplicants();
   renderSlots();
 }
@@ -439,9 +578,22 @@ document.getElementById("views").addEventListener("click", (e) => {
   document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
 });
 
-document.getElementById("f-committee").addEventListener("change", renderApplicants);
 document.getElementById("f-status").addEventListener("change", renderApplicants);
 document.getElementById("f-scheduling").addEventListener("change", renderApplicants);
+
+document.getElementById("committee-grid").addEventListener("click", (e) => {
+  const card = e.target.closest("[data-committee]");
+  if (!card) return;
+  state.committee = card.dataset.committee;
+  renderCommitteeGrid();
+  renderApplicants();
+});
+
+document.getElementById("back-to-committees").addEventListener("click", () => {
+  state.committee = null;
+  renderCommitteeGrid();
+  renderApplicants();
+});
 
 document.getElementById("applicant-groups").addEventListener("click", (e) => {
   const row = e.target.closest("[data-open]");
@@ -455,6 +607,71 @@ document.getElementById("dlg-body").addEventListener("click", async (e) => {
     document.getElementById("dlg").close();
     return;
   }
+  const applicantOf = (btn) => state.data.applicants.find((x) => x.rowIndex === Number(btn.dataset.row));
+
+  const reBtn = e.target.closest("#dlg-reschedule");
+  if (reBtn) {
+    const a = applicantOf(reBtn);
+    const sel = document.getElementById("dlg-slot");
+    const slotId = sel.value;
+    if (!slotId) { state.msg = { type: "bad", text: "Choose a time first." }; renderDialog(a); return; }
+    const label = sel.options[sel.selectedIndex].textContent;
+    if (!(await confirmDialog(
+      `Move ${a.fullName}'s interview to ${label}?\n\nThis emails them the new time and updates the calendar invite.`
+    ))) return;
+    reBtn.disabled = true;
+    try {
+      const r = await api({ mode: "member-admin-reschedule", email: state.admin.email, rowIndex: a.rowIndex, slotId });
+      state.msg = { type: "ok", text: `Moved to ${r.slotLabel}.${r.emailSent ? "" : " Email could not be sent — tell them yourself."}` };
+      await load(state.admin.email);
+    } catch (err) {
+      state.msg = { type: "bad", text: err.message };
+    }
+    renderDialog(state.data.applicants.find((x) => x.rowIndex === a.rowIndex) ?? a);
+    return;
+  }
+
+  const cancelBtn = e.target.closest("#dlg-cancel-interview");
+  if (cancelBtn) {
+    const a = applicantOf(cancelBtn);
+    if (!(await confirmDialog(
+      `Cancel ${a.fullName}'s interview?\n\nThe slot is freed and the calendar invite withdrawn. No email is sent — tell them yourself, or reschedule them here.`
+    ))) return;
+    cancelBtn.disabled = true;
+    try {
+      await api({ mode: "member-admin-cancel-interview", email: state.admin.email, rowIndex: a.rowIndex });
+      state.msg = { type: "ok", text: "Interview cancelled — they are back in Needs scheduling." };
+      await load(state.admin.email);
+    } catch (err) {
+      state.msg = { type: "bad", text: err.message };
+    }
+    renderDialog(state.data.applicants.find((x) => x.rowIndex === a.rowIndex) ?? a);
+    return;
+  }
+
+  const gvBtn = e.target.closest("#dlg-general-volunteer");
+  if (gvBtn) {
+    const a = applicantOf(gvBtn);
+    if (!(await confirmDialog(
+      `Accept ${a.fullName} as a general volunteer?\n\nThis emails them immediately that they are accepted as a general volunteer, not as a committee member, and frees their interview slot. It cannot be undone from here.`
+    ))) return;
+    gvBtn.disabled = true;
+    try {
+      const r = await api({ mode: "member-admin-general-volunteer", email: state.admin.email, rowIndex: a.rowIndex });
+      state.msg = {
+        type: r.emailSent ? "ok" : "bad",
+        text: r.emailSent
+          ? `${r.fullName} accepted as a general volunteer and emailed.`
+          : `${r.fullName} marked as a general volunteer, but the email did not send — tell them yourself.`
+      };
+      await load(state.admin.email);
+    } catch (err) {
+      state.msg = { type: "bad", text: err.message };
+    }
+    renderDialog(state.data.applicants.find((x) => x.rowIndex === a.rowIndex) ?? a);
+    return;
+  }
+
   const saveBtn = e.target.closest("#dlg-save-status");
   if (saveBtn) {
     const rowIndex = Number(saveBtn.dataset.row);
