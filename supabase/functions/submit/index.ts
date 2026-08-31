@@ -3114,14 +3114,34 @@ async function reserveMemberInterviewSlot(
    * Resala calendar, with the applicant, the committee's directors and its
    * heads all invited, so the time in the sheet and the invite in their
    * calendars can never disagree.
+   *
+   * Deliberately not fatal. Google can fail for reasons that have nothing to
+   * do with this applicant — a revoked refresh token, a Calendar rate limit
+   * during a rush, Meet creation blocked by a Workspace policy — and some of
+   * those stay broken until a person notices. Losing every application for
+   * the hours that takes is far worse than booking one without a link: the
+   * slot is still held, the row is still written, and the dashboard lists
+   * them as needing an invite sent by hand.
    */
-  const calendarToken = await getGmailAccessToken();
-  const { calendarEventId, meetLink } = await createCalendarEvent(
-    calendarToken,
-    memberCalendarPayload(payload),
-    selected,
-    recipients
-  );
+  let calendarEventId = "";
+  let meetLink = "";
+  try {
+    const calendarToken = await getGmailAccessToken();
+    const event = await createCalendarEvent(
+      calendarToken,
+      memberCalendarPayload(payload),
+      selected,
+      recipients
+    );
+    calendarEventId = event.calendarEventId;
+    meetLink = event.meetLink;
+  } catch (error) {
+    console.error(
+      `Member calendar invite failed for ${payload.aucEmail} (${selected.id}) — booking kept without a link: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`
+    );
+  }
 
   await sheetsFetch(
     token,
@@ -3402,7 +3422,9 @@ function buildMemberConfirmationEmail(
     textLines.push(
       `Your interview: ${slotLabel} (15 minutes).`,
       meetLink ? `Google Meet link: ${meetLink}` : "",
-      "A calendar invitation is on its way. Please keep your camera on.",
+      meetLink
+        ? "A calendar invitation is on its way. Please keep your camera on."
+        : "We will send the meeting link before your interview. Please keep your camera on.",
       "Join on time — after 5 minutes we have to treat it as a no-show.",
       ""
     );
@@ -3448,7 +3470,11 @@ function buildMemberConfirmationEmail(
                     }
                   </td></tr>
                 </table>
-                <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#172033;">A calendar invitation is on its way. Please keep your camera on, and join on time — after <strong>5 minutes</strong> we have to treat it as a no-show.</p>`
+                <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#172033;">${
+                  meetLink
+                    ? "A calendar invitation is on its way."
+                    : "We will send you the meeting link before your interview."
+                } Please keep your camera on, and join on time — after <strong>5 minutes</strong> we have to treat it as a no-show.</p>`
     : `
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">The committee will contact you to arrange your interview time.</p>`;
 

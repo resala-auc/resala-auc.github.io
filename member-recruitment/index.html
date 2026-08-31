@@ -163,7 +163,7 @@
           <label for="f-scheduling">Interview</label>
           <select id="f-scheduling">
             <option value="">Any</option>
-            <option value="booked">Booked</option>
+            <option value="booked">Booked, invite sent</option>
             <option value="unscheduled">Needs scheduling</option>
           </select>
         </div>
@@ -220,6 +220,14 @@ function confirmDialog(message) {
 
 let state = { admin: null, data: null, msg: null, view: "applicants" };
 
+/* Two ways an applicant ends up without a usable interview: they applied
+   before booking existed (no slot at all), or they booked while Google was
+   refusing to make the invite (slot, no Meet link). Both need a person, so
+   both are counted and filtered together. */
+const hasSlot = (a) => Boolean(String(a.interviewSlot ?? "").trim());
+const needsInvite = (a) => hasSlot(a) && !String(a.meetLink ?? "").trim();
+const needsScheduling = (a) => !hasSlot(a) || needsInvite(a);
+
 async function api(payload) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
@@ -246,9 +254,7 @@ function renderStats() {
   const applicants = state.data.applicants;
   const byStatus = {};
   for (const a of applicants) byStatus[a.status || "New"] = (byStatus[a.status || "New"] ?? 0) + 1;
-  // Applicants who came in while booking was switched off have no slot and
-  // need one arranged by hand — surfaced here rather than left to be noticed.
-  const unscheduled = applicants.filter((a) => !String(a.interviewSlot ?? "").trim()).length;
+  const unscheduled = applicants.filter(needsScheduling).length;
   const el = document.getElementById("stats");
   el.innerHTML = [
     `<div class="stat"><div class="v">${applicants.length}</div><div class="k">Total</div></div>`,
@@ -273,11 +279,11 @@ function renderApplicants() {
   const statusFilter = document.getElementById("f-status").value;
   const schedulingFilter = document.getElementById("f-scheduling").value;
   const rows = state.data.applicants.filter((a) => {
-    const booked = Boolean(String(a.interviewSlot ?? "").trim());
+    const settled = hasSlot(a) && !needsInvite(a);
     return (
       (!committeeFilter || a.committee === committeeFilter) &&
       (!statusFilter || (a.status || "New") === statusFilter) &&
-      (!schedulingFilter || (schedulingFilter === "booked" ? booked : !booked))
+      (!schedulingFilter || (schedulingFilter === "booked" ? settled : needsScheduling(a)))
     );
   });
 
@@ -309,9 +315,11 @@ function renderApplicants() {
               <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
               <td>${esc(a.yearLevel)}<div class="note">${esc(a.major)}</div></td>
               <td>${
-                String(a.interviewSlot ?? "").trim()
-                  ? `${esc(a.interviewSlot)}${a.meetLink ? `<div class="note"><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Meet link</a></div>` : ""}`
-                  : `<span class="pill part">Needs scheduling</span>`
+                !hasSlot(a)
+                  ? `<span class="pill part">Needs scheduling</span>`
+                  : needsInvite(a)
+                    ? `${esc(a.interviewSlot)}<div class="note"><span class="pill bad">Invite not sent</span></div>`
+                    : `${esc(a.interviewSlot)}<div class="note"><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Meet link</a></div>`
               }</td>
               <td><span class="pill ${a.status === "Accepted" ? "done" : a.status === "Declined" ? "bad" : a.status === "Interviewed" ? "part" : "open"}">${esc(a.status || "New")}</span></td>
             </tr>`).join("")}
@@ -334,7 +342,13 @@ function renderDialog(a) {
       <div><b>Phone</b>${esc(a.phone)}</div>
       <div><b>WhatsApp consent</b>${esc(a.whatsappConsent)}</div>
       <div><b>Interview</b>${esc(a.interviewSlot) || "Needs scheduling"}</div>
-      ${a.meetLink ? `<div><b>Meet link</b><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join</a></div>` : ""}
+      ${
+        a.meetLink
+          ? `<div><b>Meet link</b><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join</a></div>`
+          : hasSlot(a)
+            ? `<div><b>Meet link</b>Not created — send an invite by hand</div>`
+            : ""
+      }
     </div>
     <h3 class="sec">Application</h3>
     <div class="qa">
