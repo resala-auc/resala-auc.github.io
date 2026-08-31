@@ -3,15 +3,14 @@ const SHEET_NAME = Deno.env.get("SHEET_NAME") ?? "Applications";
 const SLOT_SHEET_NAME = Deno.env.get("SLOT_SHEET_NAME") ?? "Interview Slots";
 const RESERVATION_SHEET_NAME = Deno.env.get("RESERVATION_SHEET_NAME") ?? "Interview Reservations";
 /*
- * Members cycle (September 2026). A separate spreadsheet from the heads/
- * classic SHEET_ID above — left blank until the real sheet is connected, at
- * which point every member-* mode below starts working with no code change.
+ * Members cycle (September 2026). Same spreadsheet as heads/classic
+ * (SHEET_ID above), its own tabs — "Member Recruitment" for applications,
+ * plus a reservations tab for interview-slot capacity.
  */
-const MEMBER_SHEET_ID = Deno.env.get("MEMBER_SHEET_ID") ?? "";
 const MEMBER_APPLICATIONS_SHEET_NAME =
-  Deno.env.get("MEMBER_APPLICATIONS_SHEET_NAME") ?? "Member Applications";
+  Deno.env.get("MEMBER_APPLICATIONS_SHEET_NAME") ?? "Member Recruitment";
 const MEMBER_SLOT_RESERVATION_SHEET_NAME =
-  Deno.env.get("MEMBER_RESERVATION_SHEET_NAME") ?? "Member Interview Reservations";
+  Deno.env.get("MEMBER_RESERVATION_SHEET_NAME") ?? "Member Recruitment Interview Reservations";
 const GOOGLE_SERVICE_ACCOUNT_KEY = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") ?? "";
 const GOOGLE_CLIENT_EMAIL = Deno.env.get("GOOGLE_CLIENT_EMAIL") ?? "";
 const GOOGLE_PRIVATE_KEY = Deno.env.get("GOOGLE_PRIVATE_KEY") ?? "";
@@ -1799,9 +1798,12 @@ Deno.serve(async (request) => {
     try {
       const url = new URL(request.url);
 
-      // Members cycle reads its own spreadsheet — check these two params
-      // before the SHEET_ID guard below, since MEMBER_SHEET_ID is separate
-      // and may be configured (or not) independently of it.
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
+      }
+
+      const token = await getGoogleAccessToken();
+
       const memberContactsFor = url.searchParams.get("memberContacts");
       if (memberContactsFor) {
         return jsonResponse({ ok: true, contacts: await getMemberCommitteePanel() });
@@ -1809,20 +1811,10 @@ Deno.serve(async (request) => {
 
       const memberCommittee = url.searchParams.get("memberCommittee");
       if (memberCommittee) {
-        if (!MEMBER_SHEET_ID) {
-          throw new Error("MEMBER_SHEET_ID is not configured.");
-        }
-        const memberToken = await getGoogleAccessToken();
-        const allMemberSlots = await getMemberInterviewSlots(memberToken, memberCommittee);
+        const allMemberSlots = await getMemberInterviewSlots(token, memberCommittee);
         const memberSlots = allMemberSlots.filter((slot) => !slot.tooSoon);
         return jsonResponse({ ok: true, slots: memberSlots, leadMinutes: MEMBER_BOOKING_LEAD_MINUTES });
       }
-
-      if (!SHEET_ID) {
-        throw new Error("SHEET_ID is not configured.");
-      }
-
-      const token = await getGoogleAccessToken();
 
       /*
        * Public contact lookup: the Director and Vice-Director(s) an applicant
@@ -2316,7 +2308,6 @@ Deno.serve(async (request) => {
 
     if (isMemberAdminLoadPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
-      if (!MEMBER_SHEET_ID) throw new Error("MEMBER_SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
       const admin = await requireRecruitmentAdmin(adminToken, payload.email);
       const data = await loadMemberAdmin(adminToken);
@@ -2325,7 +2316,6 @@ Deno.serve(async (request) => {
 
     if (isMemberAdminSetStatusPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
-      if (!MEMBER_SHEET_ID) throw new Error("MEMBER_SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
       await requireRecruitmentAdmin(adminToken, payload.email);
       await setMemberApplicationStatus(adminToken, payload.rowIndex, payload.status);
@@ -2335,13 +2325,13 @@ Deno.serve(async (request) => {
     if (isMemberSubmitPayload(payload)) {
       validateMemberApplication(payload);
 
-      if (!MEMBER_SHEET_ID) {
-        throw new Error("MEMBER_SHEET_ID is not configured.");
+      if (!SHEET_ID) {
+        throw new Error("SHEET_ID is not configured.");
       }
 
       const memberToken = await getGoogleAccessToken();
-      await ensureMemberSheetTab(memberToken, MEMBER_APPLICATIONS_SHEET_NAME);
-      await ensureMemberSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+      await ensureSheetTab(memberToken, MEMBER_APPLICATIONS_SHEET_NAME);
+      await ensureSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
       await ensureMemberApplicationNotDuplicate(memberToken, payload);
 
       let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
@@ -2886,102 +2876,12 @@ async function appendApplication(token: string, payload: ApplicationPayload, she
 
 /*
  * ---------------------------------------------------------------------------
- * Members cycle (September 2026).
- *
- * Deliberately self-contained rather than threading MEMBER_SHEET_ID through
- * the existing sheetsFetch/ensureSheetTab/ensureSheetHeaders helpers above —
- * those are called from ~40 existing heads/classic call sites and none of
- * them pass a spreadsheet id today. Small member-* duplicates here carry zero
- * risk of touching that live path while heads acceptance emails are still
- * going out. If the two cycles' Sheets code drifts, this block is the one to
- * update — nothing above it needs to change for members, and nothing here
- * is read by any heads/classic code path.
+ * Members cycle (September 2026). Same spreadsheet as heads/classic — its
+ * own tabs (MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_SLOT_RESERVATION_SHEET_NAME),
+ * reusing sheetsFetch/ensureSheetTab/ensureSheetHeaders above like every
+ * other cycle's tabs do.
  * ---------------------------------------------------------------------------
  */
-
-let memberResolvedSheetTitles: Set<string> | null = null;
-const memberVerifiedSheetHeaders = new Set<string>();
-
-async function memberSheetsFetch(token: string, method: string, path: string, body?: unknown): Promise<Response> {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}/values/${path}`;
-  const attempts = 4;
-
-  for (let attempt = 1; ; attempt += 1) {
-    const response = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
-
-    if (response.ok) return response;
-
-    const errorText = await response.text();
-    const retriable = response.status === 429 || response.status >= 500;
-    if (!retriable || attempt >= attempts) {
-      throw new Error(`Google Sheets request failed: ${errorText}`);
-    }
-
-    const waitMs = 2000 * (2 ** attempt - 1);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
-}
-
-async function getMemberSpreadsheetSheetTitles(token: string): Promise<Set<string>> {
-  if (memberResolvedSheetTitles) return memberResolvedSheetTitles;
-
-  const response = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}?fields=sheets.properties.title`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  if (!response.ok) {
-    throw new Error(`Google Sheets metadata request failed: ${await response.text()}`);
-  }
-
-  const body = await response.json();
-  const titles = new Set<string>();
-  for (const sheet of body?.sheets ?? []) {
-    const title = sheet?.properties?.title;
-    if (typeof title === "string" && title.trim()) titles.add(title.trim());
-  }
-  memberResolvedSheetTitles = titles;
-  return titles;
-}
-
-async function ensureMemberSheetTab(token: string, tabName: string): Promise<void> {
-  const titles = await getMemberSpreadsheetSheetTitles(token);
-  if (titles.has(tabName)) return;
-
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MEMBER_SHEET_ID}:batchUpdate`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: tabName } } }] })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    if (!String(errorText).includes("already exists")) {
-      throw new Error(`Could not create sheet tab ${tabName}: ${errorText}`);
-    }
-  }
-  titles.add(tabName);
-}
-
-async function ensureMemberSheetHeaders(token: string, sheetName: string, headers: string[]): Promise<void> {
-  if (memberVerifiedSheetHeaders.has(sheetName)) return;
-
-  const width = headers.length;
-  const range = sheetRange(sheetName, `A1:${columnLetter(width)}1`);
-  const response = await memberSheetsFetch(token, "GET", range);
-  const currentValues = (await response.json()).values?.[0] ?? [];
-
-  if (currentValues.length === 0 || !headers.every((header, index) => currentValues[index] === header)) {
-    await memberSheetsFetch(token, "PUT", `${range}?valueInputOption=RAW`, { values: [headers] });
-  }
-  memberVerifiedSheetHeaders.add(sheetName);
-}
 
 function validateMemberApplication(payload: MemberApplicationPayload): void {
   const requiredFields: Array<keyof MemberApplicationPayload> = [
@@ -3015,7 +2915,7 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
 }
 
 async function ensureMemberApplicationNotDuplicate(token: string, payload: MemberApplicationPayload): Promise<void> {
-  const response = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, "A2:C"));
+  const response = await sheetsFetch(token, "GET", sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, "A2:C"));
   const rows = (await response.json()).values ?? [];
   const submittedEmail = normalize(payload.aucEmail);
   const submittedStudentId = normalize(payload.studentId);
@@ -3064,7 +2964,7 @@ async function appendMemberApplication(
     payload.createdAt
   ];
 
-  await memberSheetsFetch(
+  await sheetsFetch(
     token,
     "POST",
     `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
@@ -3134,10 +3034,10 @@ function buildMemberSlotList(committeeId: string): InterviewSlotOption[] {
 }
 
 async function getMemberInterviewSlots(token: string, committeeId: string): Promise<InterviewSlotOption[]> {
-  await ensureMemberSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
-  await ensureMemberSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
+  await ensureSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
 
-  const response = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:B"));
+  const response = await sheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:B"));
   const rows = (await response.json()).values ?? [];
   const counts = new Map<string, number>();
   for (const row of rows) {
@@ -3175,7 +3075,7 @@ async function reserveMemberInterviewSlot(
     throw new Error("That interview slot is already full. Please choose another slot.");
   }
 
-  await memberSheetsFetch(
+  await sheetsFetch(
     token,
     "POST",
     `${sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
@@ -3201,10 +3101,10 @@ async function loadMemberAdmin(token: string): Promise<{
   applicants: Array<Record<string, string | number>>;
   reservations: Array<Record<string, string>>;
 }> {
-  await ensureMemberSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
-  await ensureMemberSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
 
-  const appResponse = await memberSheetsFetch(
+  const appResponse = await sheetsFetch(
     token,
     "GET",
     sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
@@ -3235,9 +3135,9 @@ async function loadMemberAdmin(token: string): Promise<{
 
   let reservations: Array<Record<string, string>> = [];
   try {
-    await ensureMemberSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
-    await ensureMemberSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
-    const slotResponse = await memberSheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:E"));
+    await ensureSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
+    await ensureSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
+    const slotResponse = await sheetsFetch(token, "GET", sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A2:E"));
     const slotRows: string[][] = (await slotResponse.json()).values ?? [];
     reservations = slotRows.map((row) => {
       const slotId = row[1] ?? "";
@@ -3262,7 +3162,7 @@ async function setMemberApplicationStatus(token: string, rowIndex: number, statu
     throw new Error("Invalid application row.");
   }
   const statusColumn = columnLetter(MEMBER_APPLICATION_HEADERS.indexOf("Status") + 1);
-  await memberSheetsFetch(
+  await sheetsFetch(
     token,
     "PUT",
     `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `${statusColumn}${rowIndex}`)}?valueInputOption=RAW`,
