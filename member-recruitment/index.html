@@ -159,6 +159,14 @@
             <option value="Waitlisted">Waitlisted</option>
           </select>
         </div>
+        <div>
+          <label for="f-scheduling">Interview</label>
+          <select id="f-scheduling">
+            <option value="">Any</option>
+            <option value="booked">Booked</option>
+            <option value="unscheduled">Needs scheduling</option>
+          </select>
+        </div>
       </div>
       <div id="applicant-groups"></div>
       <div class="empty hidden" id="applicants-empty">No applications yet.</div>
@@ -238,9 +246,13 @@ function renderStats() {
   const applicants = state.data.applicants;
   const byStatus = {};
   for (const a of applicants) byStatus[a.status || "New"] = (byStatus[a.status || "New"] ?? 0) + 1;
+  // Applicants who came in while booking was switched off have no slot and
+  // need one arranged by hand — surfaced here rather than left to be noticed.
+  const unscheduled = applicants.filter((a) => !String(a.interviewSlot ?? "").trim()).length;
   const el = document.getElementById("stats");
   el.innerHTML = [
     `<div class="stat"><div class="v">${applicants.length}</div><div class="k">Total</div></div>`,
+    `<div class="stat"><div class="v">${unscheduled}</div><div class="k">Needs scheduling</div></div>`,
     ...STATUSES.map((s) => `<div class="stat"><div class="v">${byStatus[s] ?? 0}</div><div class="k">${esc(s)}</div></div>`)
   ].join("");
 }
@@ -259,10 +271,15 @@ function renderApplicantFilters() {
 function renderApplicants() {
   const committeeFilter = document.getElementById("f-committee").value;
   const statusFilter = document.getElementById("f-status").value;
-  const rows = state.data.applicants.filter((a) =>
-    (!committeeFilter || a.committee === committeeFilter) &&
-    (!statusFilter || (a.status || "New") === statusFilter)
-  );
+  const schedulingFilter = document.getElementById("f-scheduling").value;
+  const rows = state.data.applicants.filter((a) => {
+    const booked = Boolean(String(a.interviewSlot ?? "").trim());
+    return (
+      (!committeeFilter || a.committee === committeeFilter) &&
+      (!statusFilter || (a.status || "New") === statusFilter) &&
+      (!schedulingFilter || (schedulingFilter === "booked" ? booked : !booked))
+    );
+  });
 
   document.getElementById("applicants-empty").classList.toggle("hidden", state.data.applicants.length > 0);
   const groupsEl = document.getElementById("applicant-groups");
@@ -291,7 +308,11 @@ function renderApplicants() {
             <tr data-open="${esc(a.rowIndex)}">
               <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
               <td>${esc(a.yearLevel)}<div class="note">${esc(a.major)}</div></td>
-              <td>${esc(a.interviewSlot) || "—"}</td>
+              <td>${
+                String(a.interviewSlot ?? "").trim()
+                  ? `${esc(a.interviewSlot)}${a.meetLink ? `<div class="note"><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Meet link</a></div>` : ""}`
+                  : `<span class="pill part">Needs scheduling</span>`
+              }</td>
               <td><span class="pill ${a.status === "Accepted" ? "done" : a.status === "Declined" ? "bad" : a.status === "Interviewed" ? "part" : "open"}">${esc(a.status || "New")}</span></td>
             </tr>`).join("")}
         </tbody>
@@ -312,7 +333,8 @@ function renderDialog(a) {
       <div><b>Standing</b>${esc(a.yearLevel)}</div>
       <div><b>Phone</b>${esc(a.phone)}</div>
       <div><b>WhatsApp consent</b>${esc(a.whatsappConsent)}</div>
-      <div><b>Interview</b>${esc(a.interviewSlot) || "Not booked"}</div>
+      <div><b>Interview</b>${esc(a.interviewSlot) || "Needs scheduling"}</div>
+      ${a.meetLink ? `<div><b>Meet link</b><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join</a></div>` : ""}
     </div>
     <h3 class="sec">Application</h3>
     <div class="qa">
@@ -405,6 +427,7 @@ document.getElementById("views").addEventListener("click", (e) => {
 
 document.getElementById("f-committee").addEventListener("change", renderApplicants);
 document.getElementById("f-status").addEventListener("change", renderApplicants);
+document.getElementById("f-scheduling").addEventListener("change", renderApplicants);
 
 document.getElementById("applicant-groups").addEventListener("click", (e) => {
   const row = e.target.closest("[data-open]");

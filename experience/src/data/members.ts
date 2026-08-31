@@ -68,14 +68,20 @@ export type Committee = {
   contacts: CommitteeContact[];
 };
 
+/** Members book their own 15-minute interview as the last step. */
+export const SHOW_INTERVIEW_BOOKING = true;
+
 /**
- * Members do not book their own interview time — the last step just sends the
- * application, and the committee reaches out to schedule. Flip this to true to
- * bring the slot picker back (everything behind it — the published grid below,
- * the ?memberCommittee= endpoint, the reservations tab — is still wired up and
- * working; only the UI is switched off).
+ * Applications close at the end of 20 September 2026, Cairo time. The flow
+ * closes itself past this; the backend rejects a late post independently, so
+ * a tab left open overnight cannot slip one through.
  */
-export const SHOW_INTERVIEW_BOOKING = false;
+export const APPLICATION_DEADLINE = "2026-09-20T23:59:59+02:00";
+export const APPLICATION_DEADLINE_LABEL = "20 September";
+
+export function applicationsClosed(now: Date = new Date()): boolean {
+  return now.getTime() > new Date(APPLICATION_DEADLINE).getTime();
+}
 
 const GENERAL_CONTACT: CommitteeContact = {
   name: "Resala AUC",
@@ -84,15 +90,16 @@ const GENERAL_CONTACT: CommitteeContact = {
 };
 
 /*
- * PLACEHOLDER interview grid — the brief only says "interviews start 2
- * September," no per-committee day/time availability was supplied. Every
- * committee shares this block until real availability replaces it; nothing
- * else in the app needs to change when it does, since this is the only place
- * the grid is defined.
+ * Every committee interviews on the same board: 2-20 September, 3pm to 9pm,
+ * 15 minutes each. Mirrored by hand in supabase/functions/submit/index.ts,
+ * which cannot import this file — change the two together.
  */
-const MEMBER_INTERVIEW_DAYS = ["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-06", "2026-09-07"];
-const MEMBER_INTERVIEW_TIMES = ["16:00", "16:20", "16:40", "17:00", "17:20", "17:40", "18:00", "18:20", "18:40", "19:00"];
-const MEMBER_SLOT_MINUTES = 20;
+const MEMBER_INTERVIEW_DAYS = Array.from({ length: 19 }, (_, i) => `2026-09-${String(i + 2).padStart(2, "0")}`);
+const MEMBER_INTERVIEW_TIMES = Array.from({ length: 24 }, (_, i) => {
+  const minutes = 15 * 60 + i * 15;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+});
+const MEMBER_SLOT_MINUTES = 15;
 const MEMBER_SLOT_CAPACITY = 1;
 const MEMBER_BOOKING_LEAD_MINUTES = 360;
 

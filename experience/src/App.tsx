@@ -11,7 +11,7 @@ import { ActBackup } from "./acts/ActBackup";
 import { ActQuestions } from "./acts/ActQuestions";
 import { ActSlot } from "./acts/ActSlot";
 import { ActSealed } from "./acts/ActSealed";
-import { findCommittee, findCommitteeRole } from "./data/members";
+import { APPLICATION_DEADLINE_LABEL, applicationsClosed, findCommittee, findCommitteeRole } from "./data/members";
 import type { Committee, CommitteeRole } from "./data/members";
 import { submitApplication } from "./lib/api";
 import type { Act, ApplicationPayload, CommitteeGroup, Identity, InterviewSlot } from "./types";
@@ -207,6 +207,37 @@ export default function App() {
     await submitApplication(payload);
     setAct("sealed");
   };
+
+  /*
+   * Past the deadline the flow does not open at all — filling six steps in
+   * only to be refused by the server at the last one is a worse way to find
+   * out. The server refuses it too; this is the courteous half.
+   */
+  if (applicationsClosed()) {
+    return (
+      <>
+        <Backdrop intensity={0.15} />
+        <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 text-center">
+          <p className="mb-4 text-sm font-semibold tracking-[0.22em] text-brand-blue uppercase">
+            Beyond Ana Maly
+          </p>
+          <h1 className="mb-4 max-w-xl font-serif text-3xl leading-tight font-black text-brand-blue md:text-4xl">
+            Applications closed on {APPLICATION_DEADLINE_LABEL}.
+          </h1>
+          <p className="max-w-md leading-relaxed text-brand-muted">
+            Thank you to everyone who applied — the committees are going through every
+            application. If you already sent yours, watch your AUC inbox.
+          </p>
+          <a
+            href="../"
+            className="mt-8 inline-flex items-center rounded-full border border-brand-blue/35 bg-white/70 px-6 py-3 font-semibold text-brand-blue"
+          >
+            Back to Resala AUC
+          </a>
+        </main>
+      </>
+    );
+  }
 
   return (
     <>

@@ -126,9 +126,20 @@ const MEMBER_APPLICATION_HEADERS = [
   "Interview Slot",
   "Interview Slot Id",
   "Status",
-  "Created At"
+  "Created At",
+  // Appended after the first applicants had already been written — never
+  // insert into this list, or every existing row shifts under its headers.
+  "Meet Link",
+  "Calendar Event Id"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
+
+/**
+ * Applications close at the end of 20 September 2026, Cairo time. Enforced
+ * here as well as in the UI: the form hides itself after this, but a stale
+ * tab left open overnight must not be able to post past it either.
+ */
+const MEMBER_APPLICATION_DEADLINE = Deno.env.get("MEMBER_APPLICATION_DEADLINE") ?? "2026-09-20T23:59:59+02:00";
 
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
@@ -1806,7 +1817,8 @@ Deno.serve(async (request) => {
 
       const memberContactsFor = url.searchParams.get("memberContacts");
       if (memberContactsFor) {
-        return jsonResponse({ ok: true, contacts: await getMemberCommitteePanel() });
+        const hierarchyName = MEMBER_COMMITTEE_HIERARCHY_NAMES[memberContactsFor] ?? memberContactsFor;
+        return jsonResponse({ ok: true, contacts: await getCommitteePanel(token, hierarchyName) });
       }
 
       const memberCommittee = url.searchParams.get("memberCommittee");
@@ -2334,14 +2346,29 @@ Deno.serve(async (request) => {
       await ensureSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
       await ensureMemberApplicationNotDuplicate(memberToken, payload);
 
+      // The committee's directors, its placed heads, and HR — resolved once
+      // and used for both the calendar invite and the email's Cc.
+      const memberRecipients = await getMemberCommitteeRecipients(
+        memberToken,
+        payload.committeeId,
+        payload.aucEmail
+      );
+
       let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
+      let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
       if (payload.interviewSlotId) {
-        const reserved = await reserveMemberInterviewSlot(memberToken, payload);
+        const reserved = await reserveMemberInterviewSlot(memberToken, payload, memberRecipients);
         memberSlotLabel = reserved.slot.label;
+        memberBooking = { meetLink: reserved.meetLink, calendarEventId: reserved.calendarEventId };
       }
 
-      await appendMemberApplication(memberToken, payload, memberSlotLabel);
-      const emailSent = await trySendMemberConfirmationEmail(payload, memberSlotLabel);
+      await appendMemberApplication(memberToken, payload, memberSlotLabel, memberBooking);
+      const emailSent = await trySendMemberConfirmationEmail(
+        payload,
+        memberSlotLabel,
+        memberBooking?.meetLink ?? "",
+        memberRecipients
+      );
 
       return jsonResponse({ ok: true, emailSent });
     }
@@ -2912,6 +2939,9 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
   if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
     throw new Error("Second preference must be different from the first committee preference.");
   }
+  if (Date.now() > new Date(MEMBER_APPLICATION_DEADLINE).getTime()) {
+    throw new Error("Member applications closed on 20 September.");
+  }
 }
 
 async function ensureMemberApplicationNotDuplicate(token: string, payload: MemberApplicationPayload): Promise<void> {
@@ -2940,7 +2970,8 @@ function memberAnswerAt(payload: MemberApplicationPayload, index: number, fallba
 async function appendMemberApplication(
   token: string,
   payload: MemberApplicationPayload,
-  slotLabel: string
+  slotLabel: string,
+  booking: { meetLink: string; calendarEventId: string } | null
 ): Promise<void> {
   const row = [
     payload.timestamp,
@@ -2961,7 +2992,9 @@ async function appendMemberApplication(
     slotLabel,
     payload.interviewSlotId ?? "",
     "Submitted",
-    payload.createdAt
+    payload.createdAt,
+    booking?.meetLink ?? "",
+    booking?.calendarEventId ?? ""
   ];
 
   await sheetsFetch(
@@ -2973,17 +3006,17 @@ async function appendMemberApplication(
 }
 
 /*
- * PLACEHOLDER interview grid — mirrors experience/src/data/members.ts's
- * MEMBER_INTERVIEW_DAYS/TIMES by hand (Edge Functions cannot import site
- * source). Keep the two in sync; both are marked PLACEHOLDER pending real
- * per-committee availability from the brief, which only said "starts 2
- * September."
+ * Every committee interviews on the same board: 2-20 September, 3pm to 9pm,
+ * 15 minutes each. Mirrors experience/src/data/members.ts's
+ * MEMBER_INTERVIEW_DAYS/TIMES by hand — Edge Functions cannot import site
+ * source, so the two must be changed together.
  */
-const MEMBER_INTERVIEW_DAYS = ["2026-09-02", "2026-09-03", "2026-09-04", "2026-09-06", "2026-09-07"];
-const MEMBER_INTERVIEW_TIMES = [
-  "16:00", "16:20", "16:40", "17:00", "17:20", "17:40", "18:00", "18:20", "18:40", "19:00"
-];
-const MEMBER_SLOT_MINUTES = 20;
+const MEMBER_INTERVIEW_DAYS = Array.from({ length: 19 }, (_, i) => `2026-09-${String(i + 2).padStart(2, "0")}`);
+const MEMBER_INTERVIEW_TIMES = Array.from({ length: 24 }, (_, i) => {
+  const minutes = 15 * 60 + i * 15;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+});
+const MEMBER_SLOT_MINUTES = 15;
 const MEMBER_SLOT_CAPACITY = 1;
 const MEMBER_BOOKING_LEAD_MINUTES = 360;
 
@@ -3057,8 +3090,9 @@ async function getMemberInterviewSlots(token: string, committeeId: string): Prom
 
 async function reserveMemberInterviewSlot(
   token: string,
-  payload: MemberApplicationPayload
-): Promise<{ slot: InterviewSlotOption }> {
+  payload: MemberApplicationPayload,
+  recipients: Array<{ email: string; name: string; positionType: string }>
+): Promise<{ slot: InterviewSlotOption; meetLink: string; calendarEventId: string }> {
   const slots = await getMemberInterviewSlots(token, payload.committeeId);
   const selected = slots.find((slot) => slot.id === payload.interviewSlotId);
 
@@ -3075,6 +3109,20 @@ async function reserveMemberInterviewSlot(
     throw new Error("That interview slot is already full. Please choose another slot.");
   }
 
+  /*
+   * The interview link is made here, not by hand later: one Google Meet on the
+   * Resala calendar, with the applicant, the committee's directors and its
+   * heads all invited, so the time in the sheet and the invite in their
+   * calendars can never disagree.
+   */
+  const calendarToken = await getGmailAccessToken();
+  const { calendarEventId, meetLink } = await createCalendarEvent(
+    calendarToken,
+    memberCalendarPayload(payload),
+    selected,
+    recipients
+  );
+
   await sheetsFetch(
     token,
     "POST",
@@ -3082,7 +3130,37 @@ async function reserveMemberInterviewSlot(
     { values: [[payload.timestamp, selected.id, selected.label, payload.fullName, payload.aucEmail]] }
   );
 
-  return { slot: selected };
+  return { slot: selected, meetLink, calendarEventId };
+}
+
+/**
+ * createCalendarEvent and the rest of the invite path predate the members
+ * cycle and speak ApplicationPayload. Members carry the same facts under a
+ * smaller shape, so they are adapted here rather than widening a type that
+ * ~40 heads/classic call sites depend on.
+ */
+function memberCalendarPayload(payload: MemberApplicationPayload): ApplicationPayload {
+  return {
+    timestamp: payload.timestamp,
+    createdAt: payload.createdAt,
+    fullName: payload.fullName,
+    aucEmail: payload.aucEmail,
+    studentId: payload.studentId,
+    major: payload.major,
+    yearLevel: payload.yearLevel,
+    phone: payload.phone,
+    roleAppliedFor: payload.roleAppliedFor,
+    roleStepTitle: `${payload.roleAppliedFor} Member`,
+    roleDescription: "",
+    secondPreference: payload.secondPreference,
+    committeeId: payload.committeeId,
+    secondCommitteeId: payload.secondCommitteeId ?? "",
+    whyThisRole: "",
+    whyChooseYourself: "",
+    interviewSlot: payload.interviewSlot,
+    interviewSlotId: payload.interviewSlotId,
+    interviewSlotLabel: payload.interviewSlotLabel
+  };
 }
 
 /** Mirrors experience/src/data/members.ts's committee ids — used to recover a committee id from a reservation's slot id, which has no separator boundary of its own (ids like "pr-fundraising" already contain hyphens). */
@@ -3130,7 +3208,9 @@ async function loadMemberAdmin(token: string): Promise<{
     interviewSlot: row[15] ?? "",
     interviewSlotId: row[16] ?? "",
     status: row[17] || "New",
-    createdAt: row[18] ?? ""
+    createdAt: row[18] ?? "",
+    meetLink: row[19] ?? "",
+    calendarEventId: row[20] ?? ""
   }));
 
   let reservations: Array<Record<string, string>> = [];
@@ -3170,30 +3250,107 @@ async function setMemberApplicationStatus(token: string, rowIndex: number, statu
   );
 }
 
-/** No live interview-panel roster exists for members yet — same general-enquiries fallback the heads flow uses when a committee has no contacts on file. */
-async function getMemberCommitteePanel(): Promise<Array<{ email: string; name: string; positionType: string }>> {
-  return [{ email: "resala@aucegypt.edu", name: "Resala AUC", positionType: "general" }];
+/*
+ * A member committee's own name, as the Board Hierarchy sheet and the heads
+ * applications tab spell it. Mapped explicitly rather than matched on text:
+ * the two cycles disagree on punctuation ("Children's Day" here vs
+ * "Children Day Director" there, straight apostrophe vs curly), so string
+ * normalisation alone silently misses on exactly the committees it matters for.
+ */
+const MEMBER_COMMITTEE_HIERARCHY_NAMES: Record<string, string> = {
+  tech: "Tech Director",
+  operations: "Operations",
+  "branding-media": "Branding / Media",
+  hr: "HR",
+  "pr-fundraising": "PR / Fundraising",
+  visits: "Visits",
+  "childrens-day": "Children Day Director",
+  initiatives: "Initiatives Director"
+};
+
+/**
+ * Who hears about a member's application besides the applicant: the
+ * committee's Director(s) from the Board Hierarchy sheet, the heads this
+ * cycle actually placed on that committee, and the recruitment monitors (HR).
+ * Deduplicated, applicant excluded, and never allowed to fail the submission —
+ * an application that is already saved must not be lost to a bad roster.
+ */
+async function getMemberCommitteeRecipients(
+  token: string,
+  committeeId: string,
+  applicantEmail: string
+): Promise<Array<{ email: string; name: string; positionType: string }>> {
+  const hierarchyName = MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId] ?? committeeId;
+  const seen = new Set([normalize(applicantEmail)]);
+  const people: Array<{ email: string; name: string; positionType: string }> = [];
+
+  const add = (person: { email: string; name: string; positionType: string }) => {
+    const key = normalize(person.email);
+    if (!key || seen.has(key) || !isValidAucEmail(person.email)) return;
+    seen.add(key);
+    people.push(person);
+  };
+
+  for (const director of await getCommitteePanel(token, hierarchyName)) add(director);
+
+  try {
+    for (const head of await getAcceptedHeadsForCommittee(token, hierarchyName)) add(head);
+  } catch (error) {
+    console.error(
+      `Could not load accepted heads for ${hierarchyName}: ${error instanceof Error ? error.message : error}`
+    );
+  }
+
+  for (const monitor of await getCommitteePanel(token, MONITOR_COMMITTEE).catch(() => [])) add(monitor);
+
+  return people;
 }
 
-async function trySendMemberConfirmationEmail(payload: MemberApplicationPayload, slotLabel: string): Promise<boolean> {
+/** The heads this cycle placed on a committee — the people a new member actually joins. */
+async function getAcceptedHeadsForCommittee(
+  token: string,
+  hierarchyName: string
+): Promise<Array<{ email: string; name: string; positionType: string }>> {
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const wanted = committeeKey(hierarchyName);
+
+  return rows
+    .filter((row) => String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes")
+    .filter((row) => committeeKey(row[ACCEPTED_COMMITTEE_COLUMN] ?? "") === wanted)
+    .filter((row) => isValidAucEmail(row[2]))
+    .map((row) => ({
+      email: String(row[2]).trim(),
+      name: String(row[1] ?? "").trim(),
+      positionType: String(row[ACCEPTED_ROLE_COLUMN] ?? "Head").trim() || "Head"
+    }));
+}
+
+async function trySendMemberConfirmationEmail(
+  payload: MemberApplicationPayload,
+  slotLabel: string,
+  meetLink: string,
+  recipients: Array<{ email: string; name: string; positionType: string }>
+): Promise<boolean> {
   if (!gmailConfigured()) return false;
 
   try {
     const accessToken = await getGmailAccessToken();
-    const firstName = payload.fullName.trim().split(/\s+/)[0] || "there";
-    const subject = `Resala AUC — your ${payload.roleAppliedFor} application is in`;
-    const scheduleLine = slotLabel
-      ? `Your interview is booked for ${slotLabel}.`
-      : "We'll reach out to schedule your interview.";
-    const text = `Hi ${firstName},\n\nYour application to join ${payload.roleAppliedFor} at Resala AUC has been received.\n\n${scheduleLine}\n\n— Resala AUC`;
-    const html = `<p>Hi ${escapeHtml(firstName)},</p><p>Your application to join <b>${escapeHtml(payload.roleAppliedFor)}</b> at Resala AUC has been received.</p><p>${escapeHtml(scheduleLine)}</p><p>— Resala AUC</p>`;
+    const template = buildMemberConfirmationEmail(payload, slotLabel, meetLink, recipients);
 
     const rawMessage = buildRawEmailMessage({
       from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
       to: payload.aucEmail,
-      subject,
-      text,
-      html
+      // The committee that will interview them, the heads they would join,
+      // and HR — the same people already on the calendar invite.
+      cc: recipients.map((person) => person.email).join(", "),
+      subject: template.subject,
+      text: template.text,
+      html: template.html
     });
 
     const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -3208,6 +3365,137 @@ async function trySendMemberConfirmationEmail(payload: MemberApplicationPayload,
     );
     return false;
   }
+}
+
+/**
+ * The members-cycle confirmation, in the same visual language as the heads
+ * one (navy header, gold rule, cream card) but carrying only what a member
+ * actually has: their two choices, their 15-minute interview and its Meet
+ * link, and who will be on the other side of it. No task, no role guide.
+ */
+function buildMemberConfirmationEmail(
+  payload: MemberApplicationPayload,
+  slotLabel: string,
+  meetLink: string,
+  recipients: Array<{ email: string; name: string; positionType: string }>
+): { subject: string; text: string; html: string } {
+  const firstName = payload.fullName.trim().split(/\s+/)[0] || "there";
+  const hasSlot = Boolean(slotLabel);
+  const committee = payload.roleAppliedFor;
+  const subject = hasSlot
+    ? `Resala AUC — your ${committee} interview is booked`
+    : `Resala AUC — your ${committee} application is in`;
+
+  const panel = recipients.filter((person) => normalize(person.positionType) !== normalize("general"));
+
+  const textLines = [
+    `Hi ${firstName},`,
+    "",
+    `Your application to join ${committee} at Resala AUC has been received.`,
+    "",
+    "You applied for:",
+    `- First choice: ${committee}`,
+    `- Second choice: ${payload.secondPreference}`,
+    ""
+  ];
+  if (hasSlot) {
+    textLines.push(
+      `Your interview: ${slotLabel} (15 minutes).`,
+      meetLink ? `Google Meet link: ${meetLink}` : "",
+      "A calendar invitation is on its way. Please keep your camera on.",
+      "Join on time — after 5 minutes we have to treat it as a no-show.",
+      ""
+    );
+  } else {
+    textLines.push("The committee will contact you to arrange your interview time.", "");
+  }
+  if (panel.length) {
+    textLines.push(
+      "You will be meeting:",
+      ...panel.map((person) => `- ${person.name}${person.positionType ? ` (${person.positionType})` : ""}`),
+      ""
+    );
+  }
+  textLines.push("Reply to this email if anything is wrong.", "", "— Resala AUC");
+
+  const panelHtml = panel.length
+    ? `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr><td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You will be meeting</td></tr>
+                  <tr><td style="font-size:16px;line-height:1.7;color:#172033;">${panel
+                    .map(
+                      (person) =>
+                        `<strong>${escapeHtml(person.name)}</strong>${
+                          person.positionType ? ` <span style="color:#64748b;">· ${escapeHtml(person.positionType)}</span>` : ""
+                        }`
+                    )
+                    .join("<br>")}</td></tr>
+                </table>`
+    : "";
+
+  const slotHtml = hasSlot
+    ? `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;background:#f7f3ea;border:1px solid #eadfca;border-radius:14px;">
+                  <tr><td style="padding:18px 20px;">
+                    <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">Your interview</div>
+                    <div style="font-size:19px;line-height:1.4;color:#0d2b45;font-weight:bold;margin-top:6px;">${escapeHtml(slotLabel)}</div>
+                    <div style="font-size:14px;line-height:1.6;color:#64748b;margin-top:4px;">15 minutes · Google Meet</div>
+                    ${
+                      meetLink
+                        ? `<div style="margin-top:14px;"><a href="${escapeHtml(meetLink)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;padding:11px 22px;border-radius:999px;">Join the interview</a></div>
+                    <div style="font-size:13px;line-height:1.6;color:#64748b;margin-top:10px;word-break:break-all;">${escapeHtml(meetLink)}</div>`
+                        : ""
+                    }
+                  </td></tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#172033;">A calendar invitation is on its way. Please keep your camera on, and join on time — after <strong>5 minutes</strong> we have to treat it as a no-show.</p>`
+    : `
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">The committee will contact you to arrange your interview time.</p>`;
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your Resala AUC member application has been received.</div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
+                <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
+                <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
+                <div style="font-size:28px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:22px;">${hasSlot ? "Your Interview Is Booked" : "Application Received"}</div>
+                <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${escapeHtml(committee)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your application to join <strong>${escapeHtml(committee)}</strong> has been received.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr><td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You applied for</td></tr>
+                  <tr><td style="font-size:16px;line-height:1.6;color:#172033;">
+                    <span style="color:#64748b;">First choice</span> · <strong>${escapeHtml(committee)}</strong><br>
+                    <span style="color:#64748b;">Second choice</span> · <strong>${escapeHtml(payload.secondPreference)}</strong>
+                  </td></tr>
+                </table>${slotHtml}${panelHtml}
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply to this email if anything above is wrong.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f7f3ea;border-top:1px solid #eadfca;padding:18px 28px;text-align:center;font-size:13px;line-height:1.6;color:#64748b;">
+                Resala AUC · Beyond Ana Maly
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return { subject, text: textLines.filter((line) => line !== "").join("\n"), html };
 }
 
 async function sendConfirmationEmail(

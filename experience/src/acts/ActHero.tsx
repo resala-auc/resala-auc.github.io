@@ -1,8 +1,9 @@
 import { motion } from "motion/react";
 import { Feather } from "lucide-react";
 import { ActLayout, TopNav } from "../components/Chrome";
+import { APPLICATION_DEADLINE_LABEL } from "../data/members";
 import { AnimatedHeading } from "../components/AnimatedHeading";
-import { Eyebrow, GhostButton, InkDivider, PrimaryButton } from "../components/ui";
+import { Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { actTransition, rise, stagger } from "../lib/motion";
 
 export function ActHero({ onBegin }: { onBegin: () => void }) {
@@ -35,13 +36,16 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
               with us.
             </motion.p>
 
+            {/* No guide link here: /guides is the heads cycle's role library,
+                and every member committee already carries its own description
+                inside the flow. */}
             <motion.div variants={rise} className="flex flex-col gap-4 sm:flex-row">
               <PrimaryButton onClick={onBegin}>Take the pen</PrimaryButton>
-              <GhostButton href="../guides/">Read the chapter guides</GhostButton>
             </motion.div>
 
             <motion.p variants={rise} className="mt-10 text-sm text-brand-muted">
-              Have your AUC email and student ID ready.
+              Have your AUC email and student ID ready. Applications close{" "}
+              {APPLICATION_DEADLINE_LABEL}.
             </motion.p>
           </div>
         </motion.main>

@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { X } from "lucide-react";
-import { GhostButton, PrimaryButton } from "./ui";
+import { PrimaryButton } from "./ui";
 import { CHAPTER_EASE } from "../lib/motion";
 import type { Committee, CommitteeRole } from "../data/members";
 
@@ -113,13 +113,12 @@ export function ChapterDetail({
           </p>
         </div>
 
+        {/* No "read the full guide" link: /guides holds the heads cycle's role
+            pages, and a member committee id has no page there to point at. */}
         <div className="flex flex-col gap-3 sm:flex-row">
           <PrimaryButton onClick={onChoose} disabled={!canChoose}>
             {hasRoles && !pickedRoleId ? "Pick a head first" : "Take this chapter"}
           </PrimaryButton>
-          <GhostButton href={`../guides/${committee.id}/`} showArrow={false}>
-            Read the full guide
-          </GhostButton>
         </div>
       </motion.section>
     </motion.div>
