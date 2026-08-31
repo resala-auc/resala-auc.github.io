@@ -17,7 +17,7 @@ export function ContactBlock({ committee, className = "" }: { committee: Committ
   useEffect(() => {
     let cancelled = false;
     setContacts(committee.contacts);
-    fetchCommitteeContacts(committee.name)
+    fetchCommitteeContacts(committee.id)
       .then((live) => {
         if (cancelled || !live.length) return;
         setContacts(

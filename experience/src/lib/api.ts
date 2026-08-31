@@ -20,12 +20,15 @@ export const ENDPOINT_MODE: EndpointMode =
   runtime.RESALA_APPLICATIONS_ENDPOINT_MODE === "no-cors" ? "no-cors" : "cors";
 
 /**
- * Heads-cycle availability is per committee, so the committee name is passed
- * through. Without it the endpoint returns the old shared pool.
+ * This app now serves the Members cycle only (heads intake is closed), so
+ * this always hits the member-specific GET branch. Using the old `?committee=`
+ * param would silently route into the heads-cycle slot lookup instead —
+ * wrong data, and a same-named committee (e.g. "Tech Team" exists in both
+ * cycles) could return real heads interview slots to a member applicant.
  */
 export async function fetchInterviewSlots(committee?: string): Promise<InterviewSlot[]> {
   const url = committee
-    ? `${ENDPOINT}?committee=${encodeURIComponent(committee)}`
+    ? `${ENDPOINT}?memberCommittee=${encodeURIComponent(committee)}`
     : ENDPOINT;
   const response = await fetch(url, { method: "GET", mode: ENDPOINT_MODE });
   const body = await response.json();
@@ -63,7 +66,7 @@ export type PanelContact = { name: string; email: string; positionType: string }
  * with who actually gets the calendar invite.
  */
 export async function fetchCommitteeContacts(committee: string): Promise<PanelContact[]> {
-  const response = await fetch(`${ENDPOINT}?contacts=${encodeURIComponent(committee)}`, {
+  const response = await fetch(`${ENDPOINT}?memberContacts=${encodeURIComponent(committee)}`, {
     method: "GET",
     mode: ENDPOINT_MODE
   });

@@ -54,7 +54,11 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
     setSlots(published);
     setActiveDate(published[0]?.date ?? null);
 
-    fetchInterviewSlots(committee.name)
+    // The member backend keys slots by committee id (e.g. "tech"), matching
+    // the same id members.ts's own published schedule uses — not .name,
+    // which is the display name ("Tech Team") and would produce a totally
+    // different set of slot ids that never merges with the published ones.
+    fetchInterviewSlots(committee.id)
       .then((live) => {
         if (cancelled || !live.length) return;
         const byId = new Map(published.map((slot) => [slot.id, slot]));
