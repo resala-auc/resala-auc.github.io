@@ -7,7 +7,7 @@ import { BackLink, Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { CHAPTER_EASE, TOUCH_SPRING, actTransition, popIn, popStagger, rise, stagger } from "../lib/motion";
 import { ContactBlock } from "../components/ContactBlock";
 import { fetchInterviewSlots } from "../lib/api";
-import { SHOW_INTERVIEW_BOOKING } from "../data/members";
+import { MEMBER_BOOKING_WINDOW_DAYS, SHOW_INTERVIEW_BOOKING } from "../data/members";
 import type { Committee, CommitteeRole } from "../data/members";
 import type { InterviewSlot } from "../types";
 
@@ -218,11 +218,13 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               </motion.p>
             ) : (
               <>
-                {/* Says why today's remaining hours are missing from the board,
-                    rather than leaving a gap the applicant has to guess at. */}
+                {/* Both reasons the board looks shorter than the full cycle:
+                    the six-hour floor at the front, and the five-day window at
+                    the back. Guessing at either is worse than being told. */}
                 <motion.p variants={rise} className="mb-5 text-sm text-brand-muted">
-                  Times open at least six hours from now — your committee reads your application
-                  before they meet you.
+                  These are the next {MEMBER_BOOKING_WINDOW_DAYS} days — interviews happen close to
+                  your application, while it is still fresh with the committee. Times open at least
+                  six hours from now, so they can read it before they meet you.
                 </motion.p>
                 <motion.div variants={rise} className="mb-6 flex flex-wrap gap-2">
                   {dates.map((date) => {

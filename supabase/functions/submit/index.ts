@@ -3019,6 +3019,29 @@ const MEMBER_INTERVIEW_TIMES = Array.from({ length: 24 }, (_, i) => {
 const MEMBER_SLOT_MINUTES = 15;
 const MEMBER_SLOT_CAPACITY = 1;
 const MEMBER_BOOKING_LEAD_MINUTES = 360;
+/**
+ * An applicant may only book inside the five days that start on the day they
+ * apply. Mirrors MEMBER_BOOKING_WINDOW_DAYS in experience/src/data/members.ts;
+ * enforced here as well as there, because the picker is drawn once and a tab
+ * left open for a week would otherwise still be holding last week's window.
+ */
+const MEMBER_BOOKING_WINDOW_DAYS = 5;
+
+/** Cairo's today — slot dates are plain Cairo calendar days (UTC+2). */
+function cairoToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function addCairoDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The last day an applicant arriving now may book, inclusive. */
+function memberBookingWindowEnd(now: Date = new Date()): string {
+  return addCairoDays(cairoToday(now), MEMBER_BOOKING_WINDOW_DAYS - 1);
+}
 
 function memberAddMinutes(time: string, minutes: number): string {
   const [h, m] = time.split(":").map(Number);
@@ -3040,9 +3063,13 @@ function memberFormatLabel(date: string, startTime: string, endTime: string): st
   return `${dayPart} · ${to12h(startTime)}–${to12h(endTime)}`;
 }
 
-function buildMemberSlotList(committeeId: string): InterviewSlotOption[] {
+function buildMemberSlotList(committeeId: string, now: Date = new Date()): InterviewSlotOption[] {
+  const from = cairoToday(now);
+  const until = memberBookingWindowEnd(now);
   const slots: InterviewSlotOption[] = [];
   for (const date of MEMBER_INTERVIEW_DAYS) {
+    // ISO dates compare correctly as plain strings.
+    if (date < from || date > until) continue;
     for (const startTime of MEMBER_INTERVIEW_TIMES) {
       const endTime = memberAddMinutes(startTime, MEMBER_SLOT_MINUTES);
       const startDateTime = `${date}T${startTime}:00+02:00`;
@@ -3107,6 +3134,11 @@ async function reserveMemberInterviewSlot(
   }
   if (selected.full) {
     throw new Error("That interview slot is already full. Please choose another slot.");
+  }
+  if (selected.date > memberBookingWindowEnd()) {
+    throw new Error(
+      `Interviews have to be booked within ${MEMBER_BOOKING_WINDOW_DAYS} days of applying. Please choose an earlier time.`
+    );
   }
 
   /*

@@ -102,6 +102,34 @@ const MEMBER_INTERVIEW_TIMES = Array.from({ length: 24 }, (_, i) => {
 const MEMBER_SLOT_MINUTES = 15;
 const MEMBER_SLOT_CAPACITY = 1;
 const MEMBER_BOOKING_LEAD_MINUTES = 360;
+/**
+ * An applicant may only book inside the five days that start on the day they
+ * apply — today plus the next four. Interviewing people while their
+ * application is still fresh is the whole point; a slot three weeks out is
+ * how applicants go cold and stop showing up.
+ */
+export const MEMBER_BOOKING_WINDOW_DAYS = 5;
+
+/**
+ * Today's date as the interview board means it: slot dates are plain Cairo
+ * calendar days, so "today" has to be Cairo's today, not the browser's or the
+ * server's. Egypt sits at UTC+2 year-round, the same offset every slot
+ * timestamp in this file is written with.
+ */
+export function cairoToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The last day this applicant may book, inclusive. */
+export function bookingWindowEnd(now: Date = new Date()): string {
+  return addDays(cairoToday(now), MEMBER_BOOKING_WINDOW_DAYS - 1);
+}
 
 function addMinutes(time: string, minutes: number): string {
   const [h, m] = time.split(":").map(Number);
@@ -125,8 +153,12 @@ function formatLabel(date: string, startTime: string, endTime: string): string {
 
 function buildMemberSlots(committeeId: string): InterviewSlot[] {
   const now = new Date();
+  const from = cairoToday(now);
+  const until = bookingWindowEnd(now);
   const slots: InterviewSlot[] = [];
   for (const date of MEMBER_INTERVIEW_DAYS) {
+    // ISO dates compare correctly as plain strings.
+    if (date < from || date > until) continue;
     for (const startTime of MEMBER_INTERVIEW_TIMES) {
       const endTime = addMinutes(startTime, MEMBER_SLOT_MINUTES);
       const startDateTime = `${date}T${startTime}:00+02:00`;
