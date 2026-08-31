@@ -68,6 +68,15 @@ export type Committee = {
   contacts: CommitteeContact[];
 };
 
+/**
+ * Members do not book their own interview time — the last step just sends the
+ * application, and the committee reaches out to schedule. Flip this to true to
+ * bring the slot picker back (everything behind it — the published grid below,
+ * the ?memberCommittee= endpoint, the reservations tab — is still wired up and
+ * working; only the UI is switched off).
+ */
+export const SHOW_INTERVIEW_BOOKING = false;
+
 const GENERAL_CONTACT: CommitteeContact = {
   name: "Resala AUC",
   email: "resala@aucegypt.edu",

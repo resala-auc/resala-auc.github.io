@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { CHAPTER_EASE, actContent } from "../lib/motion";
+import { SHOW_INTERVIEW_BOOKING } from "../data/members";
 import type { Act } from "../types";
 
 const asset = (file: string) => `${import.meta.env.BASE_URL}${file}`;
@@ -24,7 +25,9 @@ const ACT_LABELS: Record<Act, string> = {
   chapters: "Your chapter",
   backup: "Your backup",
   questions: "Your words",
-  slot: "Your time",
+  // The last step only books a time while booking is switched on; otherwise
+  // it is purely the send step.
+  slot: SHOW_INTERVIEW_BOOKING ? "Your time" : "Send it",
   sealed: "Signed"
 };
 

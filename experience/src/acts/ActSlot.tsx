@@ -7,6 +7,7 @@ import { BackLink, Eyebrow, InkDivider, PrimaryButton } from "../components/ui";
 import { CHAPTER_EASE, TOUCH_SPRING, actTransition, popIn, popStagger, rise, stagger } from "../lib/motion";
 import { ContactBlock } from "../components/ContactBlock";
 import { fetchInterviewSlots } from "../lib/api";
+import { SHOW_INTERVIEW_BOOKING } from "../data/members";
 import type { Committee, CommitteeRole } from "../data/members";
 import type { InterviewSlot } from "../types";
 
@@ -34,6 +35,14 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
   const [activeDate, setActiveDate] = useState<string | null>(null);
 
   useEffect(() => {
+    // Booking is switched off for this cycle: nothing to load, and nothing
+    // below renders a time. `slots` stays an empty list rather than null so
+    // the send button is never gated on a fetch that will not happen.
+    if (!SHOW_INTERVIEW_BOOKING) {
+      setSlots([]);
+      return;
+    }
+
     let cancelled = false;
 
     /*
@@ -112,18 +121,33 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
           className="flex flex-1 flex-col justify-center pt-4 pb-20"
         >
           <div className="w-full max-w-3xl">
-            <Eyebrow>Chapter three · the appointment</Eyebrow>
+            <Eyebrow>
+              {SHOW_INTERVIEW_BOOKING ? "Chapter three · the appointment" : "Chapter three · the signature"}
+            </Eyebrow>
 
             <AnimatedHeading
-              text="Pick a time you are certain you can keep."
+              text={
+                SHOW_INTERVIEW_BOOKING
+                  ? "Pick a time you are certain you can keep."
+                  : "That is everything. Ready to send it?"
+              }
               className="mb-6 font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
             />
 
             <InkDivider icon={<CalendarClock className="h-5 w-5" strokeWidth={1.5} />} />
 
             <motion.p variants={rise} className="mb-6 max-w-lg leading-relaxed text-brand-muted">
-              {committee.displayName} interviews on its own days. Each one runs{" "}
-              {committee.interviewDurationMinutes} minutes.
+              {SHOW_INTERVIEW_BOOKING ? (
+                <>
+                  {committee.displayName} interviews on its own days. Each one runs{" "}
+                  {committee.interviewDurationMinutes} minutes.
+                </>
+              ) : (
+                <>
+                  {committee.displayName} will reach out about your interview after they read your
+                  application — there is nothing to book here.
+                </>
+              )}
             </motion.p>
 
             {/*
@@ -168,7 +192,7 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
               <div className="mb-10" />
             )}
 
-            {slots === null ? (
+            {!SHOW_INTERVIEW_BOOKING ? null : slots === null ? (
               <motion.div variants={rise} className="flex items-center gap-3 text-brand-muted">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 Opening the interview book…

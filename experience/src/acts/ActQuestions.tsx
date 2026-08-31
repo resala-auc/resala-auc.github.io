@@ -5,6 +5,7 @@ import { ActLayout, TopNav } from "../components/Chrome";
 import { TextAreaField } from "../components/Field";
 import { BackLink, PrimaryButton } from "../components/ui";
 import { rise, stagger } from "../lib/motion";
+import { SHOW_INTERVIEW_BOOKING } from "../data/members";
 import type { ApplicationQuestion, Committee, CommitteeRole } from "../data/members";
 
 
@@ -115,7 +116,9 @@ export function ActQuestions({
               variants={rise}
               className="mt-12 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6"
             >
-              <PrimaryButton onClick={submit}>Choose your interview time</PrimaryButton>
+              <PrimaryButton onClick={submit}>
+                {SHOW_INTERVIEW_BOOKING ? "Choose your interview time" : "Last step"}
+              </PrimaryButton>
               <BackLink onClick={onBack} label="Back to the chapters" />
             </motion.div>
 
