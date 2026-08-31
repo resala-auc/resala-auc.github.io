@@ -84,7 +84,6 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
   );
 
   const confirm = async () => {
-    if (!selected) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
@@ -270,6 +269,13 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
                     })}
                   </AnimatePresence>
                 </motion.div>
+
+                {!selected ? (
+                  <motion.p variants={rise} className="mt-5 text-sm text-brand-muted">
+                    Don't see a time that works? You can send without booking — we'll reach out to
+                    schedule one.
+                  </motion.p>
+                ) : null}
               </>
             )}
 
@@ -285,12 +291,9 @@ export function ActSlot({ committee, role, selected, onSelect, onConfirm, onBack
             ) : null}
 
             <motion.div variants={rise} className="mt-10 flex flex-col items-start gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
-              {/* Sending is only allowed once the book has loaded — either with a
-                  chosen slot, or with none on offer at all. */}
-              <PrimaryButton
-                onClick={confirm}
-                disabled={submitting || slots === null || (!selected && dates.length > 0)}
-              >
+              {/* Picking a time is optional — sending is only blocked while the
+                  book is still loading. */}
+              <PrimaryButton onClick={confirm} disabled={submitting || slots === null}>
                 {submitting ? "Sealing your application…" : "Sign and send"}
               </PrimaryButton>
               <BackLink onClick={onBack} label="Back to the questions" />
