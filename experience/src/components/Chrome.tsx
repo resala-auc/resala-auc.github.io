@@ -11,7 +11,6 @@ export const ACT_ORDER: Act[] = [
   "pen",
   "path",
   "chapters",
-  "backup",
   "questions",
   "slot",
   "sealed"
@@ -23,7 +22,6 @@ const ACT_LABELS: Record<Act, string> = {
   pen: "The pen",
   path: "Where you fit",
   chapters: "Your chapter",
-  backup: "Your backup",
   questions: "Your words",
   // The last step only books a time while booking is switched on; otherwise
   // it is purely the send step.

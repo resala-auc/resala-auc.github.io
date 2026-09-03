@@ -73,7 +73,9 @@ export function ChapterDetail({
         {hasRoles ? (
           <div className="mb-8">
             <h3 className="mb-3 text-sm font-medium tracking-wide text-brand-muted uppercase">
-              Pick your head — this chapter has {committee.roles.length}
+              {committee.roles.length === 1
+                ? "Your sub-committee"
+                : `Pick your sub-committee — this chapter has ${committee.roles.length}`}
             </h3>
             <div className="grid gap-2 sm:grid-cols-2">
               {committee.roles.map((role: CommitteeRole) => {
@@ -117,7 +119,7 @@ export function ChapterDetail({
             pages, and a member committee id has no page there to point at. */}
         <div className="flex flex-col gap-3 sm:flex-row">
           <PrimaryButton onClick={onChoose} disabled={!canChoose}>
-            {hasRoles && !pickedRoleId ? "Pick a head first" : "Take this chapter"}
+            {hasRoles && !pickedRoleId ? "Pick a sub-committee first" : "Take this chapter"}
           </PrimaryButton>
         </div>
       </motion.section>

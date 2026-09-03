@@ -4,7 +4,6 @@ export type Act =
   | "pen"
   | "path"
   | "chapters"
-  | "backup"
   | "questions"
   | "slot"
   | "sealed";
@@ -53,7 +52,9 @@ export type ApplicationPayload = {
   roleAppliedFor: string;
   roleStepTitle: string;
   roleDescription: string;
-  secondPreference: string;
+  /** The sub-committee inside the chosen committee, and its stable id. */
+  subCommittee: string;
+  subCommitteeId: string;
   /*
    * Stable ids alongside the display names. The names are what a human reads in
    * the sheet; these are what the dashboards match on, so a committee being
@@ -61,8 +62,6 @@ export type ApplicationPayload = {
    */
   committeeId: string;
   roleId: string;
-  secondCommitteeId: string;
-  secondRoleId: string;
   /*
    * Every question this applicant was actually asked, with its prompt, in the
    * order it appeared. Committees ask between three and six different

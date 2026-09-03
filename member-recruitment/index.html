@@ -395,11 +395,12 @@ function renderApplicants() {
   groupsEl.innerHTML = [...byCommittee.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([, people]) => `
     <div class="committee-group">
       <div class="wrap-x"><table>
-        <thead><tr><th>Applicant</th><th>Standing / Major</th><th>Interview</th><th>Status</th></tr></thead>
+        <thead><tr><th>Applicant</th><th>Sub-committee</th><th>Standing / Major</th><th>Interview</th><th>Status</th></tr></thead>
         <tbody>
           ${people.map((a) => `
             <tr data-open="${esc(a.rowIndex)}">
               <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
+              <td>${esc(a.subCommittee) || `<span class="note">—</span>`}</td>
               <td>${esc(a.yearLevel)}<div class="note">${esc(a.major)}</div></td>
               <td>${
                 !hasSlot(a)
@@ -423,7 +424,7 @@ function renderDialog(a) {
     <div class="sub">${esc(a.aucEmail)} · ${esc(a.studentId)}</div>
     <div class="facts">
       <div><b>Committee</b>${esc(a.committee)}</div>
-      <div><b>Backup</b>${esc(a.secondPreference) || "—"}</div>
+      <div><b>Sub-committee</b>${esc(a.subCommittee) || esc(a.secondPreference) || "—"}</div>
       <div><b>Major</b>${esc(a.major)}</div>
       <div><b>Standing</b>${esc(a.yearLevel)}</div>
       <div><b>Phone</b>${esc(a.phone)}</div>

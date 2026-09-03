@@ -58,7 +58,7 @@ export type Committee = {
   actualWork: string[];
   guidingQuestion: string;
   group: "backstage" | "frontstage";
-  /** Always empty — members pick a committee, not a sub-team within it. */
+  /** The sub-committees inside this committee. The applicant picks one. */
   roles: CommitteeRole[];
   questions: (role: CommitteeRole | null) => ApplicationQuestion[];
   alsoAsked: (role: CommitteeRole | null) => string[];
@@ -192,6 +192,15 @@ type CommitteeSeed = {
   whyChoose: string;
   actualWork: string[];
   questions: [string, string, string];
+  /**
+   * The sub-committees a member can join, mirroring the sub-teams the Heads
+   * cycle placed heads over (src/role-guide-data.mjs). Transcribed rather than
+   * imported, on purpose: this file stays self-contained so a members-only
+   * edit can never desync /guides, the committee dashboard, or the backend's
+   * hand-mirrored copies. The names here are the team, not the head's job
+   * title, because a member joins the team.
+   */
+  subCommittees: CommitteeRole[];
 };
 
 const seeds: CommitteeSeed[] = [
@@ -214,6 +223,50 @@ const seeds: CommitteeSeed[] = [
       "What interests you about joining the Tech Team?",
       "Have you used or are you interested in learning any technical skills? (For example: coding, website building, spreadsheets, automation, design systems, etc.)",
       "What is one thing you would like to help improve or build in Resala?"
+    ],
+    subCommittees: [
+      {
+        id: "navigator",
+        name: "The Navigator",
+        subtitle: "Project Lead",
+        description:
+          "Owns tech projects end to end — keeps the work inside the system that is already in place and makes sure deadlines are actually met."
+      },
+      {
+        id: "scout",
+        name: "The Scout",
+        subtitle: "Solutions Researcher",
+        description:
+          "Takes incoming requests and researches every possible way to solve them, weighs the pros and cons, and brings the options back to the committee."
+      },
+      {
+        id: "builder",
+        name: "The Builder",
+        subtitle: "Developer",
+        description:
+          "Turns the plan into working software. Writes clear, documented code other people can pick up, and says early when something is stuck."
+      },
+      {
+        id: "verifier",
+        name: "The Verifier",
+        subtitle: "Quality Tester",
+        description:
+          "Tests what was built against what was actually asked for, not just whether it runs. The last checkpoint before anything is handed over."
+      },
+      {
+        id: "closer",
+        name: "The Closer",
+        subtitle: "Deployment Specialist",
+        description:
+          "Handles the handover: delivers the solution, trains the non-technical people who will use it, writes the documentation, and checks back until they are self-sufficient."
+      },
+      {
+        id: "firefighter",
+        name: "The Firefighter",
+        subtitle: "On-Call Responder",
+        description:
+          "First responder when something already deployed breaks. Works fast under pressure so the rest of the team is not pulled off their own projects."
+      }
     ]
   },
   {
@@ -236,6 +289,22 @@ const seeds: CommitteeSeed[] = [
       "Why do you want to join the Operations Team?",
       "Do you enjoy planning, organizing, or solving problems? Tell us a little about why.",
       "What do you think is most important when organizing an event or activity?"
+    ],
+    subCommittees: [
+      {
+        id: "inventory",
+        name: "The Organizer",
+        subtitle: "Inventory & Storage",
+        description:
+          "Runs the inventory: tracks equipment, organizes storage, keeps records accurate, and makes sure every item an event needs is there and ready."
+      },
+      {
+        id: "logistics",
+        name: "The Coordinator",
+        subtitle: "Logistics & Event Support",
+        description:
+          "Transportation, setup, on-site support, equipment handling, teardown — everything that makes an event physically happen."
+      }
     ]
   },
   {
@@ -258,6 +327,14 @@ const seeds: CommitteeSeed[] = [
       "What interests you about joining Branding/Media?",
       "Which area interests you the most? (Design, photography, videography, editing, content creation, writing, or social media)",
       "If you could help people see one side of Resala better, what would it be?"
+    ],
+    subCommittees: [
+      {
+        id: "production",
+        name: "Acting & Production",
+        description:
+          "Everything that happens on filming day: who appears on camera, scripts, directing interviews and documentary shoots, locations, schedules, and getting every shot on the list before the team leaves."
+      }
     ]
   },
   {
@@ -280,6 +357,15 @@ const seeds: CommitteeSeed[] = [
       "Why do you want to join HR?",
       "What do you think makes a community feel welcoming and connected?",
       "How would you like to help make the Resala experience better for its members?"
+    ],
+    subCommittees: [
+      {
+        id: "engagement-inclusion",
+        name: "Engagement & Inclusion",
+        subtitle: "The Connector",
+        description:
+          "Activities that help volunteers build friendships and stay engaged, and the work that makes sure every volunteer can actually take part — team building, feedback, accessibility, support for visually impaired and international students."
+      }
     ]
   },
   {
@@ -303,6 +389,26 @@ const seeds: CommitteeSeed[] = [
       "What interests you about PR/Fundraising?",
       "Which part interests you the most? (Partnerships, sponsorships, outreach, fundraising, communication, or something else.)",
       "What do you think makes someone good at representing Resala to other people or organizations?"
+    ],
+    subCommittees: [
+      {
+        id: "sponsorship",
+        name: "Sponsorship",
+        description:
+          "Gathers the money and in-kind donations behind every Resala initiative: finding sponsors, approaching them, building the strategy, and keeping the relationship alive. For someone who enjoys networking and can negotiate."
+      },
+      {
+        id: "events",
+        name: "Events",
+        description:
+          "Fundraising events and donation campaigns, from planning through to the day itself. For someone who enjoys planning and stays calm when it changes."
+      },
+      {
+        id: "partnerships",
+        name: "Partnerships",
+        description:
+          "PR campaigns that gather resources and awareness, plus collaborations with other clubs on the big events. For someone who enjoys working across teams and thinks creatively."
+      }
     ]
   },
   {
@@ -327,6 +433,26 @@ const seeds: CommitteeSeed[] = [
       "Why do you want to join the Visits Committee?",
       "What type of visits or activities would you be interested in helping organize?",
       "What do you think is important when interacting with the people and communities we visit?"
+    ],
+    subCommittees: [
+      {
+        id: "discovery",
+        name: "Discovery",
+        description:
+          "The work before the visit: assessing what the beneficiaries actually need, gathering information, and preparing the reports the plan is built on."
+      },
+      {
+        id: "execution",
+        name: "Execution",
+        description:
+          "Running the visit itself — organizing volunteers, coordinating activities, and keeping the day moving."
+      },
+      {
+        id: "storytelling",
+        name: "Storytelling",
+        description:
+          "Capturing and telling the story of every visit through photography, videography, and social media."
+      }
     ]
   },
   {
@@ -352,6 +478,26 @@ const seeds: CommitteeSeed[] = [
       "Why do you want to join Children's Day?",
       "Have you worked with or spent time with children before? (Tell us about any experience you have.)",
       "What do you think makes a child enjoy and benefit from an activity?"
+    ],
+    subCommittees: [
+      {
+        id: "creative",
+        name: "Creative & Visual Identity",
+        description:
+          "Turns each session's content into polished, kid-friendly slide decks a full module ahead of time, designs certificates and event visuals, and tells Operations exactly what each session needs."
+      },
+      {
+        id: "english",
+        name: "English Sessions",
+        description:
+          "Adapts each module into interactive English lessons, prepares the volunteer instructors, and makes sure homework is assigned and graded every week."
+      },
+      {
+        id: "teaching",
+        name: "Teaching & Organizing",
+        description:
+          "The live Saturday sessions: facilitating, supporting the other facilitators, tracking attendance and behaviour in real time, and keeping parents in the loop."
+      }
     ]
   },
   {
@@ -377,6 +523,26 @@ const seeds: CommitteeSeed[] = [
       "Why do you want to join Initiatives?",
       "If you noticed a problem around you, what is one thing you would want to help change?",
       "Do you prefer coming up with ideas, planning them, organizing them, or working during execution? Why?"
+    ],
+    subCommittees: [
+      {
+        id: "execution-management",
+        name: "Execution Management",
+        description:
+          "Builds the plans, timelines, and resource allocations that keep an initiative coordinated across committees and delivered on schedule."
+      },
+      {
+        id: "field-execution",
+        name: "Field Execution",
+        description:
+          "On-ground operations during a campaign — quick decisions, managing teams, keeping a live event running."
+      },
+      {
+        id: "teaching-engagement",
+        name: "Teaching & Engagement",
+        description:
+          "Builds the workshop materials and runs the learning sessions that make a complex idea land with the people in the room."
+      }
     ]
   }
 ];
@@ -404,7 +570,7 @@ export const committees: Committee[] = seeds.map((seed) => ({
   actualWork: seed.actualWork,
   guidingQuestion: seed.questions[0],
   group: seed.group,
-  roles: [],
+  roles: seed.subCommittees,
   questions: () => buildQuestions(seed),
   alsoAsked: () => [],
   interviewDurationMinutes: MEMBER_SLOT_MINUTES,
@@ -418,6 +584,7 @@ export function findCommittee(id: string | null): Committee | null {
   return committees.find((committee) => committee.id === id) ?? null;
 }
 
-export function findCommitteeRole(_committee: Committee | null, _roleId: string | null): CommitteeRole | null {
-  return null;
+export function findCommitteeRole(committee: Committee | null, roleId: string | null): CommitteeRole | null {
+  if (!committee || !roleId) return null;
+  return committee.roles.find((role) => role.id === roleId) ?? null;
 }

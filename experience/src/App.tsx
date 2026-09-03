@@ -7,7 +7,6 @@ import { ActIdentity } from "./acts/ActIdentity";
 import { ActPen } from "./acts/ActPen";
 import { ActPath } from "./acts/ActPath";
 import { ActChapters } from "./acts/ActChapters";
-import { ActBackup } from "./acts/ActBackup";
 import { ActQuestions } from "./acts/ActQuestions";
 import { ActSlot } from "./acts/ActSlot";
 import { ActSealed } from "./acts/ActSealed";
@@ -37,8 +36,6 @@ type Draft = {
   pathGroup: CommitteeGroup | null;
   committeeId: string | null;
   roleId: string | null;
-  secondCommitteeId: string | null;
-  secondRoleId: string | null;
 };
 
 function loadDraft(): Draft {
@@ -51,9 +48,7 @@ function loadDraft(): Draft {
       answers: { ...emptyAnswers, ...parsed.answers },
       pathGroup: parsed.pathGroup ?? null,
       committeeId: parsed.committeeId ?? null,
-      roleId: parsed.roleId ?? null,
-      secondCommitteeId: parsed.secondCommitteeId ?? null,
-      secondRoleId: parsed.secondRoleId ?? null
+      roleId: parsed.roleId ?? null
     };
   } catch {
     return {
@@ -61,9 +56,7 @@ function loadDraft(): Draft {
       answers: emptyAnswers,
       pathGroup: null,
       committeeId: null,
-      roleId: null,
-      secondCommitteeId: null,
-      secondRoleId: null
+      roleId: null
     };
   }
 }
@@ -137,14 +130,10 @@ export default function App() {
   const [pathGroup, setPathGroup] = useState<CommitteeGroup | null>(draft.pathGroup);
   const [committeeId, setCommitteeId] = useState<string | null>(draft.committeeId);
   const [roleId, setRoleId] = useState<string | null>(draft.roleId);
-  const [secondCommitteeId, setSecondCommitteeId] = useState<string | null>(draft.secondCommitteeId);
-  const [secondRoleId, setSecondRoleId] = useState<string | null>(draft.secondRoleId);
   const [slot, setSlot] = useState<InterviewSlot | null>(null);
 
   const committee = findCommittee(committeeId);
   const role = findCommitteeRole(committee, roleId);
-  const secondCommittee = findCommittee(secondCommitteeId);
-  const secondRole = findCommitteeRole(secondCommittee, secondRoleId);
   const firstName = identity.fullName.trim().split(/\s+/)[0] ?? "";
 
   // A refresh mid-flow should never cost the applicant their typing.
@@ -155,9 +144,9 @@ export default function App() {
     }
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ identity, answers, pathGroup, committeeId, roleId, secondCommitteeId, secondRoleId })
+      JSON.stringify({ identity, answers, pathGroup, committeeId, roleId })
     );
-  }, [identity, answers, pathGroup, committeeId, roleId, secondCommitteeId, secondRoleId, act]);
+  }, [identity, answers, pathGroup, committeeId, roleId, act]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -165,15 +154,8 @@ export default function App() {
 
   const submit = async () => {
     if (!committee) throw new Error("Choose a chapter before sending your application.");
-    if (!secondCommittee) throw new Error("Choose a backup chapter before sending your application.");
+    if (!role) throw new Error("Choose a sub-committee before sending your application.");
     const now = new Date().toISOString();
-
-    // Second preference is never asked its own written questions — it is only ever
-    // evaluated live, at an interview, if the first chapter fills. The chosen head
-    // (if any) rides along in the same free-text field the backend already expects.
-    const secondPreference = secondRole
-      ? `${secondCommittee.name} — ${secondRole.name}`
-      : secondCommittee.name;
 
     const payload: ApplicationPayload = {
       mode: "member-submit",
@@ -187,16 +169,17 @@ export default function App() {
       phone: identity.phone.trim(),
       whatsappConsent: identity.whatsappConsent,
       // roleAppliedFor stays the bare committee name — the Supabase function looks it
-      // up verbatim for task-doc and role-guide links. The chosen head goes into the
-      // free-text step title instead, which nothing keys off of.
+      // up verbatim. The sub-committee goes into the free-text step title as well,
+      // which nothing keys off of.
       roleAppliedFor: committee.name,
       roleStepTitle: role ? `${committee.stepTitle} · ${role.name}` : committee.stepTitle,
       roleDescription: role ? role.description : committee.whyChoose,
-      secondPreference,
+      // The sub-committee the applicant will actually sit in. Sent under its own
+      // name and id so the sheet and the dashboard can group by it.
+      subCommittee: role?.name ?? "",
+      subCommitteeId: role?.id ?? "",
       committeeId: committee.id,
       roleId: role?.id ?? "",
-      secondCommitteeId: secondCommittee?.id ?? "",
-      secondRoleId: secondRole?.id ?? "",
       answers: collectAnswers(committee, role, answers),
       ...mapAnswersToColumns(committee, role, answers),
       interviewSlot: slot?.startDateTime ?? "",
@@ -209,7 +192,7 @@ export default function App() {
   };
 
   /*
-   * Past the deadline the flow does not open at all — filling six steps in
+   * Past the deadline the flow does not open at all — filling every step in
    * only to be refused by the server at the last one is a worse way to find
    * out. The server refuses it too; this is the courteous half.
    */
@@ -296,31 +279,10 @@ export default function App() {
             onSelect={(id) => {
               setCommitteeId(id);
               setRoleId(null);
-              // A different first chapter can orphan a backup pointing at the same committee.
-              if (secondCommitteeId === id) {
-                setSecondCommitteeId(null);
-                setSecondRoleId(null);
-              }
             }}
             onSelectRole={(nextRoleId) => setRoleId(nextRoleId)}
-            onContinue={() => setAct("backup")}
-            onBack={() => setAct("path")}
-          />
-        ) : null}
-
-        {act === "backup" ? (
-          <ActBackup
-            key="backup"
-            excludeId={committeeId}
-            selectedId={secondCommitteeId}
-            selectedRoleId={secondRoleId}
-            onSelect={(id) => {
-              setSecondCommitteeId(id);
-              setSecondRoleId(null);
-            }}
-            onSelectRole={(nextRoleId) => setSecondRoleId(nextRoleId)}
             onContinue={() => setAct("questions")}
-            onBack={() => setAct("chapters")}
+            onBack={() => setAct("path")}
           />
         ) : null}
 
@@ -332,7 +294,7 @@ export default function App() {
             answers={answers}
             onChange={(patch) => setAnswers((current) => ({ ...current, ...patch }))}
             onContinue={() => setAct("slot")}
-            onBack={() => setAct("backup")}
+            onBack={() => setAct("chapters")}
           />
         ) : null}
 

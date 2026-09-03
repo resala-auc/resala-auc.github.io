@@ -4,9 +4,9 @@ import { TOUCH_SPRING, popIn } from "../lib/motion";
 import type { Committee } from "../data/members";
 
 /**
- * A single chapter card. Multi-role chapters expose the head picker as chips
- * right here — never something the applicant has to discover inside a sheet —
- * and the picked head's real description appears the moment it is tapped.
+ * A single chapter card. The sub-committee picker sits right here as chips —
+ * never something the applicant has to discover inside a sheet — and the
+ * picked sub-committee's description appears the moment it is tapped.
  * Clicking empty space on the card opens the full sheet to read more.
  */
 export function CommitteeCard({
@@ -62,7 +62,9 @@ export function CommitteeCard({
 
       {hasRoles ? (
         <div className="relative z-10 flex w-full flex-col gap-2">
-          <span className="text-xs font-medium text-brand-muted">Tap the head you want:</span>
+          <span className="text-xs font-medium text-brand-muted">
+            {committee.roles.length === 1 ? "Your sub-committee:" : "Tap the sub-committee you want:"}
+          </span>
           <div className="flex flex-wrap gap-1.5">
             {committee.roles.map((role) => {
               const roleActive = active && activeRoleId === role.id;

@@ -104,8 +104,8 @@ const HEADERS = [...APPLICATION_BASE_HEADERS, ...APPLICATION_TASK_HEADERS];
  * The members-cycle applications tab. A fresh layout rather than the classic/
  * heads shape — members answer exactly 3 questions (mirrors
  * experience/src/data/members.ts, which asks 3 per committee, not 4-6), have
- * no head/role sub-choice, and carry a WhatsApp-consent column the older
- * cycles never asked for.
+ * pick a sub-committee rather than a second preference, and carry a
+ * WhatsApp-consent column the older cycles never asked for.
  */
 const MEMBER_APPLICATION_HEADERS = [
   "Timestamp",
@@ -134,7 +134,13 @@ const MEMBER_APPLICATION_HEADERS = [
   // Who took the decision on this applicant, and when. Appended after the
   // first rows existed — never insert into this list.
   "Decision By",
-  "Decision At"
+  "Decision At",
+  // The sub-committee inside the committee. Appended when the flow stopped
+  // asking for a second preference and started asking for a sub-committee —
+  // never insert into this list. Rows written before that carry a Second
+  // Preference and an empty Sub-committee; rows written after are the reverse.
+  "Sub-committee",
+  "Sub-committee Id"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
@@ -1035,7 +1041,15 @@ type MemberApplicationPayload = {
   /** Committee display name — same field name/role the classic cycle used. */
   roleAppliedFor: string;
   committeeId: string;
-  secondPreference: string;
+  /** The sub-committee inside that committee, and its stable id. */
+  subCommittee: string;
+  subCommitteeId?: string;
+  /*
+   * Retired: the flow asked for a backup committee until the members cycle
+   * replaced it with a sub-committee choice. Still accepted so an application
+   * left open in a stale tab is saved rather than rejected.
+   */
+  secondPreference?: string;
   secondCommitteeId?: string;
   answers?: Array<{ id: string; prompt: string; answer: string }>;
   whyThisRole?: string;
@@ -3005,7 +3019,7 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
     "phone",
     "roleAppliedFor",
     "committeeId",
-    "secondPreference",
+    "subCommittee",
     "createdAt"
   ];
 
@@ -3019,9 +3033,6 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
   }
   if (!payload.whatsappConsent) {
     throw new Error("WhatsApp consent is required.");
-  }
-  if (normalizeRole(payload.secondPreference) === normalizeRole(payload.roleAppliedFor)) {
-    throw new Error("Second preference must be different from the first committee preference.");
   }
   if (Date.now() > new Date(MEMBER_APPLICATION_DEADLINE).getTime()) {
     throw new Error("Member applications closed on 20 September.");
@@ -3068,7 +3079,7 @@ async function appendMemberApplication(
     payload.whatsappConsent ? "Yes" : "No",
     payload.roleAppliedFor,
     payload.committeeId,
-    payload.secondPreference,
+    payload.secondPreference ?? "",
     payload.secondCommitteeId ?? "",
     memberAnswerAt(payload, 0, payload.whyThisRole),
     memberAnswerAt(payload, 1, payload.whyChooseYourself),
@@ -3078,7 +3089,12 @@ async function appendMemberApplication(
     "Submitted",
     payload.createdAt,
     booking?.meetLink ?? "",
-    booking?.calendarEventId ?? ""
+    booking?.calendarEventId ?? "",
+    // Decision By / Decision At — written when someone actually decides.
+    "",
+    "",
+    payload.subCommittee ?? "",
+    payload.subCommitteeId ?? ""
   ];
 
   await sheetsFetch(
@@ -3293,11 +3309,15 @@ function memberCalendarPayload(payload: MemberApplicationPayload): ApplicationPa
     yearLevel: payload.yearLevel,
     phone: payload.phone,
     roleAppliedFor: payload.roleAppliedFor,
-    roleStepTitle: `${payload.roleAppliedFor} Member`,
+    roleStepTitle: payload.subCommittee
+      ? `${payload.roleAppliedFor} Member · ${payload.subCommittee}`
+      : `${payload.roleAppliedFor} Member`,
     roleDescription: "",
-    secondPreference: payload.secondPreference,
+    // Members name no backup committee. The sub-committee they did choose is
+    // already in roleStepTitle above, which is what firstPreferenceLabel reads.
+    secondPreference: "",
     committeeId: payload.committeeId,
-    secondCommitteeId: payload.secondCommitteeId ?? "",
+    secondCommitteeId: payload.subCommitteeId ?? "",
     whyThisRole: "",
     whyChooseYourself: "",
     interviewSlot: payload.interviewSlot,
@@ -3353,7 +3373,10 @@ async function loadMemberAdmin(token: string): Promise<{
     status: row[17] || "New",
     createdAt: row[18] ?? "",
     meetLink: row[19] ?? "",
-    calendarEventId: row[20] ?? ""
+    calendarEventId: row[20] ?? "",
+    // Columns 21/22 are Decision By / Decision At.
+    subCommittee: row[23] ?? "",
+    subCommitteeId: row[24] ?? ""
   }));
 
   let reservations: Array<Record<string, string>> = [];
@@ -3660,7 +3683,8 @@ async function rescheduleMemberInterview(
         whatsappConsent: true,
         roleAppliedFor: String(row[8] ?? ""),
         committeeId,
-        secondPreference: String(row[10] ?? ""),
+        subCommittee: String(row[23] ?? ""),
+        subCommitteeId: String(row[24] ?? ""),
         interviewSlot: slot.startDateTime,
         interviewSlotId: slot.id,
         interviewSlotLabel: slot.label
@@ -3857,6 +3881,73 @@ async function getAcceptedHeadsForCommittee(
     }));
 }
 
+/**
+ * The interview as a calendar file the applicant can open anywhere.
+ *
+ * Google Calendar is told sendUpdates=none on every call in this file, so it
+ * never mails anybody — which also means an applicant on a non-Google address
+ * (an incoming freshman with no AUC account yet) would otherwise get nothing
+ * their calendar can read. This rides along with our own confirmation mail
+ * instead. METHOD:PUBLISH, not REQUEST: it adds an event, it does not open an
+ * RSVP thread with anyone.
+ */
+function buildMemberInterviewIcs(
+  payload: MemberApplicationPayload,
+  meetLink: string
+): EmailAttachment | null {
+  const startIso = String(payload.interviewSlot ?? "").trim();
+  if (!startIso) return null;
+
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return null;
+  const end = new Date(start.getTime() + MEMBER_SLOT_MINUTES * 60 * 1000);
+
+  const stamp = (date: Date) => `${date.toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
+  // RFC 5545: escape the separators, then fold nothing — these lines are short.
+  const esc = (value: string) =>
+    String(value ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+
+  const summary = `Resala AUC interview — ${payload.roleAppliedFor}`;
+  const description = [
+    `Your ${MEMBER_SLOT_MINUTES}-minute members interview for ${payload.roleAppliedFor}${
+      payload.subCommittee ? ` (${payload.subCommittee})` : ""
+    }.`,
+    meetLink ? `Join: ${meetLink}` : "",
+    "Join on time — after 5 minutes we have to treat it as a no-show."
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Resala AUC//Member Recruitment//EN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${esc(payload.interviewSlotId || `${payload.studentId}-${startIso}`)}@resala-auc`,
+    `DTSTAMP:${stamp(new Date())}`,
+    `DTSTART:${stamp(start)}`,
+    `DTEND:${stamp(end)}`,
+    `SUMMARY:${esc(summary)}`,
+    `DESCRIPTION:${esc(description)}`,
+    meetLink ? `LOCATION:${esc(meetLink)}` : "LOCATION:Online",
+    meetLink ? `URL:${esc(meetLink)}` : "",
+    "BEGIN:VALARM",
+    "TRIGGER:-PT30M",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${esc(summary)}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ].filter(Boolean);
+
+  return {
+    filename: "resala-interview.ics",
+    contentType: "text/calendar; charset=utf-8; method=PUBLISH",
+    contentBytes: new TextEncoder().encode(lines.join("\r\n"))
+  };
+}
+
 async function trySendMemberConfirmationEmail(
   payload: MemberApplicationPayload,
   slotLabel: string,
@@ -3868,6 +3959,7 @@ async function trySendMemberConfirmationEmail(
   try {
     const accessToken = await getGmailAccessToken();
     const template = buildMemberConfirmationEmail(payload, slotLabel, meetLink, recipients);
+    const invite = buildMemberInterviewIcs(payload, meetLink);
 
     const rawMessage = buildRawEmailMessage({
       from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
@@ -3877,7 +3969,8 @@ async function trySendMemberConfirmationEmail(
       cc: recipients.map((person) => person.email).join(", "),
       subject: template.subject,
       text: template.text,
-      html: template.html
+      html: template.html,
+      attachments: invite ? [invite] : []
     });
 
     const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -3921,8 +4014,8 @@ function buildMemberConfirmationEmail(
     `Your application to join ${committee} at Resala AUC has been received.`,
     "",
     "You applied for:",
-    `- First choice: ${committee}`,
-    `- Second choice: ${payload.secondPreference}`,
+    `- Committee: ${committee}`,
+    `- Sub-committee: ${payload.subCommittee}`,
     ""
   ];
   if (hasSlot) {
@@ -4009,8 +4102,8 @@ function buildMemberConfirmationEmail(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr><td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You applied for</td></tr>
                   <tr><td style="font-size:16px;line-height:1.6;color:#172033;">
-                    <span style="color:#64748b;">First choice</span> · <strong>${escapeHtml(committee)}</strong><br>
-                    <span style="color:#64748b;">Second choice</span> · <strong>${escapeHtml(payload.secondPreference)}</strong>
+                    <span style="color:#64748b;">Committee</span> · <strong>${escapeHtml(committee)}</strong><br>
+                    <span style="color:#64748b;">Sub-committee</span> · <strong>${escapeHtml(payload.subCommittee)}</strong>
                   </td></tr>
                 </table>${slotHtml}${panelHtml}
                 <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply to this email if anything above is wrong.</p>
@@ -11160,10 +11253,16 @@ async function createCalendarEvent(
         description: [
           `Applicant: ${payload.fullName}`,
           `Role: ${firstPreferenceLabel(payload)}`,
-          `Second preference: ${secondPreferenceLabel(payload)}`,
-          `AUC Email: ${payload.aucEmail}`,
+          // Members choose a sub-committee instead of a backup, and it already
+          // rides along in the Role line above.
+          String(payload.secondPreference ?? "").trim()
+            ? `Second preference: ${secondPreferenceLabel(payload)}`
+            : "",
+          `Email: ${payload.aucEmail}`,
           `Student ID: ${payload.studentId}`
-        ].join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n"),
         start: {
           dateTime: slot.startDateTime,
           timeZone: CALENDAR_TIME_ZONE

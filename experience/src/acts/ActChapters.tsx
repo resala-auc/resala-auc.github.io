@@ -126,7 +126,7 @@ export function ActChapters({
               {!selectedId
                 ? "Choose a chapter first"
                 : needsRole && !selectedRoleId
-                  ? "Choose your head first"
+                  ? "Choose your sub-committee first"
                   : "This is my chapter"}
             </PrimaryButton>
             <BackLink onClick={onBack} label="Back to the lane" />
