@@ -72,11 +72,12 @@ export function ActIdentity({ identity, onChange, onContinue, onBack }: ActIdent
                 />
                 <TextField
                   id="aucEmail"
-                  label="AUC email"
+                  label="Email"
                   type="email"
                   inputMode="email"
                   placeholder="you@aucegypt.edu"
                   autoComplete="email"
+                  helper="AUC email if you have one. No AUC email yet? Use the personal one you check — the interview invite goes there."
                   {...field("aucEmail")}
                 />
                 <TextField

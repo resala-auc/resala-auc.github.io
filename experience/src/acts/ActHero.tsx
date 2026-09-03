@@ -44,7 +44,7 @@ export function ActHero({ onBegin }: { onBegin: () => void }) {
             </motion.div>
 
             <motion.p variants={rise} className="mt-10 text-sm text-brand-muted">
-              Have your AUC email and student ID ready. Applications close{" "}
+              Have an email (AUC or personal) and your student ID ready. Applications close{" "}
               {APPLICATION_DEADLINE_LABEL}.
             </motion.p>
           </div>

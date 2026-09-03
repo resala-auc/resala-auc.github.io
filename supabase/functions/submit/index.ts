@@ -2774,6 +2774,18 @@ function isValidAucEmail(value: unknown): boolean {
   return /^[A-Za-z0-9._%+-]+@aucegypt\.edu$/i.test(String(value ?? "").trim());
 }
 
+/**
+ * Members are validated on "is this a reachable address", not "is this an AUC
+ * address". Incoming freshmen have no @aucegypt.edu yet, and the interview's
+ * Meet link only admits a guest without a host knocking them through when the
+ * address on the invite is the one they are signed into Google as. Forcing an
+ * AUC address they cannot open is what locked them out of their own interview.
+ * Staff-side lookups (panels, heads rosters) keep using isValidAucEmail.
+ */
+function isValidContactEmail(value: unknown): boolean {
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(String(value ?? "").trim());
+}
+
 function validateApplication(payload: ApplicationPayload): void {
   const requiredFields: Array<keyof ApplicationPayload> = [
     "timestamp",
@@ -3002,8 +3014,8 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
     throw new Error(`Missing required fields: ${missing.join(", ")}.`);
   }
 
-  if (!isValidAucEmail(payload.aucEmail)) {
-    throw new Error("Invalid AUC email.");
+  if (!isValidContactEmail(payload.aucEmail)) {
+    throw new Error("Invalid email address.");
   }
   if (!payload.whatsappConsent) {
     throw new Error("WhatsApp consent is required.");
@@ -11180,6 +11192,13 @@ async function createCalendarEvent(
           useDefault: false,
           overrides: []
         },
+        // The applicant may be joining on a personal Google account (or none
+        // at all, if they have no AUC address yet). Letting anyone holding the
+        // link add themselves to the event puts them on the guest list, which
+        // is what Meet checks before admitting someone from outside the
+        // organisation without a host present to knock them through.
+        anyoneCanAddSelf: true,
+        guestsCanInviteOthers: true,
         conferenceData: {
           createRequest: {
             requestId,
