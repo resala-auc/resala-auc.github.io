@@ -28,9 +28,10 @@ await mkdir(OUT, { recursive: true });
 const deno = ["run", "--allow-env", "--allow-read", "--allow-write", "--allow-net"];
 await run("deno", [...deno, "scripts/email-previews/render-submit.ts", OUT]);
 await run("deno", [...deno, "scripts/email-previews/render-reminder.ts", OUT]);
+await run("deno", [...deno, "scripts/email-previews/render-members.ts", OUT]);
 
 const manifest = [];
-for (const file of [".submit-manifest.json", ".reminder-manifest.json"]) {
+for (const file of [".submit-manifest.json", ".reminder-manifest.json", ".members-manifest.json"]) {
   manifest.push(...JSON.parse(await readFile(`${OUT}/${file}`, "utf8")));
   await rm(`${OUT}/${file}`);
 }
@@ -47,7 +48,7 @@ for (const entry of manifest) {
   groups.get(key).push(entry);
 }
 
-const order = ["Tech Team", "Operations", "Branding / Media", "HR", "PR / Fundraising", "Visits", "Children's Day", "Initiatives", "Any committee"];
+const order = ["Members", "Tech Team", "Operations", "Branding / Media", "HR", "PR / Fundraising", "Visits", "Children's Day", "Initiatives", "Any committee"];
 const sorted = [...groups.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
 
 const sections = sorted

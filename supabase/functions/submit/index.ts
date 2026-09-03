@@ -3523,11 +3523,10 @@ async function sendMemberEmail(to: string, subject: string, text: string, html: 
 }
 
 /** A short branded notice — currently the "your interview moved" mail. */
-async function trySendMemberNoticeEmail(
-  to: string,
+export function buildMemberNoticeEmail(
   fullName: string,
   notice: { heading: string; committee: string; lead: string; slotLabel: string; meetLink: string; closing: string }
-): Promise<boolean> {
+): { subject: string; text: string; html: string } {
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
   const text = [
     `Hi ${firstName},`,
@@ -3565,7 +3564,16 @@ async function trySendMemberNoticeEmail(
                 <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(notice.closing)}</p>`
   });
 
-  return sendMemberEmail(to, `Resala AUC — your interview time has changed`, text, html);
+  return { subject: "Resala AUC — your interview time has changed", text, html };
+}
+
+async function trySendMemberNoticeEmail(
+  to: string,
+  fullName: string,
+  notice: { heading: string; committee: string; lead: string; slotLabel: string; meetLink: string; closing: string }
+): Promise<boolean> {
+  const { subject, text, html } = buildMemberNoticeEmail(fullName, notice);
+  return sendMemberEmail(to, subject, text, html);
 }
 
 /**
@@ -3573,7 +3581,10 @@ async function trySendMemberNoticeEmail(
  * it is a real place in Resala with a lighter commitment, and it is the only
  * email this person gets about the decision.
  */
-async function trySendGeneralVolunteerEmail(to: string, fullName: string, committee: string): Promise<boolean> {
+export function buildGeneralVolunteerEmail(
+  fullName: string,
+  committee: string
+): { subject: string; text: string; html: string } {
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
   const lead =
     "Thank you for applying to Resala AUC. We would love to have you with us as a general volunteer.";
@@ -3611,7 +3622,12 @@ async function trySendGeneralVolunteerEmail(to: string, fullName: string, commit
                 }</p>`
   });
 
-  return sendMemberEmail(to, "Resala AUC — welcome as a general volunteer", text, html);
+  return { subject: "Resala AUC — welcome as a general volunteer", text, html };
+}
+
+async function trySendGeneralVolunteerEmail(to: string, fullName: string, committee: string): Promise<boolean> {
+  const { subject, text, html } = buildGeneralVolunteerEmail(fullName, committee);
+  return sendMemberEmail(to, subject, text, html);
 }
 
 /** One member's row, read back by sheet row number. */
@@ -4083,7 +4099,7 @@ async function getAcceptedHeadsForCommittee(
  * instead. METHOD:PUBLISH, not REQUEST: it adds an event, it does not open an
  * RSVP thread with anyone.
  */
-function buildMemberInterviewIcs(
+export function buildMemberInterviewIcs(
   payload: MemberApplicationPayload,
   meetLink: string
 ): EmailAttachment | null {
@@ -4191,7 +4207,7 @@ async function trySendMemberConfirmationEmail(
  * is what makes Reply All the right instruction. No task and no role guide —
  * members are not asked for either.
  */
-function buildMemberConfirmationEmail(
+export function buildMemberConfirmationEmail(
   payload: MemberApplicationPayload,
   slotLabel: string,
   meetLink: string,

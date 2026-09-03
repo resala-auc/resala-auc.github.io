@@ -1,0 +1,20 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Resala AUC//Member Recruitment//EN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:tech-2026-09-08-15:00@resala-auc
+DTSTAMP:20260903T201844Z
+DTSTART:20260908T120000Z
+DTEND:20260908T121500Z
+SUMMARY:Resala AUC interview — Tech Team
+DESCRIPTION:Your 15-minute members interview for Tech Team (The Builder).\nJoin: https://meet.google.com/abc-defg-hij\nJoin on time — after 5 minutes we have to treat it as a no-show.
+LOCATION:https://meet.google.com/abc-defg-hij
+URL:https://meet.google.com/abc-defg-hij
+BEGIN:VALARM
+TRIGGER:-PT30M
+ACTION:DISPLAY
+DESCRIPTION:Resala AUC interview — Tech Team
+END:VALARM
+END:VEVENT
+END:VCALENDAR
