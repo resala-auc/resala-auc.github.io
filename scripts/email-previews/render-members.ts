@@ -8,11 +8,9 @@
  * this folder answers is "what does a member get", not "what does the submit
  * function contain".
  *
- * There is deliberately no reminder here. The reminder job
- * (supabase/functions/send-interview-reminders) reads the classic "Interview
- * Reservations" tab and knows nothing about members, so a member currently
- * receives the confirmation and then nothing until the interview. When that
- * is built, it belongs in this file.
+ * The reminder is here too, though in a real inbox it arrives as a reply on
+ * the confirmation's own thread rather than as a separate message — which is
+ * a threading header, not something a rendered preview can show.
  *
  * Deno, not Node: these builders live in the edge function.
  */
@@ -20,7 +18,8 @@ import {
   buildGeneralVolunteerEmail,
   buildMemberConfirmationEmail,
   buildMemberInterviewIcs,
-  buildMemberNoticeEmail
+  buildMemberNoticeEmail,
+  buildMemberReminderEmail
 } from "../../supabase/functions/submit/index.ts";
 
 const OUT = Deno.args[0] ?? "email-previews";
@@ -97,6 +96,18 @@ await write(
   "confirmation-no-slot",
   "Confirmation · application received, no slot booked",
   buildMemberConfirmationEmail(applicant, "", "", recipients)
+);
+
+await write(
+  "reminder",
+  "Reminder · an hour before, as a reply on the confirmation thread",
+  buildMemberReminderEmail(applicant.fullName, "Tech Team", SLOT_LABEL, MEET, 60)
+);
+
+await write(
+  "reminder-no-meet-link",
+  "Reminder · an hour before, with no meeting link to give",
+  buildMemberReminderEmail(applicant.fullName, "Tech Team", SLOT_LABEL, "", 60)
 );
 
 await write(

@@ -56,6 +56,12 @@ const COMMITTEE_PORTAL_URL = (
 const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
+/*
+ * What the reminder scheduler authenticates with. Falls back to the admin
+ * reset secret so there is one fewer variable to set, but never to the empty
+ * string: an unset secret means the scheduler route is closed, not open.
+ */
+const MEMBER_REMINDER_SECRET = Deno.env.get("MEMBER_REMINDER_SECRET") ?? ADMIN_RESET_SECRET;
 const INTERVIEW_SLOT_DURATION_MINUTES = 60;
 const INTERVIEW_REMINDER_MINUTES = 60;
 /*
@@ -140,7 +146,16 @@ const MEMBER_APPLICATION_HEADERS = [
   // never insert into this list. Rows written before that carry a Second
   // Preference and an empty Sub-committee; rows written after are the reverse.
   "Sub-committee",
-  "Sub-committee Id"
+  "Sub-committee Id",
+  /*
+   * What the reminder needs to land on the confirmation's own thread rather
+   * than as a second, orphaned email: Gmail's thread id, and the RFC822
+   * Message-ID other mail clients thread on. "Reminder Sent At" is what stops
+   * a second run of the job mailing everybody twice. Appended — never insert.
+   */
+  "Confirmation Thread Id",
+  "Confirmation Message Id",
+  "Reminder Sent At"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
@@ -1086,6 +1101,15 @@ type MemberAdminCancelInterviewPayload = {
   rowIndex: number;
 };
 
+type MemberSendRemindersPayload = {
+  mode: "member-send-reminders";
+  /** A scheduler proves itself with the shared secret; a person, by being an admin. */
+  secret?: string;
+  email?: string;
+  /** false only reports who is due; true sends. */
+  apply?: boolean;
+};
+
 type MemberAdminFixInterviewTimesPayload = {
   mode: "member-admin-fix-interview-times";
   email: string;
@@ -1627,6 +1651,7 @@ type SubmissionPayload =
   | MemberAdminCancelInterviewPayload
   | MemberAdminGeneralVolunteerPayload
   | MemberAdminFixInterviewTimesPayload
+  | MemberSendRemindersPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2403,6 +2428,26 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (isMemberSendRemindersPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      /*
+       * Two ways in, because this is called both by a scheduler with no
+       * person behind it and by an admin pressing a button. Neither is
+       * optional: with no secret configured the scheduler route refuses
+       * rather than falling open, exactly like requireAdminReset.
+       */
+      if (payload.email) {
+        await requireRecruitmentAdmin(adminToken, payload.email);
+      } else if (!MEMBER_REMINDER_SECRET || payload.secret !== MEMBER_REMINDER_SECRET) {
+        throw new Error("Unauthorized reminder request.");
+      }
+      return jsonResponse({
+        ok: true,
+        ...(await sendMemberInterviewReminders(adminToken, payload.apply !== false))
+      });
+    }
+
     if (isMemberAdminFixInterviewTimesPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
@@ -2451,15 +2496,27 @@ Deno.serve(async (request) => {
         memberBooking = { meetLink: reserved.meetLink, calendarEventId: reserved.calendarEventId };
       }
 
-      await appendMemberApplication(memberToken, payload, memberSlotLabel, memberBooking);
-      const emailSent = await trySendMemberConfirmationEmail(
+      const memberRowIndex = await appendMemberApplication(memberToken, payload, memberSlotLabel, memberBooking);
+      const confirmation = await trySendMemberConfirmationEmail(
         payload,
         memberSlotLabel,
         memberBooking?.meetLink ?? "",
         memberRecipients
       );
 
-      return jsonResponse({ ok: true, emailSent });
+      // Written after the row exists, so the reminder can reply onto this very
+      // thread instead of starting a second one the applicant has to connect.
+      if (memberRowIndex && (confirmation.threadId || confirmation.messageId)) {
+        await writeMemberCells(memberToken, memberRowIndex, "Confirmation Thread Id", [
+          confirmation.threadId,
+          confirmation.messageId,
+          ""
+        ]).catch((error) =>
+          console.error(`Could not store the confirmation thread for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
+        );
+      }
+
+      return jsonResponse({ ok: true, emailSent: confirmation.sent });
     }
 
     validateApplication(payload);
@@ -2539,6 +2596,10 @@ function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is M
 
 function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is MemberAdminReschedulePayload {
   return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
+}
+
+function isMemberSendRemindersPayload(payload: SubmissionPayload): payload is MemberSendRemindersPayload {
+  return (payload as MemberSendRemindersPayload).mode === "member-send-reminders";
 }
 
 function isMemberAdminFixInterviewTimesPayload(
@@ -3101,7 +3162,7 @@ async function appendMemberApplication(
   payload: MemberApplicationPayload,
   slotLabel: string,
   booking: { meetLink: string; calendarEventId: string } | null
-): Promise<void> {
+): Promise<number> {
   const row = [
     payload.timestamp,
     payload.fullName,
@@ -3131,12 +3192,22 @@ async function appendMemberApplication(
     payload.subCommitteeId ?? ""
   ];
 
-  await sheetsFetch(
+  const response = await sheetsFetch(
     token,
     "POST",
     `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { values: [row] }
   );
+
+  /*
+   * Which row this landed on, so the confirmation's thread ids can be written
+   * back beside it. Sheets answers with the range it wrote, e.g.
+   * "'Member Recruitment'!A42:Y42" — the first number in it is the row.
+   * Returns 0 if that ever stops being true; every caller treats 0 as "do not
+   * try to write back", never as row zero.
+   */
+  const updatedRange = String((await response.json())?.updates?.updatedRange ?? "");
+  return Number(updatedRange.match(/![A-Z]+(\d+)/)?.[1] ?? 0);
 }
 
 /*
@@ -3796,6 +3867,226 @@ async function rescheduleMemberInterview(
   return { slotLabel: slot.label, meetLink, emailSent };
 }
 
+/** How long before the interview the reminder goes out. */
+const MEMBER_REMINDER_MINUTES = Number(Deno.env.get("MEMBER_REMINDER_MINUTES") ?? "60");
+/*
+ * A reminder is only worth sending if it still arrives before the interview.
+ * Anything already started is skipped rather than mailed late — telling
+ * somebody to join a call that began ten minutes ago helps nobody.
+ */
+const MEMBER_REMINDER_GRACE_MINUTES = 5;
+
+/**
+ * The T-60 reminder, as a reply on the confirmation's own thread.
+ *
+ * Short on purpose: the applicant already has the full confirmation directly
+ * above this in the same conversation. This says when, where, and the two
+ * rules that cost people their interview — be on time, camera on.
+ */
+export function buildMemberReminderEmail(
+  fullName: string,
+  committee: string,
+  slotLabel: string,
+  meetLink: string,
+  minutesBefore: number
+): { subject: string; text: string; html: string } {
+  const firstName = fullName.trim().split(/\s+/)[0] || "there";
+  const when = minutesBefore >= 60 && minutesBefore % 60 === 0
+    ? `${minutesBefore / 60} hour${minutesBefore === 60 ? "" : "s"}`
+    : `${minutesBefore} minutes`;
+  const lead = `Your ${committee} interview is in about ${when}.`;
+
+  const text = [
+    `Hi ${firstName},`,
+    "",
+    lead,
+    "",
+    `When: ${slotLabel} (15 minutes, Cairo time).`,
+    meetLink ? `Google Meet: ${meetLink}` : "We will send the meeting link shortly.",
+    "",
+    "Please join on time with your camera on. After 5 minutes we have to treat it as a no-show.",
+    "",
+    "Reply on this thread if something has gone wrong.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = memberEmailShell({
+    heading: "Your Interview Is Soon",
+    subheading: committee,
+    bodyHtml: `
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">${escapeHtml(lead)}</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Your interview</div>
+                      <div style="font-size:22px;line-height:1.3;font-weight:bold;color:#0d2b45;">${escapeHtml(slotLabel)}</div>
+                      <div style="font-size:14px;line-height:1.55;color:#8a4706;margin-top:6px;">15 minutes · Cairo time</div>
+                      ${
+                        meetLink
+                          ? `<div style="margin-top:14px;"><a href="${escapeHtml(meetLink)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;padding:11px 22px;border-radius:999px;">Join the interview</a></div>
+                      <div style="font-size:13px;line-height:1.55;color:#8a4706;margin-top:10px;word-break:break-all;">${escapeHtml(meetLink)}</div>`
+                          : `<div style="font-size:15px;line-height:1.55;color:#8a4706;margin-top:10px;">We will send the meeting link shortly.</div>`
+                      }
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#172033;">Please join on time with your camera on. After <strong>5 minutes</strong> we have to treat it as a no-show.</p>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply on this thread if something has gone wrong.</p>`
+  });
+
+  return { subject: `Resala AUC — your ${committee} interview is in ${when}`, text, html };
+}
+
+/**
+ * Sends one reminder as a reply on the confirmation's thread.
+ *
+ * Threading is done twice over because no single mechanism covers everyone:
+ * Gmail keeps its own conversation by `threadId`, and every other client
+ * groups by In-Reply-To/References. Where the confirmation's ids were never
+ * captured — an application from before this existed — it still sends, just
+ * as its own message rather than silently skipping someone's reminder.
+ */
+async function sendMemberReminderEmail(
+  to: string,
+  cc: string,
+  template: { subject: string; text: string; html: string },
+  thread: { threadId: string; messageId: string }
+): Promise<boolean> {
+  if (!gmailConfigured()) return false;
+  try {
+    const accessToken = await getGmailAccessToken();
+    const raw = buildRawEmailMessage({
+      from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+      to,
+      cc: cc || undefined,
+      // Gmail refuses to attach a message to a thread whose subject it does
+      // not recognise, so a reply keeps the original subject under "Re:".
+      subject: thread.threadId || thread.messageId ? `Re: ${template.subject}` : template.subject,
+      text: template.text,
+      html: template.html,
+      inReplyTo: thread.messageId || undefined,
+      references: thread.messageId || undefined
+    });
+
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(thread.threadId ? { raw, threadId: thread.threadId } : { raw })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error(`Member reminder to ${to} failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    return false;
+  }
+}
+
+/**
+ * The reminder sweep. Called on a schedule; safe to call as often as you like.
+ *
+ * Sends to every member whose interview starts inside the next
+ * MEMBER_REMINDER_MINUTES and who has not already been reminded, then stamps
+ * the row. The stamp is what makes a re-run harmless: the job is expected to
+ * fire far more often than any one applicant needs mailing.
+ */
+async function sendMemberInterviewReminders(
+  token: string,
+  apply: boolean,
+  now: Date = new Date()
+): Promise<{
+  apply: boolean;
+  windowMinutes: number;
+  due: Array<{ rowIndex: number; fullName: string; aucEmail: string; slotLabel: string; threaded: boolean; sent: boolean }>;
+  alreadyReminded: number;
+  problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }>;
+}> {
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const due: Array<{ rowIndex: number; fullName: string; aucEmail: string; slotLabel: string; threaded: boolean; sent: boolean }> = [];
+  const problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }> = [];
+  let alreadyReminded = 0;
+
+  const windowEnd = now.getTime() + MEMBER_REMINDER_MINUTES * 60_000;
+  const earliest = now.getTime() - MEMBER_REMINDER_GRACE_MINUTES * 60_000;
+
+  for (const [index, row] of rows.entries()) {
+    const rowIndex = index + 2;
+    const slotId = String(row[16] ?? "").trim();
+    if (!slotId) continue;
+
+    const status = String(row[17] ?? "").trim();
+    // Somebody already dealt with is not waiting for an interview.
+    if (["Declined", "Accepted", MEMBER_GENERAL_VOLUNTEER_STATUS, "Interviewed"].includes(status)) continue;
+
+    const fullName = String(row[1] ?? "").trim();
+    const aucEmail = String(row[2] ?? "").trim();
+    const committeeId = String(row[9] ?? "").trim();
+
+    const slot = buildMemberSlotList(committeeId, now, true).find((candidate) => candidate.id === slotId);
+    if (!slot) {
+      problems.push({ rowIndex, fullName, aucEmail, reason: `Slot "${slotId}" is not on this committee's board.` });
+      continue;
+    }
+
+    const startsAt = new Date(slot.startDateTime).getTime();
+    if (startsAt > windowEnd || startsAt < earliest) continue;
+
+    if (String(row[27] ?? "").trim()) {
+      alreadyReminded++;
+      continue;
+    }
+
+    const threadId = String(row[25] ?? "").trim();
+    const messageId = String(row[26] ?? "").trim();
+    const minutesBefore = Math.max(1, Math.round((startsAt - now.getTime()) / 60_000));
+
+    let sent = false;
+    if (apply) {
+      // The same people the confirmation copied, so the reply lands in the
+      // conversation they are already on rather than beside it.
+      const recipients = await getMemberCommitteeRecipients(token, committeeId, aucEmail);
+      const template = buildMemberReminderEmail(
+        fullName,
+        String(row[8] ?? "").trim(),
+        String(row[15] ?? "").trim() || slot.label,
+        String(row[19] ?? "").trim(),
+        minutesBefore
+      );
+      sent = await sendMemberReminderEmail(
+        aucEmail,
+        recipients.map((person) => person.email).join(", "),
+        template,
+        { threadId, messageId }
+      );
+      if (sent) {
+        await writeMemberCells(token, rowIndex, "Reminder Sent At", [new Date().toISOString()]);
+      } else {
+        problems.push({ rowIndex, fullName, aucEmail, reason: "Gmail refused the reminder." });
+      }
+    }
+
+    due.push({
+      rowIndex,
+      fullName,
+      aucEmail,
+      slotLabel: String(row[15] ?? "").trim() || slot.label,
+      threaded: Boolean(threadId || messageId),
+      sent
+    });
+  }
+
+  return { apply, windowMinutes: MEMBER_REMINDER_MINUTES, due, alreadyReminded, problems };
+}
+
 /**
  * Repair bookings made while the board was written in the wrong UTC offset.
  *
@@ -4161,8 +4452,8 @@ async function trySendMemberConfirmationEmail(
   slotLabel: string,
   meetLink: string,
   recipients: Array<{ email: string; name: string; positionType: string }>
-): Promise<boolean> {
-  if (!gmailConfigured()) return false;
+): Promise<{ sent: boolean; threadId: string; messageId: string }> {
+  if (!gmailConfigured()) return { sent: false, threadId: "", messageId: "" };
 
   try {
     const accessToken = await getGmailAccessToken();
@@ -4186,12 +4477,38 @@ async function trySendMemberConfirmationEmail(
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ raw: rawMessage })
     });
-    return response.ok;
+    if (!response.ok) return { sent: false, threadId: "", messageId: "" };
+
+    /*
+     * Gmail assigns the Message-ID itself, so it has to be read back rather
+     * than chosen here. Both identifiers are kept: the thread id is what puts
+     * the reminder in the same Gmail conversation, the Message-ID is what
+     * every other mail client threads on. Failing to read them is not fatal —
+     * the confirmation is already sent, and a reminder with no thread is
+     * better than an application that errored after mailing someone.
+     */
+    const sentMessage = await response.json();
+    const threadId = String(sentMessage?.threadId ?? "");
+    let messageId = "";
+    try {
+      const metadata = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(String(sentMessage?.id ?? ""))}?format=metadata&metadataHeaders=Message-ID`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (metadata.ok) {
+        const headers = ((await metadata.json())?.payload?.headers ?? []) as Array<{ name?: string; value?: string }>;
+        messageId = String(headers.find((header) => normalize(header.name) === "message-id")?.value ?? "");
+      }
+    } catch (error) {
+      console.error(`Could not read the confirmation's Message-ID: ${error instanceof Error ? error.message : error}`);
+    }
+
+    return { sent: true, threadId, messageId };
   } catch (error) {
     console.error(
       `Member confirmation email failed for ${payload.aucEmail}: ${error instanceof Error ? error.message : "unknown error"}`
     );
-    return false;
+    return { sent: false, threadId: "", messageId: "" };
   }
 }
 
@@ -4829,7 +5146,9 @@ function buildRawEmailMessage({
   subject,
   text,
   html,
-  attachments = []
+  attachments = [],
+  inReplyTo,
+  references
 }: {
   from: string;
   to: string;
@@ -4838,6 +5157,14 @@ function buildRawEmailMessage({
   text: string;
   html: string;
   attachments?: EmailAttachment[];
+  /*
+   * Set these to hang a message off an earlier one. Gmail threads on its own
+   * threadId, but every other client the applicant might read this in — Apple
+   * Mail, Outlook, a phone client — threads on these two headers, so both are
+   * sent.
+   */
+  inReplyTo?: string;
+  references?: string;
 }): string {
   const alternativeBoundary = `resala-alt-${crypto.randomUUID()}`;
   const alternativePart = [
@@ -4861,6 +5188,8 @@ function buildRawEmailMessage({
     `To: ${to}`,
     ...(cc ? [`Cc: ${cc}`] : []),
     "MIME-Version: 1.0",
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`] : []),
+    ...(references ? [`References: ${references}`] : []),
     `Subject: ${encodeEmailHeader(subject)}`
   ];
 

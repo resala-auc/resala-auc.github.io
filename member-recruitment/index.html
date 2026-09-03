@@ -141,6 +141,7 @@
       <div class="bar-sub" id="bar-sub">—</div>
     </div>
     <div class="bar-spacer"></div>
+    <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
     <button id="refresh">Refresh</button>
     <button id="logout">Sign out</button>
@@ -652,6 +653,58 @@ document.getElementById("check-times").addEventListener("click", async () => {
         (stuck ? `\n\n${stuck} still need${stuck === 1 ? "s" : ""} a person to look at ${stuck === 1 ? "it" : "them"}.` : "")
     );
     await load(state.admin.email);
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/*
+ * The reminder normally fires on a schedule; this is the manual handle for it.
+ * Reports who is due first — a reminder is a real email to a real applicant,
+ * so it is never sent on a single click. Already-reminded applicants are
+ * skipped by the job itself, so pressing this twice cannot double-mail anyone.
+ */
+document.getElementById("send-reminders").addEventListener("click", async () => {
+  const button = document.getElementById("send-reminders");
+  button.disabled = true;
+  try {
+    const report = await api({ mode: "member-send-reminders", email: state.admin.email, apply: false });
+    const due = report.due ?? [];
+    const problems = report.problems ?? [];
+
+    const lines = [
+      `${due.length} interview${due.length === 1 ? "" : "s"} starting in the next ${report.windowMinutes} minutes without a reminder yet.`,
+      `${report.alreadyReminded} already reminded.`
+    ];
+    if (due.length) {
+      lines.push("", "These would be emailed:");
+      for (const row of due.slice(0, 12)) {
+        lines.push(`  ${row.fullName} — ${row.slotLabel}${row.threaded ? "" : "  (not on the confirmation thread)"}`);
+      }
+      if (due.length > 12) lines.push(`  …and ${due.length - 12} more.`);
+    }
+    if (problems.length) {
+      lines.push("", "Needs a person:");
+      for (const row of problems.slice(0, 8)) lines.push(`  ${row.fullName} — ${row.reason}`);
+    }
+
+    if (!due.length) {
+      await noticeDialog(lines.join("\n"));
+      return;
+    }
+
+    lines.push("", "Send these reminders now? Each one goes out as a reply on that applicant's confirmation thread.");
+    if (!(await confirmDialog(lines.join("\n")))) return;
+
+    const applied = await api({ mode: "member-send-reminders", email: state.admin.email, apply: true });
+    const sent = (applied.due ?? []).filter((row) => row.sent).length;
+    const stuck = (applied.problems ?? []).length;
+    await noticeDialog(
+      `${sent} reminder${sent === 1 ? "" : "s"} sent.` +
+        (stuck ? `\n\n${stuck} could not be sent and will be retried on the next run.` : "")
+    );
   } catch (error) {
     await noticeDialog(error.message);
   } finally {
