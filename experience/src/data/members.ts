@@ -304,6 +304,13 @@ const seeds: CommitteeSeed[] = [
         subtitle: "Logistics & Event Support",
         description:
           "Transportation, setup, on-site support, equipment handling, teardown — everything that makes an event physically happen."
+      },
+      {
+        id: "planner",
+        name: "The Planner",
+        subtitle: "Event Planning",
+        description:
+          "Turns an event brief into a plan that survives contact with the day: timelines, what is needed and when, vendors and prices, and the alternatives ready before something falls through."
       }
     ]
   },
@@ -334,6 +341,36 @@ const seeds: CommitteeSeed[] = [
         name: "Acting & Production",
         description:
           "Everything that happens on filming day: who appears on camera, scripts, directing interviews and documentary shoots, locations, schedules, and getting every shot on the list before the team leaves."
+      },
+      {
+        id: "graphic-design",
+        name: "Graphic Design",
+        description:
+          "The visual identity people actually see — posts, campaign artwork, event visuals, and keeping every piece recognisably Resala."
+      },
+      {
+        id: "video-editing",
+        name: "Video Editing",
+        description:
+          "Turns raw footage into something worth watching: cuts, pacing, sound, subtitles, and the reels and recaps that carry an event to people who were not there."
+      },
+      {
+        id: "project-management",
+        name: "Project Management",
+        description:
+          "Follows a piece of content from idea to published post — briefs, assignments, deadlines, and the follow-up that stops good work from sitting unfinished."
+      },
+      {
+        id: "testimonials",
+        name: "Testimonials",
+        description:
+          "Finds and captures the real voices — volunteers, beneficiaries, partners — and shapes what they say into something honest and worth publishing."
+      },
+      {
+        id: "short-films",
+        name: "Short Films",
+        description:
+          "The longer-form storytelling: concept, script, shoot, and edit for the films that show a whole side of Resala rather than a single moment."
       }
     ]
   },
@@ -365,6 +402,12 @@ const seeds: CommitteeSeed[] = [
         subtitle: "The Connector",
         description:
           "Activities that help volunteers build friendships and stay engaged, and the work that makes sure every volunteer can actually take part — team building, feedback, accessibility, support for visually impaired and international students."
+      },
+      {
+        id: "tracking-recognition",
+        name: "Tracking & Recognition",
+        description:
+          "Keeps the record of who is actually showing up and doing the work — attendance, hours, and contribution — and turns it into appreciation that lands: certificates, shout-outs, and the accountability conversations when someone has gone quiet."
       }
     ]
   },
