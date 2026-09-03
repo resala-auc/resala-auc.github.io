@@ -141,6 +141,7 @@
       <div class="bar-sub" id="bar-sub">—</div>
     </div>
     <div class="bar-spacer"></div>
+    <button id="check-times">Check interview times</button>
     <button id="refresh">Refresh</button>
     <button id="logout">Sign out</button>
   </header>
@@ -201,6 +202,15 @@
   </div>
 </dialog>
 
+<dialog id="report-dialog" style="max-width:560px;">
+  <div class="dlg" style="padding:22px 24px;">
+    <p id="report-message" style="margin:0 0 20px;font-size:14px;line-height:1.6;white-space:pre-wrap;"></p>
+    <div style="display:flex;justify-content:flex-end;">
+      <button type="button" class="btn btn-gold" id="report-close">Close</button>
+    </div>
+  </div>
+</dialog>
+
 <script type="module">
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 const GENERAL_VOLUNTEER = "General Volunteer";
@@ -256,6 +266,23 @@ const STATUSES = ["New", "Interviewed", "Accepted", GENERAL_VOLUNTEER, "Declined
 const norm = (v) => String(v ?? "").trim().toLowerCase();
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function noticeDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("report-dialog");
+    document.getElementById("report-message").textContent = message;
+    const closeBtn = document.getElementById("report-close");
+    const finish = () => {
+      dlg.close();
+      closeBtn.removeEventListener("click", finish);
+      dlg.removeEventListener("cancel", finish);
+      resolve();
+    };
+    closeBtn.addEventListener("click", finish);
+    dlg.addEventListener("cancel", finish);
+    if (!dlg.open) dlg.showModal();
+  });
+}
 
 function confirmDialog(message) {
   return new Promise((resolve) => {
@@ -561,6 +588,74 @@ document.getElementById("login-btn").addEventListener("click", async () => {
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.classList.remove("hidden");
+  }
+});
+
+/*
+ * One-off repair, kept as a button rather than run on load: bookings made
+ * while the interview board was written as UTC+02:00 sit an hour after the
+ * time the applicant was actually given, because Egypt is on UTC+03:00 until
+ * the end of October. It reports first and only moves anything on a second,
+ * explicit confirmation. Safe to run repeatedly — an invite already at the
+ * right time is left alone — and it emails nobody.
+ */
+document.getElementById("check-times").addEventListener("click", async () => {
+  const button = document.getElementById("check-times");
+  button.disabled = true;
+  try {
+    const report = await api({ mode: "member-admin-fix-interview-times", email: state.admin.email });
+    const wrong = report.wrong ?? [];
+    const problems = report.problems ?? [];
+
+    const cairo = (iso) => {
+      if (!iso) return "unknown";
+      try {
+        return new Intl.DateTimeFormat("en-GB", {
+          timeZone: "Africa/Cairo", weekday: "short", day: "numeric", month: "short",
+          hour: "numeric", minute: "2-digit", hour12: true
+        }).format(new Date(iso));
+      } catch { return iso; }
+    };
+
+    const lines = [
+      `${report.checked} booked applicant${report.checked === 1 ? "" : "s"} checked.`,
+      `${report.alreadyCorrect} already at the right time.`,
+      `${wrong.length} invite${wrong.length === 1 ? "" : "s"} sitting at the wrong time.`
+    ];
+    if (problems.length) lines.push(`${problems.length} need a person to look at ${problems.length === 1 ? "it" : "them"}.`);
+    if (wrong.length) {
+      lines.push("", "These would move:");
+      for (const row of wrong.slice(0, 12)) {
+        lines.push(`  ${row.fullName} — calendar says ${cairo(row.was)}, should be ${cairo(row.now)}`);
+      }
+      if (wrong.length > 12) lines.push(`  …and ${wrong.length - 12} more.`);
+    }
+    if (problems.length) {
+      lines.push("", "Not fixable from here:");
+      for (const row of problems.slice(0, 8)) lines.push(`  ${row.fullName} — ${row.reason}`);
+      if (problems.length > 8) lines.push(`  …and ${problems.length - 8} more.`);
+    }
+
+    if (!wrong.length) {
+      await noticeDialog(lines.join("\n"));
+      return;
+    }
+
+    lines.push("", "Move these invites to the time each applicant was actually given? Nobody is emailed.");
+    if (!(await confirmDialog(lines.join("\n")))) return;
+
+    const applied = await api({ mode: "member-admin-fix-interview-times", email: state.admin.email, apply: true });
+    const moved = (applied.wrong ?? []).filter((row) => row.fixed).length;
+    const stuck = (applied.problems ?? []).length;
+    await noticeDialog(
+      `${moved} interview invite${moved === 1 ? "" : "s"} moved to the time the applicant was given. Nobody was emailed.` +
+        (stuck ? `\n\n${stuck} still need${stuck === 1 ? "s" : ""} a person to look at ${stuck === 1 ? "it" : "them"}.` : "")
+    );
+    await load(state.admin.email);
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    button.disabled = false;
   }
 });
 

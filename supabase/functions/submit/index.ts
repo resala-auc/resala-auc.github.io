@@ -1086,6 +1086,13 @@ type MemberAdminCancelInterviewPayload = {
   rowIndex: number;
 };
 
+type MemberAdminFixInterviewTimesPayload = {
+  mode: "member-admin-fix-interview-times";
+  email: string;
+  /** false (the default) only reports; true actually moves the invites. */
+  apply?: boolean;
+};
+
 type MemberAdminGeneralVolunteerPayload = {
   mode: "member-admin-general-volunteer";
   email: string;
@@ -1619,6 +1626,7 @@ type SubmissionPayload =
   | MemberAdminReschedulePayload
   | MemberAdminCancelInterviewPayload
   | MemberAdminGeneralVolunteerPayload
+  | MemberAdminFixInterviewTimesPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2395,6 +2403,16 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (isMemberAdminFixInterviewTimesPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(adminToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        ...(await auditMemberInterviewTimes(adminToken, payload.apply === true))
+      });
+    }
+
     if (isMemberAdminGeneralVolunteerPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
@@ -2521,6 +2539,12 @@ function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is M
 
 function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is MemberAdminReschedulePayload {
   return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
+}
+
+function isMemberAdminFixInterviewTimesPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminFixInterviewTimesPayload {
+  return (payload as MemberAdminFixInterviewTimesPayload).mode === "member-admin-fix-interview-times";
 }
 
 function isMemberAdminCancelInterviewPayload(
@@ -3754,6 +3778,142 @@ async function rescheduleMemberInterview(
   });
 
   return { slotLabel: slot.label, meetLink, emailSent };
+}
+
+/**
+ * Repair bookings made while the board was written in the wrong UTC offset.
+ *
+ * Egypt is UTC+3 through September, but the members board said +02:00, so
+ * every invite created before that fix sits one hour after the time the
+ * applicant was actually given. The label in the sheet, the portal and the
+ * confirmation email were all correct — only the calendar event is wrong —
+ * so the label is the truth and the event is moved to match it, never the
+ * other way round.
+ *
+ * Reports by default and only writes when `apply` is true, so the admin sees
+ * exactly who would move before anything does. Idempotent either way: an
+ * event already at the right instant is left alone, so running it twice is
+ * a no-op and running it after a later booking cannot disturb that booking.
+ *
+ * sendUpdates=none, like every other Calendar call here — nobody is emailed
+ * by Google, and this sends no mail of its own.
+ */
+async function auditMemberInterviewTimes(
+  token: string,
+  apply: boolean
+): Promise<{
+  apply: boolean;
+  checked: number;
+  wrong: Array<{ rowIndex: number; fullName: string; aucEmail: string; label: string; was: string; now: string; fixed: boolean }>;
+  alreadyCorrect: number;
+  problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }>;
+}> {
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const wrong: Array<{ rowIndex: number; fullName: string; aucEmail: string; label: string; was: string; now: string; fixed: boolean }> = [];
+  const problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }> = [];
+  let checked = 0;
+  let alreadyCorrect = 0;
+
+  // One Calendar token for the whole sweep; skip the sweep entirely rather
+  // than half-fixing the list if Google is unreachable.
+  let calendarToken = "";
+  try {
+    calendarToken = await getGmailAccessToken();
+  } catch (error) {
+    throw new Error(`Could not reach Google Calendar: ${error instanceof Error ? error.message : "unknown error"}`);
+  }
+
+  for (const [index, row] of rows.entries()) {
+    const rowIndex = index + 2;
+    const slotId = String(row[16] ?? "").trim();
+    if (!slotId) continue;
+
+    checked++;
+    const fullName = String(row[1] ?? "").trim();
+    const aucEmail = String(row[2] ?? "").trim();
+    const committeeId = String(row[9] ?? "").trim();
+    const eventId = String(row[20] ?? "").trim();
+
+    const slot = buildMemberSlotList(committeeId, new Date(), true).find((candidate) => candidate.id === slotId);
+    if (!slot) {
+      problems.push({ rowIndex, fullName, aucEmail, reason: `Slot "${slotId}" is not on this committee's board.` });
+      continue;
+    }
+
+    // The sheet's own label is rewritten from the slot id whenever it drifted,
+    // so the dashboard and any later email read the canonical wording.
+    if (String(row[15] ?? "").trim() !== slot.label && apply) {
+      await writeMemberCells(token, rowIndex, "Interview Slot", [slot.label, slot.id]);
+    }
+
+    if (!eventId) {
+      problems.push({ rowIndex, fullName, aucEmail, reason: "Booked, but no calendar invite was ever created." });
+      continue;
+    }
+
+    let event: { start?: { dateTime?: string } };
+    const eventResponse = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}`,
+      { headers: { Authorization: `Bearer ${calendarToken}` } }
+    );
+    if (eventResponse.status === 404 || eventResponse.status === 410) {
+      problems.push({ rowIndex, fullName, aucEmail, reason: "The calendar invite no longer exists." });
+      continue;
+    }
+    if (!eventResponse.ok) {
+      problems.push({ rowIndex, fullName, aucEmail, reason: `Calendar read failed (${eventResponse.status}).` });
+      continue;
+    }
+    event = await eventResponse.json();
+
+    const currentStart = String(event.start?.dateTime ?? "");
+    const currentInstant = currentStart ? new Date(currentStart).getTime() : NaN;
+    const wantedInstant = new Date(slot.startDateTime).getTime();
+    if (Number.isFinite(currentInstant) && currentInstant === wantedInstant) {
+      alreadyCorrect++;
+      continue;
+    }
+
+    let fixed = false;
+    if (apply) {
+      const patch = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+        {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${calendarToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            start: { dateTime: slot.startDateTime, timeZone: CALENDAR_TIME_ZONE },
+            end: { dateTime: slot.endDateTime, timeZone: CALENDAR_TIME_ZONE }
+          })
+        }
+      );
+      if (patch.ok) {
+        fixed = true;
+      } else {
+        problems.push({ rowIndex, fullName, aucEmail, reason: `Could not move the invite (${patch.status}).` });
+      }
+    }
+
+    wrong.push({
+      rowIndex,
+      fullName,
+      aucEmail,
+      label: slot.label,
+      was: currentStart,
+      now: slot.startDateTime,
+      fixed
+    });
+  }
+
+  return { apply, checked, wrong, alreadyCorrect, problems };
 }
 
 /**
