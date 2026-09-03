@@ -3019,13 +3019,22 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
     "phone",
     "roleAppliedFor",
     "committeeId",
-    "subCommittee",
     "createdAt"
   ];
 
   const missing = requiredFields.filter((field) => !String(payload[field] ?? "").trim());
   if (missing.length) {
     throw new Error(`Missing required fields: ${missing.join(", ")}.`);
+  }
+
+  /*
+   * The flow asks for a sub-committee; it used to ask for a backup committee.
+   * Either satisfies this, so a tab left open across the deploy still submits
+   * rather than throwing away everything the applicant typed. Which one
+   * arrived is visible in the sheet — they are separate columns.
+   */
+  if (!String(payload.subCommittee ?? "").trim() && !String(payload.secondPreference ?? "").trim()) {
+    throw new Error("Missing required fields: subCommittee.");
   }
 
   if (!isValidContactEmail(payload.aucEmail)) {
