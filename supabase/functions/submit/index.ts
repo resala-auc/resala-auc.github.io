@@ -11863,11 +11863,19 @@ async function createCalendarEvent(
           useDefault: false,
           overrides: []
         },
-        // The applicant may be joining on a personal Google account (or none
-        // at all, if they have no AUC address yet). Letting anyone holding the
-        // link add themselves to the event puts them on the guest list, which
-        // is what Meet checks before admitting someone from outside the
-        // organisation without a host present to knock them through.
+        /*
+         * Meet lets a guest in without knocking when they are signed into the
+         * account that is on this invite — which is why the applicant's own
+         * address, AUC or personal, is an attendee above.
+         *
+         * These two flags do NOT change that. The event lives on a private
+         * calendar, so someone who is not already invited cannot see it to add
+         * themselves; the flags only help where an invited guest forwards the
+         * invitation on. An applicant whose address is not a Google account at
+         * all, or who is signed in as somebody else, still has to be admitted
+         * by a host — that gate is a Workspace Meet setting, not something
+         * this API can set.
+         */
         anyoneCanAddSelf: true,
         guestsCanInviteOthers: true,
         conferenceData: {
