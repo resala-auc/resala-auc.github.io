@@ -149,7 +149,8 @@ const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full 
  * here as well as in the UI: the form hides itself after this, but a stale
  * tab left open overnight must not be able to post past it either.
  */
-const MEMBER_APPLICATION_DEADLINE = Deno.env.get("MEMBER_APPLICATION_DEADLINE") ?? "2026-09-20T23:59:59+02:00";
+// 20 September falls inside Egypt's daylight saving, so this is +03:00.
+const MEMBER_APPLICATION_DEADLINE = Deno.env.get("MEMBER_APPLICATION_DEADLINE") ?? "2026-09-20T23:59:59+03:00";
 
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
@@ -3136,9 +3137,30 @@ const MEMBER_BOOKING_LEAD_MINUTES = 360;
  */
 const MEMBER_BOOKING_WINDOW_DAYS = 5;
 
-/** Cairo's today — slot dates are plain Cairo calendar days (UTC+2). */
+/**
+ * Cairo's UTC offset on a given calendar day, as "+02:00" or "+03:00".
+ *
+ * Egypt reinstated daylight saving in 2023: +02:00 in winter, +03:00 from the
+ * last Friday of April to the last Thursday of October. Every members
+ * interview in this cycle falls in September, which is +03:00 — the whole
+ * board was previously written as +02:00, so each booking reached Google an
+ * hour after the time the portal, the sheet and the email all said. Noon UTC
+ * is safely past the transition, which happens at local midnight.
+ */
+function cairoOffsetFor(date: string): string {
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone: CALENDAR_TIME_ZONE,
+    timeZoneName: "longOffset"
+  })
+    .formatToParts(new Date(`${date}T12:00:00Z`))
+    .find((part) => part.type === "timeZoneName")?.value ?? "";
+  const match = name.match(/GMT([+-]\d{2}:\d{2})/);
+  return match ? match[1] : "+02:00";
+}
+
+/** Today as the interview board means it — the calendar day in Cairo. */
 function cairoToday(now: Date = new Date()): string {
-  return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return getCurrentLocalDateTime(CALENDAR_TIME_ZONE, now).slice(0, 10);
 }
 
 function addCairoDays(date: string, days: number): string {
@@ -3188,8 +3210,9 @@ function buildMemberSlotList(
     if (!ignoreWindow && (date < from || date > until)) continue;
     for (const startTime of MEMBER_INTERVIEW_TIMES) {
       const endTime = memberAddMinutes(startTime, MEMBER_SLOT_MINUTES);
-      const startDateTime = `${date}T${startTime}:00+02:00`;
-      const endDateTime = `${date}T${endTime}:00+02:00`;
+      const offset = cairoOffsetFor(date);
+      const startDateTime = `${date}T${startTime}:00${offset}`;
+      const endDateTime = `${date}T${endTime}:00${offset}`;
       slots.push({
         id: `${committeeId}-${date}-${startTime}`,
         label: memberFormatLabel(date, startTime, endTime),
@@ -3997,10 +4020,16 @@ async function trySendMemberConfirmationEmail(
 }
 
 /**
- * The members-cycle confirmation, in the same visual language as the heads
- * one (navy header, gold rule, cream card) but carrying only what a member
- * actually has: their two choices, their 15-minute interview and its Meet
- * link, and who will be on the other side of it. No task, no role guide.
+ * The members-cycle confirmation. Same visual language as the heads one —
+ * navy header, gold slot card, the "use this thread" block — carrying only
+ * what a member actually has: what they applied for, when the interview is,
+ * how to join it, and where to reply.
+ *
+ * Deliberately not here: who is interviewing them. A member is interviewed by
+ * whichever head is free, and naming people they may not meet invites a reply
+ * addressed to the wrong person. The committee is on the Cc either way, which
+ * is what makes Reply All the right instruction. No task and no role guide —
+ * members are not asked for either.
  */
 function buildMemberConfirmationEmail(
   payload: MemberApplicationPayload,
@@ -4011,81 +4040,104 @@ function buildMemberConfirmationEmail(
   const firstName = payload.fullName.trim().split(/\s+/)[0] || "there";
   const hasSlot = Boolean(slotLabel);
   const committee = payload.roleAppliedFor;
+  const subCommittee = String(payload.subCommittee ?? "").trim();
+  const onThread = recipients.length > 0;
   const subject = hasSlot
     ? `Resala AUC — your ${committee} interview is booked`
     : `Resala AUC — your ${committee} application is in`;
 
-  const panel = recipients.filter((person) => normalize(person.positionType) !== normalize("general"));
-
-  const textLines = [
+  const textLines: string[] = [
     `Hi ${firstName},`,
     "",
-    `Your application to join ${committee} at Resala AUC has been received.`,
+    "Please read this to the end — your interview time and the thread to use are both below.",
     "",
     "You applied for:",
     `- Committee: ${committee}`,
-    `- Sub-committee: ${payload.subCommittee}`,
+    ...(subCommittee ? [`- Sub-committee: ${subCommittee}`] : []),
     ""
   ];
+
   if (hasSlot) {
     textLines.push(
-      `Your interview: ${slotLabel} (15 minutes).`,
-      meetLink ? `Google Meet link: ${meetLink}` : "",
-      meetLink
-        ? "A calendar invitation is on its way. Please keep your camera on."
-        : "We will send the meeting link before your interview. Please keep your camera on.",
-      "Join on time — after 5 minutes we have to treat it as a no-show.",
+      `Your interview: ${slotLabel} (15 minutes, Cairo time).`,
+      ...(meetLink ? [`Google Meet: ${meetLink}`] : ["We will send you the meeting link before your interview."]),
+      "The invitation is attached to this email — open it to put the interview in your calendar.",
+      "Please keep your camera on.",
+      "Join on time. After 5 minutes we have to treat it as a no-show.",
       ""
     );
   } else {
-    textLines.push("The committee will contact you to arrange your interview time.", "");
+    textLines.push("Your application has been received. The committee will contact you to arrange a time.", "");
   }
-  if (panel.length) {
+
+  if (onThread) {
     textLines.push(
-      "You will be meeting:",
-      ...panel.map((person) => `- ${person.name}${person.positionType ? ` (${person.positionType})` : ""}`),
+      "Everything about this interview goes through this email thread:",
+      "- Reply to this email, and use Reply All so your committee stays on it.",
+      "- Please do not start a new email to resala@aucegypt.edu. It does not reach your committee.",
+      "- If something changes and you cannot make your time, reply here as early as you can.",
       ""
     );
   }
-  textLines.push("Reply to this email if anything is wrong.", "", "— Resala AUC");
 
-  const panelHtml = panel.length
-    ? `
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
-                  <tr><td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You will be meeting</td></tr>
-                  <tr><td style="font-size:16px;line-height:1.7;color:#172033;">${panel
-                    .map(
-                      (person) =>
-                        `<strong>${escapeHtml(person.name)}</strong>${
-                          person.positionType ? ` <span style="color:#64748b;">· ${escapeHtml(person.positionType)}</span>` : ""
-                        }`
-                    )
-                    .join("<br>")}</td></tr>
-                </table>`
-    : "";
+  textLines.push("Be the first step toward someone's better life.", "", "Best,", "Resala AUC");
 
   const slotHtml = hasSlot
     ? `
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;background:#f7f3ea;border:1px solid #eadfca;border-radius:14px;">
-                  <tr><td style="padding:18px 20px;">
-                    <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">Your interview</div>
-                    <div style="font-size:19px;line-height:1.4;color:#0d2b45;font-weight:bold;margin-top:6px;">${escapeHtml(slotLabel)}</div>
-                    <div style="font-size:14px;line-height:1.6;color:#64748b;margin-top:4px;">15 minutes · Google Meet</div>
-                    ${
-                      meetLink
-                        ? `<div style="margin-top:14px;"><a href="${escapeHtml(meetLink)}" style="display:inline-block;background:#0d2b45;color:#ffffff;font-size:15px;font-weight:bold;text-decoration:none;padding:11px 22px;border-radius:999px;">Join the interview</a></div>
-                    <div style="font-size:13px;line-height:1.6;color:#64748b;margin-top:10px;word-break:break-all;">${escapeHtml(meetLink)}</div>`
-                        : ""
-                    }
-                  </td></tr>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Your interview</div>
+                      <div style="font-size:22px;line-height:1.3;font-weight:bold;color:#0d2b45;">${escapeHtml(slotLabel)}</div>
+                      <div style="font-size:14px;line-height:1.55;color:#8a4706;margin-top:6px;">15 minutes · Cairo time</div>
+                    </td>
+                  </tr>
                 </table>
-                <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:#172033;">${
-                  meetLink
-                    ? "A calendar invitation is on its way."
-                    : "We will send you the meeting link before your interview."
-                } Please keep your camera on, and join on time — after <strong>5 minutes</strong> we have to treat it as a no-show.</p>`
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Google Meet</div>
+                      ${
+                        meetLink
+                          ? `<a href="${escapeHtml(meetLink)}" style="color:#0d2b45;font-size:16px;font-weight:bold;text-decoration:underline;">Join the interview meeting</a>
+                      <div style="font-size:13px;line-height:1.55;color:#64748b;margin-top:6px;word-break:break-all;">${escapeHtml(meetLink)}</div>`
+                          : `<div style="font-size:16px;line-height:1.55;color:#172033;">We will send you the meeting link before your interview.</div>`
+                      }
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:10px;">The invitation is attached to this email — open it to put the interview in your calendar.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;">Please keep your camera on, and join on time. After <strong>5 minutes</strong> we have to treat it as a no-show.</div>
+                    </td>
+                  </tr>
+                </table>`
     : `
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">The committee will contact you to arrange your interview time.</p>`;
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f0f7f0;border:1px solid #c8e0c8;border-left:5px solid #4caf50;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#2e7d32;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Interview</div>
+                      <div style="font-size:16px;line-height:1.5;font-weight:bold;color:#1b5e20;">Your application has been received. The committee will contact you to arrange a time.</div>
+                    </td>
+                  </tr>
+                </table>`;
+
+  const threadHtml = onThread
+    ? `
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#eef3fb;border:1px solid #cddcf0;border-left:5px solid #0d2b45;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#0d2b45;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Use this thread for everything</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        Your committee is copied on this email and nowhere else. Reply here — and use
+                        <strong>Reply All</strong> so they stay on it.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        Please do not start a new email to resala@aucegypt.edu. It does not reach your committee.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        If something changes and you cannot make your time, reply here as early as you can.
+                      </div>
+                    </td>
+                  </tr>
+                </table>`
+    : "";
 
   const html = `<!doctype html>
 <html>
@@ -4107,20 +4159,24 @@ function buildMemberConfirmationEmail(
             <tr>
               <td style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your application to join <strong>${escapeHtml(committee)}</strong> has been received.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#172033;"><strong>Please read this to the end</strong> — your interview time and the thread to use are both below.</p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr><td style="padding:0 0 6px;font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">You applied for</td></tr>
                   <tr><td style="font-size:16px;line-height:1.6;color:#172033;">
-                    <span style="color:#64748b;">Committee</span> · <strong>${escapeHtml(committee)}</strong><br>
-                    <span style="color:#64748b;">Sub-committee</span> · <strong>${escapeHtml(payload.subCommittee)}</strong>
+                    <span style="color:#64748b;">Committee</span> · <strong>${escapeHtml(committee)}</strong>${
+                      subCommittee
+                        ? `<br><span style="color:#64748b;">Sub-committee</span> · <strong>${escapeHtml(subCommittee)}</strong>`
+                        : ""
+                    }
                   </td></tr>
-                </table>${slotHtml}${panelHtml}
-                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply to this email if anything above is wrong.</p>
+                </table>${slotHtml}${threadHtml}
+                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
               </td>
             </tr>
             <tr>
-              <td style="background:#f7f3ea;border-top:1px solid #eadfca;padding:18px 28px;text-align:center;font-size:13px;line-height:1.6;color:#64748b;">
-                Resala AUC · Beyond Ana Maly
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Resala AUC · Build the First Step</div>
               </td>
             </tr>
           </table>
@@ -4130,7 +4186,9 @@ function buildMemberConfirmationEmail(
   </body>
 </html>`;
 
-  return { subject, text: textLines.filter((line) => line !== "").join("\n"), html };
+  // Blank lines are the paragraph breaks of the plain-text part; the previous
+  // version filtered every one of them out and sent a single wall of text.
+  return { subject, text: textLines.join("\n").replace(/\n{3,}/g, "\n\n").trim(), html };
 }
 
 async function sendConfirmationEmail(
@@ -11920,7 +11978,7 @@ function subtractMinutesFromLocalDateTime(value: string, minutesToSubtract: numb
   ].join("-") + `T${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}:${String(date.getUTCSeconds()).padStart(2, "0")}`;
 }
 
-function getCurrentLocalDateTime(timeZone: string): string {
+function getCurrentLocalDateTime(timeZone: string, now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -11930,7 +11988,7 @@ function getCurrentLocalDateTime(timeZone: string): string {
     minute: "2-digit",
     second: "2-digit",
     hourCycle: "h23"
-  }).formatToParts(new Date());
+  }).formatToParts(now);
   const byType = new Map(parts.map((part) => [part.type, part.value]));
 
   return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}T${byType.get("hour")}:${byType.get("minute")}:${byType.get("second")}`;

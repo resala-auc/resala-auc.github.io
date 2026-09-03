@@ -76,7 +76,8 @@ export const SHOW_INTERVIEW_BOOKING = true;
  * closes itself past this; the backend rejects a late post independently, so
  * a tab left open overnight cannot slip one through.
  */
-export const APPLICATION_DEADLINE = "2026-09-20T23:59:59+02:00";
+// 20 September falls inside Egypt's daylight saving, so this is +03:00.
+export const APPLICATION_DEADLINE = "2026-09-20T23:59:59+03:00";
 export const APPLICATION_DEADLINE_LABEL = "20 September";
 
 export function applicationsClosed(now: Date = new Date()): boolean {
@@ -110,14 +111,43 @@ const MEMBER_BOOKING_LEAD_MINUTES = 360;
  */
 export const MEMBER_BOOKING_WINDOW_DAYS = 5;
 
+export const CAIRO_TIME_ZONE = "Africa/Cairo";
+
+/**
+ * Cairo's UTC offset on a given calendar day, as "+02:00" or "+03:00".
+ *
+ * Egypt reinstated daylight saving in 2023: +02:00 in winter, +03:00 from the
+ * last Friday of April to the last Thursday of October. Every interview in
+ * this cycle falls in September, which is +03:00 — writing the board as
+ * +02:00 put each booking on the calendar an hour after the time the portal
+ * and the confirmation email both showed. Noon UTC is safely past the
+ * transition, which happens at local midnight.
+ */
+export function cairoOffsetFor(date: string): string {
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone: CAIRO_TIME_ZONE,
+    timeZoneName: "longOffset"
+  })
+    .formatToParts(new Date(`${date}T12:00:00Z`))
+    .find((part) => part.type === "timeZoneName")?.value ?? "";
+  const match = name.match(/GMT([+-]\d{2}:\d{2})/);
+  return match ? match[1] : "+02:00";
+}
+
 /**
  * Today's date as the interview board means it: slot dates are plain Cairo
- * calendar days, so "today" has to be Cairo's today, not the browser's or the
- * server's. Egypt sits at UTC+2 year-round, the same offset every slot
- * timestamp in this file is written with.
+ * calendar days, so "today" has to be Cairo's today, not the browser's — an
+ * applicant opening this from anywhere else must see the same board.
  */
 export function cairoToday(now: Date = new Date()): string {
-  return new Date(now.getTime() + 2 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: CAIRO_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(now);
+  const at = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${at("year")}-${at("month")}-${at("day")}`;
 }
 
 export function addDays(date: string, days: number): string {
@@ -161,8 +191,9 @@ function buildMemberSlots(committeeId: string): InterviewSlot[] {
     if (date < from || date > until) continue;
     for (const startTime of MEMBER_INTERVIEW_TIMES) {
       const endTime = addMinutes(startTime, MEMBER_SLOT_MINUTES);
-      const startDateTime = `${date}T${startTime}:00+02:00`;
-      const endDateTime = `${date}T${endTime}:00+02:00`;
+      const offset = cairoOffsetFor(date);
+      const startDateTime = `${date}T${startTime}:00${offset}`;
+      const endDateTime = `${date}T${endTime}:00${offset}`;
       const tooSoon = new Date(startDateTime).getTime() - now.getTime() < MEMBER_BOOKING_LEAD_MINUTES * 60_000;
       if (tooSoon) continue;
       slots.push({
