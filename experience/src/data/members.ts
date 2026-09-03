@@ -194,11 +194,14 @@ type CommitteeSeed = {
   questions: [string, string, string];
   /**
    * The sub-committees a member can join, mirroring the sub-teams the Heads
-   * cycle placed heads over (src/role-guide-data.mjs). Transcribed rather than
-   * imported, on purpose: this file stays self-contained so a members-only
-   * edit can never desync /guides, the committee dashboard, or the backend's
-   * hand-mirrored copies. The names here are the team, not the head's job
-   * title, because a member joins the team.
+   * cycle placed heads over (src/role-guide-data.mjs, itself drawn from the
+   * committee briefs in "Heads Roles/"). Transcribed rather than imported, on
+   * purpose: this file stays self-contained so a members-only edit can never
+   * desync /guides, the committee dashboard, or the backend's hand-mirrored
+   * copies. The names here are the team, not the head's job title, because a
+   * member joins the team — and where the members cycle merged two heads into
+   * one team (HR's tracking and recognition heads), the description is merged
+   * with them rather than following either brief alone.
    */
   subCommittees: CommitteeRole[];
 };
@@ -308,9 +311,9 @@ const seeds: CommitteeSeed[] = [
       {
         id: "planner",
         name: "The Planner",
-        subtitle: "Event Planning",
+        subtitle: "Request & Planning",
         description:
-          "Turns an event brief into a plan that survives contact with the day: timelines, what is needed and when, vendors and prices, and the alternatives ready before something falls through."
+          "Receives and reviews requests from the other committees, clarifies what is actually being asked for, builds the timeline, and coordinates with everyone involved so a request is fully prepared before anyone starts executing it."
       }
     ]
   },
@@ -346,20 +349,23 @@ const seeds: CommitteeSeed[] = [
         id: "graphic-design",
         name: "Graphic Design",
         description:
-          "The visual identity people actually see — posts, campaign artwork, event visuals, and keeping every piece recognisably Resala."
+          "Owns how Resala looks: posters, feed posts, carousels, story graphics, thumbnails, and event branding — and protects the visual identity, the fonts, the colour palette, the templates, so every post is recognisably ours."
       },
       {
         id: "video-editing",
         name: "Video Editing",
         description:
-          "Turns raw footage into something worth watching: cuts, pacing, sound, subtitles, and the reels and recaps that carry an event to people who were not there."
+          "Turns raw footage into the reels, documentaries, and interviews that go on the page. Cutting, subtitles, transitions, and motion graphics — holding one editing style across platforms and archiving footage so it can be used again."
       },
       {
         id: "project-management",
         name: "Project Management",
         description:
-          "Follows a piece of content from idea to published post — briefs, assignments, deadlines, and the follow-up that stops good work from sitting unfinished."
+          "Owns the workflow end to end. Takes each request from the moment it arrives, decides which teams to activate, assigns it, sets deadlines, and keeps every stage moving — filming, editing, design, publishing — so nothing sits waiting on someone who forgot. At any moment you know the status of every project."
       },
+      // Testimonials and Short Films are new sub-teams for the members cycle —
+      // unlike the four above, they have no entry in "Heads Roles/branding
+      // recruitment.docx", so these two descriptions are drafted, not sourced.
       {
         id: "testimonials",
         name: "Testimonials",
@@ -406,8 +412,9 @@ const seeds: CommitteeSeed[] = [
       {
         id: "tracking-recognition",
         name: "Tracking & Recognition",
+        subtitle: "The Fair Judge",
         description:
-          "Keeps the record of who is actually showing up and doing the work — attendance, hours, and contribution — and turns it into appreciation that lands: certificates, shout-outs, and the accountability conversations when someone has gone quiet."
+          "Keeps Resala's HR data accurate and usable — the volunteer database and the attendance tracking system — and turns raw data into the reports that make decisions like VOM and COM actually fair. The other half is making sure effort gets seen and gaps get addressed: reviewing performance data, following up with members who have gone quiet, and coordinating recognition with the Branding Team."
       }
     ]
   },
