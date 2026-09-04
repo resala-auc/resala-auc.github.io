@@ -218,6 +218,7 @@ const decided = (a) => !["New", "Interviewed", ""].includes(String(a.status ?? "
 
 let state = {
   access: null, criteria: [], max: 5, applicants: [], subCommittees: [],
+  allSubs: [],
   search: "", sub: "", filter: "", open: null, draft: null, slots: null, chosenSlot: null
 };
 
@@ -262,6 +263,7 @@ function absorb(body) {
   state.max = body.maxPerCriterion ?? state.max;
   state.applicants = body.applicants ?? state.applicants;
   state.subCommittees = body.subCommittees ?? state.subCommittees;
+  state.allSubs = body.allSubCommittees ?? state.allSubs;
 }
 
 async function load(email) {
@@ -356,7 +358,11 @@ function renderGroups() {
     <div class="sub">
       <div class="sub-head">
         <h2>${esc(sub)}</h2>
-        <span class="count">${people.length} ${people.length === 1 ? "applicant" : "applicants"}, best first</span>
+        <span class="count">${
+          sub === "Not assigned yet"
+            ? `${people.length} waiting to be placed — open one to put them in a sub-committee`
+            : `${people.length} ${people.length === 1 ? "applicant" : "applicants"}, best first`
+        }</span>
         <div class="spacer"></div>
         ${finalListControls(sub)}
       </div>
@@ -367,7 +373,12 @@ function renderGroups() {
             ${people.map((a, index) => `
               <tr data-open="${esc(a.rowIndex)}">
                 <td class="rank">${a.averageScore === null ? "—" : index + 1}</td>
-                <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.yearLevel)} · ${esc(a.major)}</div></td>
+                <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.yearLevel)} · ${esc(a.major)}${
+                  a.assignedSubCommittee && a.chosenSubCommittee &&
+                  norm(a.assignedSubCommittee) !== norm(a.chosenSubCommittee)
+                    ? ` · applied for ${esc(a.chosenSubCommittee)}`
+                    : ""
+                }</div></td>
                 <td>
                   ${a.averageScore === null
                     ? `<span class="score none">Not scored</span>`
@@ -426,6 +437,24 @@ function renderDialog(a) {
       ${a.answers.filter(Boolean).length
         ? a.answers.filter(Boolean).map((ans) => `<div class="a">${esc(ans)}</div>`).join("")
         : `<div class="note">No written answers on file.</div>`}
+    </div>
+
+    <h3>Sub-committee</h3>
+    <p class="note" style="margin:0 0 8px;">
+      ${a.chosenSubCommittee
+        ? `They applied for <b>${esc(a.chosenSubCommittee)}</b>.`
+        : "They applied before the form asked for a sub-committee."}
+      ${a.assignedSubCommittee ? `You placed them in <b>${esc(a.assignedSubCommittee)}</b>.` : ""}
+      Their score is ranked inside whichever they end up in.
+    </p>
+    <select id="assign-sub">
+      <option value="">${a.chosenSubCommittee ? `Leave as ${esc(a.chosenSubCommittee)}` : "Not placed yet"}</option>
+      ${state.allSubs.map((name) => `<option value="${esc(name)}"${
+        norm(a.assignedSubCommittee) === norm(name) ? " selected" : ""
+      }>${esc(name)}</option>`).join("")}
+    </select>
+    <div class="dlg-actions" style="margin-top:10px;">
+      <button type="button" class="btn btn-ghost btn-sm" id="save-sub">Place them</button>
     </div>
 
     <h3>Your score</h3>
@@ -568,6 +597,33 @@ document.getElementById("dlg-body").addEventListener("click", async (event) => {
     state.draft[id] = state.draft[id] === value ? 0 : value;
     state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
     renderDialog(state.open);
+    return;
+  }
+
+  if (event.target.id === "save-sub") {
+    const chosen = document.getElementById("assign-sub").value;
+    const button = event.target;
+    button.disabled = true;
+    try {
+      state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
+      absorb(await api({
+        mode: "committee-member-assign-sub",
+        email: state.access.email,
+        rowIndex: state.open.rowIndex,
+        subCommittee: chosen
+      }));
+      render();
+      const fresh = state.applicants.find((x) => x.rowIndex === state.open.rowIndex);
+      if (fresh) { state.open = fresh; renderDialog(fresh); }
+      document.getElementById("dlg-msg").className = "msg ok";
+      document.getElementById("dlg-msg").textContent = chosen
+        ? `Placed in ${chosen}. They are ranked there now.`
+        : "Placement cleared.";
+    } catch (error) {
+      button.disabled = false;
+      document.getElementById("dlg-msg").className = "msg bad";
+      document.getElementById("dlg-msg").textContent = error.message;
+    }
     return;
   }
 

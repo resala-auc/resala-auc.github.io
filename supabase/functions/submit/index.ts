@@ -172,7 +172,14 @@ const MEMBER_APPLICATION_HEADERS = [
   "Submitted By",
   "Approved At",
   "Approved By",
-  "Acceptance Email Sent At"
+  "Acceptance Email Sent At",
+  /*
+   * Where the committee put them, for the applicants who never got to choose:
+   * the sub-committee picker did not exist when the first of them applied.
+   * Separate from the chosen one rather than overwriting it, so what they
+   * asked for stays readable next to where they ended up.
+   */
+  "Assigned Sub-committee"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
@@ -1018,6 +1025,29 @@ const MEMBER_SCORE_HEADERS = [
   "Recommendation"
 ];
 
+/*
+ * The sub-committees of each committee, mirrored by hand from
+ * experience/src/data/members.ts — an Edge Function cannot import site source,
+ * so the two must be changed together.
+ *
+ * Needed here because a committee assigns a sub-committee to applicants who
+ * applied before the flow asked for one, and an assignment has to be checked
+ * against a real list rather than trusted as free text.
+ */
+const MEMBER_SUB_COMMITTEES: Record<string, string[]> = {
+  "tech": ["The Navigator", "The Scout", "The Builder", "The Verifier", "The Closer", "The Firefighter"],
+  "operations": ["The Organizer", "The Coordinator", "The Planner"],
+  "branding-media": ["Acting & Production", "Graphic Design", "Video Editing", "Project Management", "Testimonials", "Short Films"],
+  "hr": ["Engagement & Inclusion", "Tracking & Recognition"],
+  "pr-fundraising": ["Sponsorship", "Events", "Partnerships"],
+  "visits": ["Discovery", "Execution", "Storytelling"],
+  "childrens-day": ["Creative & Visual Identity", "English Sessions", "Teaching & Organizing"],
+  "initiatives": ["Execution Management", "Field Execution", "Teaching & Engagement"]
+};
+
+/** Where an applicant sits until somebody says otherwise. */
+const MEMBER_UNASSIGNED_SUB = "Not assigned yet";
+
 /** The four things a 15-minute member interview can actually tell you. */
 const MEMBER_SCORE_CRITERIA = [
   { id: "motivation", label: "Motivation", hint: "Why this committee, specifically — not why Resala." },
@@ -1194,6 +1224,12 @@ type CommitteeMemberDecidePayload = {
   email: string;
   rowIndex: number;
   decision: string;
+};
+type CommitteeMemberAssignSubPayload = {
+  mode: "committee-member-assign-sub";
+  email: string;
+  rowIndex: number;
+  subCommittee: string;
 };
 type CommitteeMemberSlotsPayload = { mode: "committee-member-slots"; email: string; currentSlotId?: string };
 type CommitteeMemberReschedulePayload = { mode: "committee-member-reschedule"; email: string; rowIndex: number; slotId: string };
@@ -1790,6 +1826,7 @@ type SubmissionPayload =
   | CommitteeMemberScorePayload
   | CommitteeMemberDecidePayload
   | CommitteeMemberSlotsPayload
+  | CommitteeMemberAssignSubPayload
   | CommitteeMemberReschedulePayload
   | CommitteeMemberSubmitFinalPayload
   | CommitteeMemberWithdrawFinalPayload
@@ -2599,6 +2636,13 @@ Deno.serve(async (request) => {
         await saveMemberScore(portalToken, portalAccess, payload);
       } else if (payload.mode === "committee-member-decide") {
         await setMemberCommitteeDecision(portalToken, portalAccess, payload.rowIndex, payload.decision);
+      } else if (payload.mode === "committee-member-assign-sub") {
+        portalResult = await assignMemberSubCommittee(
+          portalToken,
+          portalAccess,
+          payload.rowIndex,
+          payload.subCommittee
+        );
       } else if (payload.mode === "committee-member-reschedule") {
         portalResult = await rescheduleMemberInterviewAsCommittee(
           portalToken,
@@ -2839,6 +2883,7 @@ const COMMITTEE_MEMBER_MODES = new Set([
   "committee-member-score",
   "committee-member-decide",
   "committee-member-slots",
+  "committee-member-assign-sub",
   "committee-member-reschedule",
   "committee-member-submit-final",
   "committee-member-withdraw-final"
@@ -2851,6 +2896,7 @@ function isCommitteeMemberPayload(
   | CommitteeMemberScorePayload
   | CommitteeMemberDecidePayload
   | CommitteeMemberSlotsPayload
+  | CommitteeMemberAssignSubPayload
   | CommitteeMemberReschedulePayload
   | CommitteeMemberSubmitFinalPayload
   | CommitteeMemberWithdrawFinalPayload {
@@ -5362,6 +5408,8 @@ async function loadMemberCommitteePortal(
   criteria: typeof MEMBER_SCORE_CRITERIA;
   maxPerCriterion: number;
   subCommittees: string[];
+  /** Every sub-committee this committee has, whether or not anyone is in it. */
+  allSubCommittees: string[];
   applicants: Array<Record<string, unknown>>;
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
@@ -5408,7 +5456,16 @@ async function loadMemberCommitteePortal(
         interviewSlotId: String(row[16] ?? "").trim(),
         status: String(row[17] ?? "").trim() || "New",
         meetLink: String(row[19] ?? "").trim(),
-        subCommittee: String(row[23] ?? "").trim() || "Not given",
+        /*
+         * What the ranking groups by: where they will actually sit. The
+         * committee's assignment wins over what they picked, because it is the
+         * later and better-informed decision — and it is the only answer at all
+         * for anyone who applied before the flow asked.
+         */
+        subCommittee:
+          String(row[33] ?? "").trim() || String(row[23] ?? "").trim() || MEMBER_UNASSIGNED_SUB,
+        chosenSubCommittee: String(row[23] ?? "").trim(),
+        assignedSubCommittee: String(row[33] ?? "").trim(),
         scores: mine.map((score) => ({
           scorerEmail: score.scorerEmail,
           scorerName: score.scorerName,
@@ -5453,6 +5510,7 @@ async function loadMemberCommitteePortal(
     criteria: MEMBER_SCORE_CRITERIA,
     maxPerCriterion: MEMBER_SCORE_MAX,
     subCommittees,
+    allSubCommittees: MEMBER_SUB_COMMITTEES[memberCommitteeIdFor(access.committee)] ?? [],
     applicants
   };
 }
@@ -5597,6 +5655,50 @@ async function rescheduleMemberInterviewAsCommittee(
   }
 
   return rescheduleMemberInterview(token, rowIndex, slotId, access.email);
+}
+
+/**
+ * Puts an applicant in a sub-committee.
+ *
+ * The picker did not exist when the first applicants came through, so many
+ * chose nothing; and an interview often shows somebody belongs somewhere other
+ * than where they applied. Either way this is where they will actually sit, and
+ * it is what the ranking groups by from then on.
+ *
+ * Checked against the committee's real sub-committees rather than taken as
+ * free text — a typo would silently create a sub-committee of one, ranked
+ * alone, looking like the strongest candidate in it.
+ */
+async function assignMemberSubCommittee(
+  token: string,
+  access: MemberCommitteeAccess,
+  rowIndex: number,
+  subCommittee: string
+): Promise<{ subCommittee: string }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  assertApplicantIsOurs(row, access);
+
+  const wanted = String(subCommittee ?? "").trim();
+  const committeeId = memberCommitteeIdFor(access.committee);
+  const available = MEMBER_SUB_COMMITTEES[committeeId] ?? [];
+
+  // Empty clears the assignment and hands them back to whatever they chose.
+  if (!wanted) {
+    await writeMemberCells(token, rowIndex, "Assigned Sub-committee", [""]);
+    return { subCommittee: String(row[23] ?? "").trim() || MEMBER_UNASSIGNED_SUB };
+  }
+
+  const match = available.find((name) => normalize(name) === normalize(wanted));
+  if (!match) {
+    throw new Error(
+      available.length
+        ? `"${wanted}" is not one of ${access.committee}'s sub-committees.`
+        : `${access.committee} has no sub-committees on file.`
+    );
+  }
+
+  await writeMemberCells(token, rowIndex, "Assigned Sub-committee", [match]);
+  return { subCommittee: match };
 }
 
 /**
