@@ -627,13 +627,18 @@ document.getElementById("check-times").addEventListener("click", async () => {
       } catch { return iso; }
     };
 
+    /* Every number adds up to the total on purpose: the first version of this
+       report left a third of the applicants unaccounted for on screen, which
+       reads as "where did the rest go" rather than "those are the past ones". */
+    const happened = report.alreadyHappened ?? 0;
     const lines = [
-      `${report.checked} booked applicant${report.checked === 1 ? "" : "s"} checked.`,
-      `${report.alreadyHappened ?? 0} already interviewed — left alone.`,
-      `${report.alreadyCorrect} still to come and already at the right time.`,
-      `${wrong.length} still to come and sitting at the wrong time.`
+      `${report.checked} booked applicant${report.checked === 1 ? "" : "s"} checked:`,
+      `  ${happened} already interviewed — left alone`,
+      `  ${report.alreadyCorrect} still to come, already at the right time`,
+      `  ${wrong.length} still to come, sitting at the wrong time`,
+      `  ${problems.length} need a person to look at ${problems.length === 1 ? "it" : "them"}`,
+      `  = ${happened + report.alreadyCorrect + wrong.length + problems.length}`
     ];
-    if (problems.length) lines.push(`${problems.length} need a person to look at ${problems.length === 1 ? "it" : "them"}.`);
     if (wrong.length) {
       lines.push("", "These would move:");
       for (const row of wrong.slice(0, 12)) {
