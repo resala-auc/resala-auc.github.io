@@ -4192,7 +4192,11 @@ export function buildMemberReminderEmail(
     `When: ${slotLabel} (15 minutes, Cairo time).`,
     meetLink ? `Google Meet: ${meetLink}` : "We will send the meeting link shortly.",
     "",
-    "Please join on time with your camera on. After 5 minutes we have to treat it as a no-show.",
+    "Sign in with your AUC account before you join — that is the account on your invitation, and it takes you straight in.",
+    "No AUC account yet? Join anyway and choose \"Ask to join\"; your committee is on the call and will let you in.",
+    "",
+    "Keep your camera on for the interview.",
+    "Join on time. After 5 minutes we have to treat it as a no-show.",
     "",
     "Reply on this thread if something has gone wrong.",
     "",
@@ -4221,7 +4225,24 @@ export function buildMemberReminderEmail(
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#172033;">Please join on time with your camera on. After <strong>5 minutes</strong> we have to treat it as a no-show.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Before you join</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        Sign in with your <strong>AUC account</strong> — that is the account on your invitation, and it takes
+                        you straight in. No AUC account yet? Join anyway and choose <strong>Ask to join</strong>; your
+                        committee is on the call and will let you in.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        <strong>Keep your camera on</strong> for the interview.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        Join on time. After <strong>5 minutes</strong> we have to treat it as a no-show.
+                      </div>
+                    </td>
+                  </tr>
+                </table>
                 <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply on this thread if something has gone wrong.</p>`
   });
 
@@ -5514,7 +5535,7 @@ async function setMemberCommitteeDecision(
  * conversation, and a fourth unrelated message from us is one they have to
  * connect to the other three themselves.
  */
-function buildMemberAcceptanceEmail(
+export function buildMemberAcceptanceEmail(
   fullName: string,
   committee: string,
   subCommittee: string
@@ -5528,6 +5549,8 @@ function buildMemberAcceptanceEmail(
     `You are in. Welcome to ${place}.`,
     "",
     "Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.",
+    "",
+    "Use your AUC account from here on — it is what our meetings, documents and shared drives are opened with. If you do not have one yet, tell your committee the moment you do.",
     "",
     "Reply on this thread if anything is unclear.",
     "",
@@ -5557,6 +5580,18 @@ function buildMemberAcceptanceEmail(
                   </tr>
                 </table>
                 <p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#172033;">Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Use your AUC account</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        Our meetings, documents and shared drives are all opened with it, so sign in with your
+                        <strong>@aucegypt.edu</strong> account from here on. If you do not have one yet, tell your committee
+                        the moment you do and they will move you over.
+                      </div>
+                    </td>
+                  </tr>
+                </table>
                 <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply on this thread if anything is unclear.</p>
                 <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>`
   });
@@ -5852,8 +5887,10 @@ export function buildMemberConfirmationEmail(
       `Join signed in to ${payload.aucEmail} — that is the account on your invitation, and signing in with it takes you straight into the call.`,
       "If you have since been given your AUC account and would rather use that, reply on this thread and we will add it to the invitation before your interview.",
       "If you do not have an AUC account yet, join anyway and choose \"Ask to join\" — your committee is on the call and will let you in.",
-      "Please keep your camera on.",
+      "Keep your camera on for the interview.",
       "Join on time. After 5 minutes we have to treat it as a no-show.",
+      "",
+      "To the committee copied here: if they are waiting to be let in, admit them from the meeting.",
       ""
     );
   } else {
@@ -5894,7 +5931,8 @@ export function buildMemberConfirmationEmail(
                           : `<div style="font-size:16px;line-height:1.55;color:#172033;">We will send you the meeting link before your interview.</div>`
                       }
                       <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:10px;">The invitation is attached to this email — open it to put the interview in your calendar.</div>
-                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;">Please keep your camera on, and join on time. After <strong>5 minutes</strong> we have to treat it as a no-show.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;"><strong>Keep your camera on</strong> for the interview.</div>
+                      <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;">Join on time. After <strong>5 minutes</strong> we have to treat it as a no-show.</div>
                     </td>
                   </tr>
                 </table>
@@ -5913,6 +5951,10 @@ export function buildMemberConfirmationEmail(
                       <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
                         No AUC account yet? Join anyway and choose <strong>Ask to join</strong> — your committee is on the call
                         and will let you in.
+                      </div>
+                      <div style="font-size:13.5px;line-height:1.6;color:#64748b;margin-top:12px;border-top:1px solid #e6edf2;padding-top:12px;">
+                        <strong style="color:#0d2b45;">To the committee copied here:</strong> you are on this invitation, so
+                        you can admit them from inside the meeting if they are waiting to be let in.
                       </div>
                     </td>
                   </tr>

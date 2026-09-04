@@ -18,6 +18,7 @@ import {
   buildGeneralVolunteerEmail,
   buildMemberConfirmationEmail,
   buildMemberInterviewIcs,
+  buildMemberAcceptanceEmail,
   buildMemberNoticeEmail,
   buildMemberReminderEmail
 } from "../../supabase/functions/submit/index.ts";
@@ -121,6 +122,12 @@ await write(
     meetLink: MEET,
     closing: "If this time does not work, reply to this email and we will find another."
   })
+);
+
+await write(
+  "acceptance",
+  "Acceptance · sent by an admin once the committee's list is approved",
+  buildMemberAcceptanceEmail(applicant.fullName, "Tech Team", "The Builder")
 );
 
 await write(
