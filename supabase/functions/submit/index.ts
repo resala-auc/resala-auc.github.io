@@ -13185,6 +13185,97 @@ async function updateHeadsSlotCalendarFields(
   );
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * Google Meet spaces.
+ *
+ * A meeting Calendar creates for us admits an outside guest only if they are
+ * signed into the account on the invitation; anyone else — an incoming
+ * freshman with no AUC account, somebody signed in as themselves — has to be
+ * knocked through by a host who may not be looking. There is no Calendar API
+ * field for either the access type or a co-host, so the space is made through
+ * the Meet API instead and then attached to the event.
+ *
+ * Needs the meetings.space.created scope on GMAIL_REFRESH_TOKEN. Until that
+ * token is reissued with it, every call here fails and the event falls back to
+ * letting Calendar make its own Meet, exactly as before — so this is inert
+ * rather than broken while the scope is missing.
+ * ---------------------------------------------------------------------------
+ */
+const MEET_API = "https://meet.googleapis.com/v2";
+
+/*
+ * One failure is enough. Without the scope every booking would otherwise pay
+ * for two doomed round trips to Google before falling back, on the slowest
+ * path an applicant ever waits on.
+ */
+let meetSpacesUnavailable = false;
+
+type MeetSpace = { name: string; meetingUri: string; meetingCode: string };
+
+async function createOpenMeetSpace(token: string): Promise<MeetSpace | null> {
+  if (meetSpacesUnavailable) return null;
+  try {
+    const response = await fetch(`${MEET_API}/spaces`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        config: {
+          // Anyone with the link walks in — no knocking, no host required.
+          accessType: "OPEN",
+          entryPointAccess: "ALL"
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      // 401/403 is the scope missing, which will not fix itself this run.
+      if (response.status === 401 || response.status === 403) {
+        meetSpacesUnavailable = true;
+        console.error(`Meet spaces unavailable — falling back to Calendar's own Meet. ${detail}`);
+      } else {
+        console.error(`Meet space creation failed (${response.status}): ${detail}`);
+      }
+      return null;
+    }
+
+    const space = await response.json();
+    if (!space?.meetingUri || !space?.name) return null;
+    return { name: String(space.name), meetingUri: String(space.meetingUri), meetingCode: String(space.meetingCode ?? "") };
+  } catch (error) {
+    console.error(`Meet space creation threw: ${error instanceof Error ? error.message : error}`);
+    return null;
+  }
+}
+
+/**
+ * Makes the committee co-hosts of the space.
+ *
+ * Best-effort on purpose, and separately from the access type: with an OPEN
+ * space nobody needs admitting anyway, so a co-host is what lets the committee
+ * mute, remove or end the call. Losing it is a smaller problem than losing the
+ * booking, and the members API is newer than the rest of this — if it is not
+ * available on this Workspace tier, the interview still happens.
+ */
+async function addMeetCoHosts(token: string, spaceName: string, emails: string[]): Promise<number> {
+  let added = 0;
+  for (const email of [...new Set(emails.map((e) => String(e ?? "").trim()).filter(Boolean))]) {
+    try {
+      const response = await fetch(`${MEET_API}/${spaceName}/members`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ email, role: "COHOST" })
+      });
+      if (response.ok) added++;
+      else console.error(`Could not make ${email} a co-host (${response.status}): ${await response.text()}`);
+    } catch (error) {
+      console.error(`Co-host call threw for ${email}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
+  return added;
+}
+
 async function createCalendarEvent(
   token: string,
   payload: ApplicationPayload,
@@ -13196,6 +13287,42 @@ async function createCalendarEvent(
   }
 
   const requestId = `resala-${payload.studentId}-${Date.now()}`.replace(/[^a-zA-Z0-9-]/g, "-").slice(0, 100);
+
+  /*
+   * An open space of our own if the Meet API will give us one, otherwise let
+   * Calendar make the meeting the way it always has. The difference the
+   * applicant sees is whether they are let straight in or left knocking.
+   */
+  const space = await createOpenMeetSpace(token);
+  if (space) {
+    // The people already on the invite: the committee's directors and heads.
+    await addMeetCoHosts(token, space.name, panel.map((member) => member.email));
+  }
+
+  const conferenceData = space
+    ? {
+        conferenceId: space.meetingCode,
+        conferenceSolution: {
+          key: { type: "hangoutsMeet" },
+          name: "Google Meet"
+        },
+        entryPoints: [
+          {
+            entryPointType: "video",
+            uri: space.meetingUri,
+            label: space.meetingCode || space.meetingUri
+          }
+        ]
+      }
+    : {
+        createRequest: {
+          requestId,
+          conferenceSolutionKey: {
+            type: "hangoutsMeet"
+          }
+        }
+      };
+
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events?conferenceDataVersion=1&sendUpdates=none`,
     {
@@ -13262,14 +13389,7 @@ async function createCalendarEvent(
          */
         anyoneCanAddSelf: true,
         guestsCanInviteOthers: true,
-        conferenceData: {
-          createRequest: {
-            requestId,
-            conferenceSolutionKey: {
-              type: "hangoutsMeet"
-            }
-          }
-        }
+        conferenceData
       })
     }
   );
@@ -13279,7 +13399,13 @@ async function createCalendarEvent(
     throw new Error(`Google Calendar event creation failed: ${JSON.stringify(body)}`);
   }
 
+  /*
+   * Our own space's URI wins where we made one: Calendar echoes back what it
+   * was given, but only after it has accepted the attachment, and the link the
+   * applicant is emailed must be the space the co-hosts were added to.
+   */
   const meetLink =
+    space?.meetingUri ??
     body.hangoutLink ??
     body.conferenceData?.entryPoints?.find((entryPoint: { entryPointType?: string; uri?: string }) => entryPoint.entryPointType === "video")
       ?.uri ??
