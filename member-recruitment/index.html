@@ -470,6 +470,11 @@ function renderDialog(a) {
       <div><b>Phone</b>${esc(a.phone)}</div>
       <div><b>WhatsApp consent</b>${esc(a.whatsappConsent)}</div>
       <div><b>Interview</b>${esc(a.interviewSlot) || "Needs scheduling"}</div>
+      <div><b>Confirmation email</b>${
+        a.confirmationThreadId
+          ? `Sent${a.reminderSentAt ? " · reminder sent" : ""}`
+          : `<span style="color:var(--bad);font-weight:700;">Never sent</span>`
+      }</div>
       ${
         a.meetLink
           ? `<div><b>Meet link</b><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join</a></div>`

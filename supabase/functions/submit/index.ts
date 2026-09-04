@@ -3871,7 +3871,14 @@ async function loadMemberAdmin(token: string): Promise<{
     // Columns 21/22 are Decision By / Decision At.
     subCommittee: row[23] ?? "",
     subCommitteeId: row[24] ?? "",
-    // 25/26/27 are the confirmation thread and the reminder stamp.
+    /*
+     * Gmail assigns a thread id only to a message it accepted, so this being
+     * present is proof the confirmation went out — and its absence is proof it
+     * never did. Worth surfacing: "did they get their email" is otherwise a
+     * question nobody on this side can answer.
+     */
+    confirmationThreadId: row[25] ?? "",
+    reminderSentAt: row[27] ?? "",
     submittedAt: row[28] ?? "",
     submittedBy: row[29] ?? "",
     approvedAt: row[30] ?? "",
