@@ -479,10 +479,24 @@ function renderDialog(a) {
         a.meetLink
           ? `<div><b>Meet link</b><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join</a></div>`
           : hasSlot(a)
-            ? `<div><b>Meet link</b>Not created — send an invite by hand</div>`
+            ? `<div><b>Meet link</b>Never created</div>`
             : ""
       }
     </div>
+    ${
+      needsInvite(a)
+        ? `<div class="row2" style="margin-top:14px;align-items:center;">
+             <div style="flex:1 1 auto;">
+               <div class="note">Their time is held, but the invite and the confirmation never went out —
+                 what an outage leaves behind. Sending now creates the invite and emails them the very
+                 same time they already have.</div>
+             </div>
+             <div style="flex:0 0 auto;">
+               <button class="btn btn-gold" id="dlg-resend" data-row="${esc(a.rowIndex)}">Send the invite and email</button>
+             </div>
+           </div>`
+        : ""
+    }
     <h3 class="sec">Application</h3>
     <div class="qa">
       ${[a.answer1, a.answer2, a.answer3]
