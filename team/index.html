@@ -173,17 +173,13 @@
       <select id="m-team" required></select>
     </div>
     <div class="field">
-      <label for="m-level">Where they sit</label>
-      <select id="m-level" required>
-        <option value="director">Director — runs the committee</option>
-        <option value="head" selected>Head — runs a sub-committee under a director</option>
-        <option value="member">Member — works under a head</option>
-      </select>
+      <label for="m-position">Position</label>
+      <select id="m-position" required></select>
     </div>
     <div class="field">
-      <label for="m-position">Position <span style="text-transform:none;letter-spacing:0;font-weight:400;">(their actual title)</span></label>
-      <input type="text" id="m-position" required list="position-list" placeholder="Head, Director, Vice-Director…">
-      <datalist id="position-list"></datalist>
+      <label for="m-sub">Sub-committee</label>
+      <select id="m-sub"></select>
+      <div class="note" id="m-sub-note" style="margin-top:6px;"></div>
     </div>
     <div class="field">
       <label for="m-phone">Phone <span style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></label>
@@ -239,15 +235,26 @@
 <script type="module">
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
-/* Positions that already exist on the board are offered first; these are the
-   ones a new committee is likely to need before anybody holds them. */
-const COMMON_POSITIONS = ["Director", "Vice-Director", "Head", "Co-Head"];
+/*
+ * The positions a committee actually has. A free-text box invited a different
+ * spelling of the same job on every row, and there is no fourth kind of person
+ * on a committee — the specificity belongs in the sub-committee, not in a
+ * longer job title.
+ */
+const POSITIONS = [
+  { value: "Director", level: "director" },
+  { value: "Vice-Director", level: "director" },
+  { value: "Head", level: "head" },
+  { value: "Co-Head", level: "head" },
+  { value: "Member", level: "member" }
+];
+const levelFor = (position) => POSITIONS.find((p) => norm(p.value) === norm(position))?.level ?? "head";
 
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const norm = (v) => String(v ?? "").trim().toLowerCase();
 
-let state = { admin: null, committees: [], members: [], unseeded: [], search: "", editing: null };
+let state = { admin: null, committees: [], members: [], unseeded: [], subsByCommittee: {}, search: "", editing: null };
 
 async function api(payload) {
   const res = await fetch(ENDPOINT, {
@@ -338,6 +345,7 @@ function absorb(body) {
   if (body.committees) state.committees = body.committees;
   if (body.members) state.members = body.members;
   if (body.acceptedHeadsNotOnRoster) state.unseeded = body.acceptedHeadsNotOnRoster;
+  if (body.subCommitteesByCommittee) state.subsByCommittee = body.subCommitteesByCommittee;
 }
 
 async function load(email) {
@@ -348,11 +356,20 @@ async function load(email) {
   render();
 }
 
-function positions() {
-  const seen = new Map();
-  for (const p of COMMON_POSITIONS) seen.set(norm(p), p);
-  for (const m of state.members) if (m.positionType) seen.set(norm(m.positionType), m.positionType);
-  return [...seen.values()];
+/* Only this committee's sub-committees. Picking Branding must not offer PR's. */
+function subsFor(committee) {
+  return state.subsByCommittee[committee] ?? state.subsByCommittee[
+    Object.keys(state.subsByCommittee).find((c) => norm(c) === norm(committee)) ?? ""
+  ] ?? [];
+}
+
+/* Rows written before the position list existed hold free text like "Head of
+   Graphic Design". Offered back so editing somebody does not quietly retitle
+   them, but never offered to anybody new. */
+function positionOptions(current) {
+  const known = POSITIONS.map((p) => p.value);
+  if (current && !known.some((p) => norm(p) === norm(current))) return [current, ...known];
+  return known;
 }
 
 function renderStats() {
@@ -410,7 +427,9 @@ function personRow(m) {
   return `
           <tr>
             <td class="who ${esc(m.level)}"><b>${esc(m.name)}</b><div class="note">${esc(m.aucEmail)}</div></td>
-            <td>${esc(m.positionType)}${m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""}</td>
+            <td>${esc(m.positionType)}${
+              m.subCommittee ? `<div class="note">${esc(m.subCommittee)}</div>` : ""
+            }${m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""}</td>
             <td>
               <span class="pill ${m.interviewEmails ? "on" : "off"}">${m.interviewEmails ? "On emails" : "Off emails"}</span>
               ${m.isAdmin ? `<div style="margin-top:5px;"><span class="pill admin">Dashboard access</span></div>` : ""}
@@ -487,19 +506,46 @@ function openMemberDialog(member, presetTeam) {
 
   document.getElementById("m-team").innerHTML = state.committees
     .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-  document.getElementById("position-list").innerHTML = positions()
-    .map((p) => `<option value="${esc(p)}"></option>`).join("");
 
   document.getElementById("m-name").value = member?.name ?? "";
   document.getElementById("m-email").value = member?.aucEmail ?? "";
   document.getElementById("m-team").value = member?.department ?? presetTeam ?? state.committees[0] ?? "";
-  document.getElementById("m-position").value = member?.positionType ?? "";
-  document.getElementById("m-level").value = member?.level ?? "head";
+  const positionEl = document.getElementById("m-position");
+  positionEl.innerHTML = positionOptions(member?.positionType)
+    .map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
+  positionEl.value = member?.positionType ?? "Head";
+  renderSubOptions(member?.subCommittee ?? "");
   document.getElementById("m-phone").value = member?.phone ?? "";
   document.getElementById("m-cc").checked = member ? member.interviewEmails !== false : true;
 
   if (!dlg.open) dlg.showModal();
 }
+
+/* A director runs the whole committee, so a sub-committee is meaningless for
+   them; everybody else belongs to exactly one. */
+function renderSubOptions(selected) {
+  const committee = document.getElementById("m-team").value;
+  const position = document.getElementById("m-position").value;
+  const subs = subsFor(committee);
+  const isDirector = levelFor(position) === "director";
+  const el = document.getElementById("m-sub");
+  const note = document.getElementById("m-sub-note");
+
+  el.disabled = isDirector || !subs.length;
+  el.innerHTML = `<option value="">${isDirector ? "Not applicable" : "Not set"}</option>` +
+    subs.map((n) => `<option value="${esc(n)}"${norm(n) === norm(selected) ? " selected" : ""}>${esc(n)}</option>`).join("");
+  if (isDirector) el.value = "";
+
+  note.textContent = isDirector
+    ? "A director runs every sub-committee in the team."
+    : subs.length
+      ? `The ${subs.length} sub-committees in ${committee}.`
+      : `${committee} has no sub-committees on file.`;
+}
+
+document.getElementById("m-team").addEventListener("change", () => renderSubOptions(""));
+document.getElementById("m-position").addEventListener("change", () =>
+  renderSubOptions(document.getElementById("m-sub").value));
 
 document.getElementById("member-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -516,8 +562,9 @@ document.getElementById("member-form").addEventListener("submit", async (event) 
         name: document.getElementById("m-name").value.trim(),
         aucEmail: document.getElementById("m-email").value.trim(),
         department: document.getElementById("m-team").value,
-        positionType: document.getElementById("m-position").value.trim(),
-        level: document.getElementById("m-level").value,
+        positionType: document.getElementById("m-position").value,
+        level: levelFor(document.getElementById("m-position").value),
+        subCommittee: document.getElementById("m-sub").value,
         phone: document.getElementById("m-phone").value.trim(),
         interviewEmails: document.getElementById("m-cc").checked,
         previousEmail: state.editing?.aucEmail,

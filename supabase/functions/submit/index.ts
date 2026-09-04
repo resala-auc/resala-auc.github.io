@@ -993,7 +993,13 @@ const HIERARCHY_HEADERS = [
    * Navigator", "Teaching & Organizing" are all heads. Empty on a row written
    * before this column existed, which falls back to the title.
    */
-  "Level"
+  "Level",
+  /*
+   * Which sub-committee inside the committee. Directors run the whole thing
+   * and have none; a head runs one; a member works in one. Appended — never
+   * insert, or every existing row shifts under its headers.
+   */
+  "Sub-committee"
 ];
 
 /*
@@ -1410,6 +1416,8 @@ type HierarchyEntry = {
   interviewEmails?: boolean;
   /** Director, head, or member — where they sit inside the committee. */
   level?: TeamLevel;
+  /** Which sub-committee inside it. Empty for directors, who run all of them. */
+  subCommittee?: string;
 };
 
 type TeamLevel = "director" | "head" | "member";
@@ -5066,7 +5074,34 @@ function teamLevel(stored: unknown, positionType: unknown): TeamLevel {
    */
   const position = normalize(positionType);
   if (position.includes("director")) return "director";
+  if (position === "member" || position === "volunteer") return "member";
   return "head";
+}
+
+/** The sub-committees a committee has, by the committee's name rather than its id. */
+function subCommitteesFor(committeeName: string): string[] {
+  return MEMBER_SUB_COMMITTEES[memberCommitteeIdFor(committeeName)] ?? [];
+}
+
+/**
+ * The sub-committee a free-text title names, if it names one.
+ *
+ * Heads were accepted under titles like "The Builder" or "Sponsorship Head",
+ * which are the sub-committee with or without the word head on the end.
+ * Matching loosely enough to catch both means a seeded head lands in the right
+ * place instead of waiting to be put there by hand; anything it does not
+ * recognise returns empty rather than guessing.
+ */
+function matchSubCommittee(committeeName: string, title: string): string {
+  const raw = normalize(title);
+  if (!raw) return "";
+  const bare = raw.replace(/\b(head|lead|of)\b/g, " ").replace(/\s+/g, " ").trim();
+  for (const name of subCommitteesFor(committeeName)) {
+    const candidate = normalize(name);
+    if (candidate === raw || candidate === bare) return name;
+    if (bare && candidate.replace(/^the /, "") === bare.replace(/^the /, "")) return name;
+  }
+  return "";
 }
 
 async function ensureTeamCommitteesSheet(token: string): Promise<void> {
@@ -5193,7 +5228,13 @@ async function seedTeamFromAcceptedHeads(
       phone: String(row[6] ?? "").trim(),
       interviewEmails: true,
       // They came off the accepted-heads list; that is not a guess.
-      level: "head"
+      level: "head",
+      /*
+       * A head's accepted role is usually the sub-committee they run — "The
+       * Builder", "Sponsorship Head". Recorded as such where it matches one,
+       * so a seeded head is not left needing to be placed by hand.
+       */
+      subCommittee: matchSubCommittee(department, String(row[ACCEPTED_ROLE_COLUMN] ?? ""))
     });
   }
 
@@ -5203,7 +5244,7 @@ async function seedTeamFromAcceptedHeads(
     await sheetsFetch(
       token,
       "POST",
-      `${sheetRange(HIERARCHY_SHEET_NAME, "A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       {
         values: additions.map((entry) => [
           at,
@@ -5213,7 +5254,8 @@ async function seedTeamFromAcceptedHeads(
           entry.aucEmail,
           entry.phone ?? "",
           "Yes",
-          entry.level ?? "head"
+          entry.level ?? "head",
+          entry.subCommittee ?? ""
         ])
       }
     );
@@ -5235,7 +5277,9 @@ async function seedTeamFromAcceptedHeads(
 /** The whole board, for the team dashboard. */
 async function loadTeamBoard(token: string): Promise<{
   committees: string[];
-  members: Array<{ department: string; positionType: string; level: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
+  members: Array<{ department: string; positionType: string; level: string; subCommittee: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
+  /** Each committee's sub-committees, so the page offers only that committee's. */
+  subCommitteesByCommittee: Record<string, string[]>;
   acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }>;
 }> {
   const [{ entries }, committees, adminEmails] = await Promise.all([
@@ -5253,6 +5297,7 @@ async function loadTeamBoard(token: string): Promise<{
     name: String(entry.name ?? "").trim(),
     aucEmail: String(entry.aucEmail ?? "").trim(),
     phone: String(entry.phone ?? "").trim(),
+    subCommittee: String(entry.subCommittee ?? "").trim(),
     interviewEmails: entry.interviewEmails !== false,
     isAdmin: adminEmails.has(normalize(entry.aucEmail ?? ""))
   }));
@@ -5292,7 +5337,11 @@ async function loadTeamBoard(token: string): Promise<{
     ...members.map((member: { department: string }) => member.department)
   ]);
 
-  return { committees: allCommittees.sort((a, b) => a.localeCompare(b)), members, acceptedHeadsNotOnRoster };
+  const sorted = allCommittees.sort((a, b) => a.localeCompare(b));
+  const subCommitteesByCommittee: Record<string, string[]> = {};
+  for (const committee of sorted) subCommitteesByCommittee[committee] = subCommitteesFor(committee);
+
+  return { committees: sorted, members, acceptedHeadsNotOnRoster, subCommitteesByCommittee };
 }
 
 /*
@@ -5875,7 +5924,7 @@ export function buildMemberAcceptanceEmail(
  */
 async function upsertTeamMember(
   token: string,
-  member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; level?: TeamLevel; previousEmail?: string; previousDepartment?: string }
+  member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; level?: TeamLevel; subCommittee?: string; previousEmail?: string; previousDepartment?: string }
 ): Promise<{ saved: true }> {
   const department = canonicalTeamName(String(member.department ?? "").trim());
   const positionType = String(member.positionType ?? "").trim();
@@ -5886,6 +5935,20 @@ async function upsertTeamMember(
   if (!positionType) throw new Error("Give them a position.");
   if (!name) throw new Error("Give them a name.");
   if (!isValidAucEmail(aucEmail)) throw new Error("A team member needs an @aucegypt.edu address.");
+
+  /*
+   * Empty is allowed — a director runs every sub-committee and belongs to
+   * none — but a name that is not one of this committee's is a typo, and a
+   * typo here creates a sub-committee that exists only on one person's row.
+   */
+  const wantedSub = String(member.subCommittee ?? "").trim();
+  let subCommittee = "";
+  if (wantedSub) {
+    const available = subCommitteesFor(department);
+    const match = available.find((name) => normalize(name) === normalize(wantedSub));
+    if (!match) throw new Error(`"${wantedSub}" is not one of ${department}'s sub-committees.`);
+    subCommittee = match;
+  }
 
   const { entries } = await loadHierarchy(token, true);
   const targetEmail = normalize(member.previousEmail ?? aucEmail);
@@ -5898,7 +5961,7 @@ async function upsertTeamMember(
       normalize(entry.aucEmail ?? "") === targetEmail && committeeKey(entry.department) === targetDepartment;
     if (isTarget && !replaced) {
       replaced = true;
-      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType) });
+      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType), subCommittee });
       continue;
     }
     // The same person twice on the same committee is a duplicate, not a move.
@@ -5908,7 +5971,7 @@ async function upsertTeamMember(
     next.push(entry);
   }
   if (!replaced) {
-    next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType) });
+    next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType), subCommittee });
   }
 
   await saveHierarchy(token, { mode: "admin-save-hierarchy", entries: next });
@@ -12291,7 +12354,8 @@ async function loadHierarchy(token: string, fresh = false): Promise<{ entries: H
       // Empty means Yes: every row written before this column existed was
       // already being copied, and a blank cell must not quietly drop someone.
       interviewEmails: normalize(row[6]) !== "no",
-      level: teamLevel(row[7], row[2])
+      level: teamLevel(row[7], row[2]),
+      subCommittee: String(row[8] ?? "").trim()
     }));
 
   hierarchyCache = { at: Date.now(), entries };
@@ -12310,18 +12374,19 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
       // The old hierarchy editor does not send this field; undefined has to
       // mean "leave them on the emails", not "take them off".
       interviewEmails: entry.interviewEmails !== false,
-      level: entry.level ?? teamLevel("", entry.positionType)
+      level: entry.level ?? teamLevel("", entry.positionType),
+      subCommittee: String(entry.subCommittee ?? "").trim()
     }))
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
   // Anything cached from before this write is now wrong.
   invalidateHierarchyCache();
-  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:H")}:clear`, {});
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:I")}:clear`, {});
 
   if (cleaned.length) {
     const timestamp = new Date().toISOString();
-    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
       values: cleaned.map((entry) => [
         timestamp,
         entry.department,
@@ -12330,7 +12395,8 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
         entry.aucEmail,
         entry.phone,
         entry.interviewEmails ? "Yes" : "No",
-        entry.level
+        entry.level,
+        entry.subCommittee
       ])
     });
   }
