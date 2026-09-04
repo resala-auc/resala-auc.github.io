@@ -5,6 +5,7 @@ import { AnimatedHeading } from "../components/AnimatedHeading";
 import { GhostButton } from "../components/ui";
 import { ContactBlock } from "../components/ContactBlock";
 import { CHAPTER_EASE, actTransition, rise, stagger } from "../lib/motion";
+import { GENERAL_VOLUNTEER_ID } from "../data/members";
 import type { Committee, CommitteeRole } from "../data/members";
 import type { InterviewSlot } from "../types";
 
@@ -16,6 +17,9 @@ type ActSealedProps = {
 };
 
 export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) {
+  /* A general volunteer has no interview to wait for and no chapter to hold —
+     they are in from the moment they send it. */
+  const isVolunteer = committee?.id === GENERAL_VOLUNTEER_ID;
   const task = committee?.interviewTask(role);
   const alsoAsked = committee?.alsoAsked(role) ?? [];
   return (
@@ -72,8 +76,9 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
               variants={rise}
               className="mb-10 max-w-lg text-lg leading-relaxed font-light text-brand-ink"
             >
-              Your chapter is reserved and your application is with the committee. A confirmation
-              email is on its way to your AUC inbox.
+              {isVolunteer
+                ? "You are in. HR will add you to the volunteers group and let you know what is coming up. A confirmation email is on its way."
+                : "Your chapter is reserved and your application is with the committee. A confirmation email is on its way to your AUC inbox."}
             </motion.p>
 
             <motion.dl
@@ -82,24 +87,36 @@ export function ActSealed({ firstName, committee, role, slot }: ActSealedProps) 
             >
               <div className="bg-brand-night/80 p-6">
                 <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
-                  Your chapter
+                  {isVolunteer ? "Your place" : "Your chapter"}
                 </dt>
                 <dd className="font-serif text-xl font-bold text-brand-blue">{committee?.displayName ?? "—"}</dd>
                 <dd className="mt-1 text-sm text-brand-muted">
                   {role ? role.name : committee?.stepTitle}
                 </dd>
               </div>
-              <div className="bg-brand-night/80 p-6">
-                <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
-                  Your interview
-                </dt>
-                <dd className="font-serif text-xl font-bold text-brand-blue">
-                  {slot ? `${slot.startTime} – ${slot.endTime}` : "To be scheduled"}
-                </dd>
-                <dd className="mt-1 text-sm text-brand-muted">
-                  {slot ? slot.label || slot.date : "The team will contact you with a time."}
-                </dd>
-              </div>
+              {isVolunteer ? (
+                <div className="bg-brand-night/80 p-6">
+                  <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
+                    What happens next
+                  </dt>
+                  <dd className="font-serif text-xl font-bold text-brand-blue">Nothing to book</dd>
+                  <dd className="mt-1 text-sm text-brand-muted">
+                    There is no interview. HR adds you to the volunteers group and you come to what you can.
+                  </dd>
+                </div>
+              ) : (
+                <div className="bg-brand-night/80 p-6">
+                  <dt className="mb-2 text-[11px] font-medium tracking-[0.22em] text-brand-blue uppercase">
+                    Your interview
+                  </dt>
+                  <dd className="font-serif text-xl font-bold text-brand-blue">
+                    {slot ? `${slot.startTime} – ${slot.endTime}` : "To be scheduled"}
+                  </dd>
+                  <dd className="mt-1 text-sm text-brand-muted">
+                    {slot ? slot.label || slot.date : "The team will contact you with a time."}
+                  </dd>
+                </div>
+              )}
             </motion.dl>
 
             {task?.required ? (
