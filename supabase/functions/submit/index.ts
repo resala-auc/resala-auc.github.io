@@ -955,7 +955,22 @@ const MONITOR_COMMITTEE = Deno.env.get("MONITOR_COMMITTEE") ?? "HR";
  * copied on the interview mail their committee sends. Rows written before it
  * existed come back empty, which reads as Yes — the behaviour they already had.
  */
-const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email", "Phone", "Interview Emails"];
+const HIERARCHY_HEADERS = [
+  "Timestamp",
+  "Department",
+  "Position Type",
+  "Name",
+  "AUC Email",
+  "Phone",
+  "Interview Emails",
+  /*
+   * Where they sit: director, head, or member. Stored rather than read off the
+   * title, because real head titles carry no such word — "The Builder", "The
+   * Navigator", "Teaching & Organizing" are all heads. Empty on a row written
+   * before this column existed, which falls back to the title.
+   */
+  "Level"
+];
 
 /*
  * The committees themselves, so a team can exist on the board before anyone is
@@ -1125,6 +1140,7 @@ type TeamUpsertMemberPayload = {
     aucEmail: string;
     phone?: string;
     interviewEmails?: boolean;
+    level?: TeamLevel;
     previousEmail?: string;
     previousDepartment?: string;
   };
@@ -1280,7 +1296,11 @@ type HierarchyEntry = {
   phone?: string;
   /** Copied on the interview emails their committee sends. Defaults to true. */
   interviewEmails?: boolean;
+  /** Director, head, or member — where they sit inside the committee. */
+  level?: TeamLevel;
 };
+
+type TeamLevel = "director" | "head" | "member";
 
 type AdminSaveHierarchyPayload = {
   mode: "admin-save-hierarchy";
@@ -1865,7 +1885,15 @@ function displayCommitteeName(name: unknown): string {
  * name, so wrapping a value that's already correct costs nothing.
  */
 function committeeKey(value: unknown): string {
-  return normalizeRole(displayCommitteeName(value));
+  /*
+   * Apostrophes are folded away here and nowhere else. "Children's Day" is
+   * written with a curly apostrophe by displayCommitteeName and with a
+   * straight one by anybody typing it, and the two are different strings — so
+   * a committee could be its own two committees depending on which keyboard
+   * last touched it. Confined to committee identity on purpose: this must not
+   * quietly change how role names compare everywhere else.
+   */
+  return normalizeRole(displayCommitteeName(value)).replaceAll("\u2019", "'");
 }
 
 /**
@@ -4528,6 +4556,47 @@ async function getMemberCommitteeRecipients(
  * ---------------------------------------------------------------------------
  */
 
+/**
+ * Where a position sits in the committee: directors, then the heads under
+ * them, then the members under those. Free text is still allowed — anything
+ * unrecognised falls to the bottom rather than being refused, because a
+ * committee inventing a title is not an error.
+ */
+/**
+ * One spelling per committee.
+ *
+ * committeeKey already makes "Children Day Director", "Children's Day" and
+ * "Children’s Day" compare equal, but the board also has to *show* one name,
+ * and displayCommitteeName only rewrites the internal form — a row already
+ * spelled with a straight apostrophe comes back unchanged and appears as a
+ * second committee sitting next to the first. This picks the one spelling the
+ * rest of the system uses.
+ */
+function canonicalTeamName(value: unknown): string {
+  const display = displayCommitteeName(value);
+  const key = committeeKey(display);
+  for (const name of Object.values(COMMITTEE_DISPLAY_NAMES)) {
+    if (committeeKey(name) === key) return name;
+  }
+  return display;
+}
+
+function teamLevel(stored: unknown, positionType: unknown): TeamLevel {
+  const explicit = normalize(stored);
+  if (explicit === "director" || explicit === "head" || explicit === "member") return explicit;
+
+  /*
+   * Nothing stored: guess from the title, for rows written before the column
+   * existed. Directors always say so. Heads mostly do not — "The Builder" and
+   * "Teaching & Organizing" are head titles — so anything else on the board
+   * today is far likelier to be a head than a member, and guessing member
+   * would quietly demote most of the team.
+   */
+  const position = normalize(positionType);
+  if (position.includes("director")) return "director";
+  return "head";
+}
+
 async function ensureTeamCommitteesSheet(token: string): Promise<void> {
   await ensureSheetTab(token, TEAM_COMMITTEES_SHEET_NAME);
   await ensureSheetHeaders(token, TEAM_COMMITTEES_SHEET_NAME, TEAM_COMMITTEES_HEADERS);
@@ -4544,9 +4613,9 @@ async function writeTeamCommittees(token: string, committees: string[]): Promise
   await ensureTeamCommitteesSheet(token);
   const seen = new Set<string>();
   const cleaned = committees
-    .map((name) => String(name ?? "").trim())
+    .map((name) => canonicalTeamName(String(name ?? "").trim()))
     .filter((name) => {
-      const key = normalizeRole(name);
+      const key = committeeKey(name);
       if (!name || seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -4564,15 +4633,24 @@ async function writeTeamCommittees(token: string, committees: string[]): Promise
   }
 }
 
-/** Everyone on a committee, in roster order, whatever their position. */
+/**
+ * Everyone on a committee: its directors, its heads, and anyone else on it.
+ *
+ * Matched with committeeKey, not normalizeRole. Three committees go by two
+ * names — a director's row says "Tech Director", "Initiatives Director" or
+ * "Children Day Director" while everything downstream of the heads cycle says
+ * "Tech Team", "Initiatives" and "Children's Day" — and treating those as
+ * different committees is what split each of the three into two half-teams
+ * and lost their heads off the interview Cc.
+ */
 async function getCommitteeRoster(
   token: string,
   department: string
 ): Promise<Array<{ email: string; name: string; positionType: string; interviewEmails: boolean }>> {
   const { entries } = await loadHierarchy(token);
-  const wanted = normalizeRole(department);
+  const wanted = committeeKey(department);
   return entries
-    .filter((entry) => normalizeRole(entry.department) === wanted)
+    .filter((entry) => committeeKey(entry.department) === wanted)
     .filter((entry) => isValidAucEmail(entry.aucEmail))
     .map((entry) => ({
       email: String(entry.aucEmail).trim(),
@@ -4595,7 +4673,7 @@ async function seedTeamFromAcceptedHeads(
 ): Promise<{ added: number; alreadyThere: number; committees: number }> {
   const { entries } = await loadHierarchy(token);
   const existing = new Set(
-    entries.map((entry) => `${normalizeRole(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
+    entries.map((entry) => `${committeeKey(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
   );
 
   const response = await sheetsFetch(
@@ -4611,10 +4689,10 @@ async function seedTeamFromAcceptedHeads(
     if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Yes") continue;
     const email = String(row[2] ?? "").trim();
     if (!isValidAucEmail(email)) continue;
-    const department = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+    const department = canonicalTeamName(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim());
     if (!department) continue;
 
-    const key = `${normalizeRole(department)}::${normalize(email)}`;
+    const key = `${committeeKey(department)}::${normalize(email)}`;
     if (existing.has(key)) {
       alreadyThere++;
       continue;
@@ -4626,7 +4704,9 @@ async function seedTeamFromAcceptedHeads(
       name: String(row[1] ?? "").trim(),
       aucEmail: email,
       phone: String(row[6] ?? "").trim(),
-      interviewEmails: true
+      interviewEmails: true,
+      // They came off the accepted-heads list; that is not a guess.
+      level: "head"
     });
   }
 
@@ -4636,7 +4716,7 @@ async function seedTeamFromAcceptedHeads(
     await sheetsFetch(
       token,
       "POST",
-      `${sheetRange(HIERARCHY_SHEET_NAME, "A:G")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      `${sheetRange(HIERARCHY_SHEET_NAME, "A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       {
         values: additions.map((entry) => [
           at,
@@ -4645,7 +4725,8 @@ async function seedTeamFromAcceptedHeads(
           entry.name,
           entry.aucEmail,
           entry.phone ?? "",
-          "Yes"
+          "Yes",
+          entry.level ?? "head"
         ])
       }
     );
@@ -4654,16 +4735,16 @@ async function seedTeamFromAcceptedHeads(
 
   // Every committee anyone is on should exist as a committee in its own right.
   const known = await readTeamCommittees(token);
-  const merged = [...known];
-  const seen = new Set(known.map((name: string) => normalizeRole(name)));
+  const merged = known.map((name: string) => canonicalTeamName(name));
+  const seen = new Set(merged.map((name: string) => committeeKey(name)));
   const fresh = await loadHierarchy(token);
   for (const entry of [...fresh.entries, ...additions]) {
-    const name = String(entry.department ?? "").trim();
-    if (!name || seen.has(normalizeRole(name))) continue;
-    seen.add(normalizeRole(name));
+    const name = canonicalTeamName(String(entry.department ?? "").trim());
+    if (!name || seen.has(committeeKey(name))) continue;
+    seen.add(committeeKey(name));
     merged.push(name);
   }
-  if (merged.length !== known.length) await writeTeamCommittees(token, merged);
+  await writeTeamCommittees(token, merged);
 
   return { added: additions.length, alreadyThere, committees: merged.length };
 }
@@ -4671,7 +4752,7 @@ async function seedTeamFromAcceptedHeads(
 /** The whole board, for the team dashboard. */
 async function loadTeamBoard(token: string): Promise<{
   committees: string[];
-  members: Array<{ department: string; positionType: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
+  members: Array<{ department: string; positionType: string; level: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
   acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }>;
 }> {
   const [{ entries }, committees, adminEmails] = await Promise.all([
@@ -4681,8 +4762,11 @@ async function loadTeamBoard(token: string): Promise<{
   ]);
 
   const members = entries.map((entry: HierarchyEntry) => ({
-    department: String(entry.department ?? "").trim(),
+    // Canonical, so the board never shows the same committee twice under its
+    // two names and the page can group people by plain string match.
+    department: canonicalTeamName(String(entry.department ?? "").trim()),
     positionType: String(entry.positionType ?? "").trim(),
+    level: entry.level ?? teamLevel("", entry.positionType),
     name: String(entry.name ?? "").trim(),
     aucEmail: String(entry.aucEmail ?? "").trim(),
     phone: String(entry.phone ?? "").trim(),
@@ -4694,7 +4778,7 @@ async function loadTeamBoard(token: string): Promise<{
   // either never seeded, or deliberately taken off. Shown so the difference is
   // visible rather than silent.
   const onRoster = new Set(
-    members.map((m: { department: string; aucEmail: string }) => `${normalizeRole(m.department)}::${normalize(m.aucEmail)}`)
+    members.map((m: { department: string; aucEmail: string }) => `${committeeKey(m.department)}::${normalize(m.aucEmail)}`)
   );
   const acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }> = [];
   try {
@@ -4706,9 +4790,9 @@ async function loadTeamBoard(token: string): Promise<{
     for (const row of ((await response.json()).values ?? []) as string[][]) {
       if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Yes") continue;
       const email = String(row[2] ?? "").trim();
-      const department = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+      const department = canonicalTeamName(String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim());
       if (!isValidAucEmail(email) || !department) continue;
-      if (onRoster.has(`${normalizeRole(department)}::${normalize(email)}`)) continue;
+      if (onRoster.has(`${committeeKey(department)}::${normalize(email)}`)) continue;
       acceptedHeadsNotOnRoster.push({
         department,
         name: String(row[1] ?? "").trim(),
@@ -4720,11 +4804,11 @@ async function loadTeamBoard(token: string): Promise<{
     console.error(`Could not compare the roster to accepted heads: ${error instanceof Error ? error.message : error}`);
   }
 
-  const allCommittees = [...committees];
-  const seen = new Set(committees.map((name: string) => normalizeRole(name)));
+  const allCommittees = committees.map((name: string) => canonicalTeamName(name));
+  const seen = new Set(allCommittees.map((name: string) => committeeKey(name)));
   for (const member of members) {
-    if (!member.department || seen.has(normalizeRole(member.department))) continue;
-    seen.add(normalizeRole(member.department));
+    if (!member.department || seen.has(committeeKey(member.department))) continue;
+    seen.add(committeeKey(member.department));
     allCommittees.push(member.department);
   }
 
@@ -4734,9 +4818,9 @@ async function loadTeamBoard(token: string): Promise<{
 /** Add or update one person. Identified by the email they are on the board under. */
 async function upsertTeamMember(
   token: string,
-  member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; previousEmail?: string; previousDepartment?: string }
+  member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; level?: TeamLevel; previousEmail?: string; previousDepartment?: string }
 ): Promise<{ saved: true }> {
-  const department = String(member.department ?? "").trim();
+  const department = canonicalTeamName(String(member.department ?? "").trim());
   const positionType = String(member.positionType ?? "").trim();
   const name = String(member.name ?? "").trim();
   const aucEmail = String(member.aucEmail ?? "").trim();
@@ -4748,26 +4832,26 @@ async function upsertTeamMember(
 
   const { entries } = await loadHierarchy(token);
   const targetEmail = normalize(member.previousEmail ?? aucEmail);
-  const targetDepartment = normalizeRole(member.previousDepartment ?? department);
+  const targetDepartment = committeeKey(member.previousDepartment ?? department);
 
   const next: HierarchyEntry[] = [];
   let replaced = false;
   for (const entry of entries) {
     const isTarget =
-      normalize(entry.aucEmail ?? "") === targetEmail && normalizeRole(entry.department) === targetDepartment;
+      normalize(entry.aucEmail ?? "") === targetEmail && committeeKey(entry.department) === targetDepartment;
     if (isTarget && !replaced) {
       replaced = true;
-      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false });
+      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType) });
       continue;
     }
     // The same person twice on the same committee is a duplicate, not a move.
-    if (normalize(entry.aucEmail ?? "") === normalize(aucEmail) && normalizeRole(entry.department) === normalizeRole(department)) {
+    if (normalize(entry.aucEmail ?? "") === normalize(aucEmail) && committeeKey(entry.department) === committeeKey(department)) {
       continue;
     }
     next.push(entry);
   }
   if (!replaced) {
-    next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false });
+    next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType) });
   }
 
   await saveHierarchy(token, { mode: "admin-save-hierarchy", entries: next });
@@ -4789,12 +4873,12 @@ async function removeTeamMember(
   department: string
 ): Promise<{ removed: number; adminRevoked: boolean; stillOnOtherCommittees: number }> {
   const email = normalize(aucEmail);
-  const wanted = normalizeRole(department);
+  const wanted = committeeKey(department);
   if (!email) throw new Error("Which person?");
 
   const { entries } = await loadHierarchy(token);
   const keep = entries.filter(
-    (entry) => !(normalize(entry.aucEmail ?? "") === email && normalizeRole(entry.department) === wanted)
+    (entry) => !(normalize(entry.aucEmail ?? "") === email && committeeKey(entry.department) === wanted)
   );
   const removed = entries.length - keep.length;
   if (!removed) throw new Error("That person is not on this committee.");
@@ -11134,7 +11218,8 @@ async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[]
       phone: String(row[5] ?? ""),
       // Empty means Yes: every row written before this column existed was
       // already being copied, and a blank cell must not quietly drop someone.
-      interviewEmails: normalize(row[6]) !== "no"
+      interviewEmails: normalize(row[6]) !== "no",
+      level: teamLevel(row[7], row[2])
     }));
 
   hierarchyCache = { at: Date.now(), entries };
@@ -11152,18 +11237,19 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
       phone: String(entry.phone ?? "").trim(),
       // The old hierarchy editor does not send this field; undefined has to
       // mean "leave them on the emails", not "take them off".
-      interviewEmails: entry.interviewEmails !== false
+      interviewEmails: entry.interviewEmails !== false,
+      level: entry.level ?? teamLevel("", entry.positionType)
     }))
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
   // Anything cached from before this write is now wrong.
   invalidateHierarchyCache();
-  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:G")}:clear`, {});
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:H")}:clear`, {});
 
   if (cleaned.length) {
     const timestamp = new Date().toISOString();
-    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:G")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
       values: cleaned.map((entry) => [
         timestamp,
         entry.department,
@@ -11171,7 +11257,8 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
         entry.name,
         entry.aucEmail,
         entry.phone,
-        entry.interviewEmails ? "Yes" : "No"
+        entry.interviewEmails ? "Yes" : "No",
+        entry.level
       ])
     });
   }

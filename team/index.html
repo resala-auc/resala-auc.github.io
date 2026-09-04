@@ -90,6 +90,15 @@
   .pill.admin { background: #eaf1fb; color: var(--blue); }
   .row-actions { display: flex; gap: 7px; justify-content: flex-end; }
 
+  /* The committee is one thing with three levels in it, not three lists. */
+  tr.level td { background: var(--soft); padding: 7px 18px; border-bottom: 1px solid var(--line); }
+  tr.level .label { font-size: 11px; text-transform: uppercase; letter-spacing: .9px;
+                    font-weight: 700; color: var(--blue); }
+  td.who { padding-left: 18px; }
+  td.who.head { padding-left: 38px; }
+  td.who.member { padding-left: 58px; }
+  td.who .rail { position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--line); }
+
   dialog { border: 0; border-radius: 16px; padding: 0; max-width: 520px; width: calc(100% - 32px);
            box-shadow: 0 24px 60px rgba(12,44,128,.22); }
   dialog::backdrop { background: rgba(12,44,128,.35); }
@@ -164,7 +173,15 @@
       <select id="m-team" required></select>
     </div>
     <div class="field">
-      <label for="m-position">Position</label>
+      <label for="m-level">Where they sit</label>
+      <select id="m-level" required>
+        <option value="director">Director — runs the committee</option>
+        <option value="head" selected>Head — runs a sub-committee under a director</option>
+        <option value="member">Member — works under a head</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="m-position">Position <span style="text-transform:none;letter-spacing:0;font-weight:400;">(their actual title)</span></label>
       <input type="text" id="m-position" required list="position-list" placeholder="Head, Director, Vice-Director…">
       <datalist id="position-list"></datalist>
     </div>
@@ -380,20 +397,19 @@ function matches(member) {
   return [member.name, member.aucEmail, member.positionType, member.department].some((v) => norm(v).includes(q));
 }
 
-function renderTeams() {
-  const el = document.getElementById("teams");
-  if (!state.committees.length) {
-    el.innerHTML = `<div class="team"><div class="empty">No teams yet. Add one to get started.</div></div>`;
-    return;
-  }
+/* A committee is directors, the heads under them, and the members under
+   those. Showing it as one flat list was what made a director and their own
+   heads look like separate things. */
+const LEVELS = [
+  { key: "director", label: "Directors" },
+  { key: "head", label: "Heads" },
+  { key: "member", label: "Members" }
+];
 
-  el.innerHTML = state.committees.map((committee) => {
-    const people = state.members.filter((m) => norm(m.department) === norm(committee)).filter(matches);
-    const total = state.members.filter((m) => norm(m.department) === norm(committee)).length;
-    const rows = people.length
-      ? people.map((m) => `
+function personRow(m) {
+  return `
           <tr>
-            <td><b>${esc(m.name)}</b><div class="note">${esc(m.aucEmail)}</div></td>
+            <td class="who ${esc(m.level)}"><b>${esc(m.name)}</b><div class="note">${esc(m.aucEmail)}</div></td>
             <td>${esc(m.positionType)}${m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""}</td>
             <td>
               <span class="pill ${m.interviewEmails ? "on" : "off"}">${m.interviewEmails ? "On emails" : "Off emails"}</span>
@@ -405,14 +421,38 @@ function renderTeams() {
                 <button class="btn btn-danger btn-sm" data-remove="${esc(m.aucEmail)}" data-team="${esc(m.department)}">Remove</button>
               </div>
             </td>
-          </tr>`).join("")
+          </tr>`;
+}
+
+function renderTeams() {
+  const el = document.getElementById("teams");
+  if (!state.committees.length) {
+    el.innerHTML = `<div class="team"><div class="empty">No teams yet. Add one to get started.</div></div>`;
+    return;
+  }
+
+  el.innerHTML = state.committees.map((committee) => {
+    const onTeam = state.members.filter((m) => norm(m.department) === norm(committee));
+    const people = onTeam.filter(matches);
+    const total = onTeam.length;
+    const counts = LEVELS.map((l) => onTeam.filter((m) => m.level === l.key).length);
+
+    const rows = people.length
+      ? LEVELS.map((level) => {
+          const here = people.filter((m) => m.level === level.key);
+          if (!here.length) return "";
+          return `<tr class="level"><td colspan="4"><span class="label">${esc(level.label)}</span></td></tr>` +
+                 here.map(personRow).join("");
+        }).join("")
       : `<tr><td colspan="4" class="empty">${total ? "Nobody here matches that search." : "Nobody on this team yet."}</td></tr>`;
 
     return `
       <div class="team">
         <div class="team-head">
           <h2>${esc(committee)}</h2>
-          <span class="count">${total} ${total === 1 ? "person" : "people"}</span>
+          <span class="count">${counts[0]} director${counts[0] === 1 ? "" : "s"} · ${counts[1]} head${
+            counts[1] === 1 ? "" : "s"
+          } · ${counts[2]} member${counts[2] === 1 ? "" : "s"}</span>
           <div class="spacer"></div>
           <button class="btn btn-ghost btn-sm" data-add-to="${esc(committee)}">Add to this team</button>
           <button class="btn btn-danger btn-sm" data-drop-team="${esc(committee)}">Remove team</button>
@@ -454,6 +494,7 @@ function openMemberDialog(member, presetTeam) {
   document.getElementById("m-email").value = member?.aucEmail ?? "";
   document.getElementById("m-team").value = member?.department ?? presetTeam ?? state.committees[0] ?? "";
   document.getElementById("m-position").value = member?.positionType ?? "";
+  document.getElementById("m-level").value = member?.level ?? "head";
   document.getElementById("m-phone").value = member?.phone ?? "";
   document.getElementById("m-cc").checked = member ? member.interviewEmails !== false : true;
 
@@ -476,6 +517,7 @@ document.getElementById("member-form").addEventListener("submit", async (event) 
         aucEmail: document.getElementById("m-email").value.trim(),
         department: document.getElementById("m-team").value,
         positionType: document.getElementById("m-position").value.trim(),
+        level: document.getElementById("m-level").value,
         phone: document.getElementById("m-phone").value.trim(),
         interviewEmails: document.getElementById("m-cc").checked,
         previousEmail: state.editing?.aucEmail,
