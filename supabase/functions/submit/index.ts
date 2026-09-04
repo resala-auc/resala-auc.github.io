@@ -57,11 +57,16 @@ const CALENDAR_ID = Deno.env.get("CALENDAR_ID") ?? GMAIL_SENDER_EMAIL;
 const CALENDAR_TIME_ZONE = Deno.env.get("CALENDAR_TIME_ZONE") ?? "Africa/Cairo";
 const ADMIN_RESET_SECRET = Deno.env.get("ADMIN_RESET_SECRET") ?? "";
 /*
- * What the reminder scheduler authenticates with. Falls back to the admin
- * reset secret so there is one fewer variable to set, but never to the empty
- * string: an unset secret means the scheduler route is closed, not open.
+ * What the reminder scheduler authenticates with.
+ *
+ * Falls back to REMINDER_JOB_SECRET — whatever already calls the heads
+ * reminder function on a schedule holds that one, so the member sweep can be
+ * added to the same cron without a second secret to distribute — and then to
+ * the admin reset secret. Never to the empty string: an unset secret means the
+ * scheduler route is closed, not open.
  */
-const MEMBER_REMINDER_SECRET = Deno.env.get("MEMBER_REMINDER_SECRET") ?? ADMIN_RESET_SECRET;
+const MEMBER_REMINDER_SECRET =
+  Deno.env.get("MEMBER_REMINDER_SECRET") ?? Deno.env.get("REMINDER_JOB_SECRET") ?? ADMIN_RESET_SECRET;
 const INTERVIEW_SLOT_DURATION_MINUTES = 60;
 const INTERVIEW_REMINDER_MINUTES = 60;
 /*
