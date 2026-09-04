@@ -4555,6 +4555,9 @@ export function buildMemberConfirmationEmail(
       `Your interview: ${slotLabel} (15 minutes, Cairo time).`,
       ...(meetLink ? [`Google Meet: ${meetLink}`] : ["We will send you the meeting link before your interview."]),
       "The invitation is attached to this email — open it to put the interview in your calendar.",
+      `Join signed in to ${payload.aucEmail} — that is the account on your invitation, and signing in with it takes you straight into the call.`,
+      "If you have since been given your AUC account and would rather use that, reply on this thread and we will add it to the invitation before your interview.",
+      "If you do not have an AUC account yet, join anyway and choose \"Ask to join\" — your committee is on the call and will let you in.",
       "Please keep your camera on.",
       "Join on time. After 5 minutes we have to treat it as a no-show.",
       ""
@@ -4598,6 +4601,25 @@ export function buildMemberConfirmationEmail(
                       }
                       <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:10px;">The invitation is attached to this email — open it to put the interview in your calendar.</div>
                       <div style="font-size:14px;line-height:1.55;color:#4b5563;margin-top:4px;">Please keep your camera on, and join on time. After <strong>5 minutes</strong> we have to treat it as a no-show.</div>
+                    </td>
+                  </tr>
+                </table>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Which account to join with</div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                        Join signed in to <strong>${escapeHtml(payload.aucEmail)}</strong> — that is the account on your
+                        invitation, and signing in with it takes you straight into the call.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        If you have since been given your <strong>AUC account</strong> and would rather use that, reply on this
+                        thread and we will add it to the invitation before your interview.
+                      </div>
+                      <div style="font-size:15px;line-height:1.65;color:#172033;margin-top:10px;">
+                        No AUC account yet? Join anyway and choose <strong>Ask to join</strong> — your committee is on the call
+                        and will let you in.
+                      </div>
                     </td>
                   </tr>
                 </table>`
