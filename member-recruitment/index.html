@@ -323,8 +323,17 @@ async function api(payload) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify(payload)
   });
-  const body = await res.json();
-  if (!res.ok || body.ok === false) throw new Error(body.error || "Something went wrong.");
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    // A runtime failure (a timeout, a crashed worker) answers with something
+    // that is not our JSON at all; saying so beats "Something went wrong."
+    throw new Error(`The server answered ${res.status} with no detail. Try again, and tell whoever maintains this.`);
+  }
+  if (!res.ok || body.ok === false) {
+    throw new Error(body.error || `The server answered ${res.status} with no detail.`);
+  }
   return body;
 }
 
@@ -620,8 +629,9 @@ document.getElementById("check-times").addEventListener("click", async () => {
 
     const lines = [
       `${report.checked} booked applicant${report.checked === 1 ? "" : "s"} checked.`,
-      `${report.alreadyCorrect} already at the right time.`,
-      `${wrong.length} invite${wrong.length === 1 ? "" : "s"} sitting at the wrong time.`
+      `${report.alreadyHappened ?? 0} already interviewed — left alone.`,
+      `${report.alreadyCorrect} still to come and already at the right time.`,
+      `${wrong.length} still to come and sitting at the wrong time.`
     ];
     if (problems.length) lines.push(`${problems.length} need a person to look at ${problems.length === 1 ? "it" : "them"}.`);
     if (wrong.length) {

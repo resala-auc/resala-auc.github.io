@@ -3242,7 +3242,17 @@ const MEMBER_BOOKING_WINDOW_DAYS = 5;
  * hour after the time the portal, the sheet and the email all said. Noon UTC
  * is safely past the transition, which happens at local midnight.
  */
+const cairoOffsetCache = new Map<string, string>();
+
 function cairoOffsetFor(date: string): string {
+  const cached = cairoOffsetCache.get(date);
+  if (cached) return cached;
+  const computed = computeCairoOffsetFor(date);
+  cairoOffsetCache.set(date, computed);
+  return computed;
+}
+
+function computeCairoOffsetFor(date: string): string {
   const name = new Intl.DateTimeFormat("en-US", {
     timeZone: CALENDAR_TIME_ZONE,
     timeZoneName: "longOffset"
@@ -3287,6 +3297,27 @@ function memberFormatLabel(date: string, startTime: string, endTime: string): st
     return `${h12}:${String(m).padStart(2, "0")} ${period}`;
   };
   return `${dayPart} · ${to12h(startTime)}–${to12h(endTime)}`;
+}
+
+/**
+ * One board per committee per sweep.
+ *
+ * buildMemberSlotList walks 19 days x 24 slots and formats a label for each,
+ * and Intl formatting is expensive. Calling it once per row — which the
+ * reminder and repair sweeps did — is 456 formats per applicant, which is
+ * what took the whole function over its CPU limit and surfaced in the
+ * dashboard as a bare "Something went wrong."
+ */
+function memberBoardLookup(now: Date): (committeeId: string, slotId: string) => InterviewSlotOption | undefined {
+  const boards = new Map<string, Map<string, InterviewSlotOption>>();
+  return (committeeId, slotId) => {
+    let board = boards.get(committeeId);
+    if (!board) {
+      board = new Map(buildMemberSlotList(committeeId, now, true).map((slot) => [slot.id, slot]));
+      boards.set(committeeId, board);
+    }
+    return board.get(slotId);
+  };
 }
 
 function buildMemberSlotList(
@@ -4017,6 +4048,7 @@ async function sendMemberInterviewReminders(
 
   const windowEnd = now.getTime() + MEMBER_REMINDER_MINUTES * 60_000;
   const earliest = now.getTime() - MEMBER_REMINDER_GRACE_MINUTES * 60_000;
+  const findSlot = memberBoardLookup(now);
 
   for (const [index, row] of rows.entries()) {
     const rowIndex = index + 2;
@@ -4031,7 +4063,7 @@ async function sendMemberInterviewReminders(
     const aucEmail = String(row[2] ?? "").trim();
     const committeeId = String(row[9] ?? "").trim();
 
-    const slot = buildMemberSlotList(committeeId, now, true).find((candidate) => candidate.id === slotId);
+    const slot = findSlot(committeeId, slotId);
     if (!slot) {
       problems.push({ rowIndex, fullName, aucEmail, reason: `Slot "${slotId}" is not on this committee's board.` });
       continue;
@@ -4107,12 +4139,14 @@ async function sendMemberInterviewReminders(
  */
 async function auditMemberInterviewTimes(
   token: string,
-  apply: boolean
+  apply: boolean,
+  now: Date = new Date()
 ): Promise<{
   apply: boolean;
   checked: number;
   wrong: Array<{ rowIndex: number; fullName: string; aucEmail: string; label: string; was: string; now: string; fixed: boolean }>;
   alreadyCorrect: number;
+  alreadyHappened: number;
   problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }>;
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
@@ -4128,6 +4162,8 @@ async function auditMemberInterviewTimes(
   const problems: Array<{ rowIndex: number; fullName: string; aucEmail: string; reason: string }> = [];
   let checked = 0;
   let alreadyCorrect = 0;
+  let alreadyHappened = 0;
+  const findSlot = memberBoardLookup(now);
 
   // One Calendar token for the whole sweep; skip the sweep entirely rather
   // than half-fixing the list if Google is unreachable.
@@ -4149,9 +4185,21 @@ async function auditMemberInterviewTimes(
     const committeeId = String(row[9] ?? "").trim();
     const eventId = String(row[20] ?? "").trim();
 
-    const slot = buildMemberSlotList(committeeId, new Date(), true).find((candidate) => candidate.id === slotId);
+    const slot = findSlot(committeeId, slotId);
     if (!slot) {
       problems.push({ rowIndex, fullName, aucEmail, reason: `Slot "${slotId}" is not on this committee's board.` });
+      continue;
+    }
+
+    /*
+     * Only interviews still to come are touched. Moving an interview that has
+     * already been sat is pointless — nobody is going to attend it again — and
+     * it would rewrite the record of when it actually happened. An hour of
+     * grace, so an interview running right now is left where the people in it
+     * can see it.
+     */
+    if (new Date(slot.endDateTime).getTime() < now.getTime() - 60 * 60_000) {
+      alreadyHappened++;
       continue;
     }
 
@@ -4220,7 +4268,7 @@ async function auditMemberInterviewTimes(
     });
   }
 
-  return { apply, checked, wrong, alreadyCorrect, problems };
+  return { apply, checked, wrong, alreadyCorrect, alreadyHappened, problems };
 }
 
 /**
