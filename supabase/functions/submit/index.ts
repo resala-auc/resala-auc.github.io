@@ -5034,8 +5034,18 @@ async function getMemberCommitteeRecipients(
     if (person.interviewEmails) add(person);
   }
 
+  /*
+   * HR is copied on every committee's interviews, but only its directors.
+   * HR's heads run HR's own recruitment; putting them on all eight
+   * committees' mail is how somebody ends up receiving several hundred
+   * applications that were never theirs, and how a Cc line stops being read.
+   *
+   * An applicant who applied to HR is unaffected: the roster pass above has
+   * already added HR's heads under their own committee, and the dedupe keeps
+   * them there.
+   */
   for (const monitor of await getCommitteeRoster(token, MONITOR_COMMITTEE).catch(() => [])) {
-    if (monitor.interviewEmails) add(monitor);
+    if (monitor.interviewEmails && monitor.level === "director") add(monitor);
   }
 
   /*
@@ -5225,7 +5235,7 @@ async function writeTeamCommittees(token: string, committees: string[]): Promise
 async function getCommitteeRoster(
   token: string,
   department: string
-): Promise<Array<{ email: string; name: string; positionType: string; interviewEmails: boolean }>> {
+): Promise<Array<{ email: string; name: string; positionType: string; level: TeamLevel; interviewEmails: boolean }>> {
   const { entries } = await loadHierarchy(token, true);
   const wanted = committeeKey(department);
   return entries
@@ -5235,6 +5245,7 @@ async function getCommitteeRoster(
       email: String(entry.aucEmail).trim(),
       name: String(entry.name ?? "").trim(),
       positionType: String(entry.positionType ?? "").trim(),
+      level: entry.level ?? teamLevel("", entry.positionType),
       interviewEmails: entry.interviewEmails !== false
     }));
 }
