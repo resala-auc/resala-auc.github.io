@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Committee Members Portal — Resala AUC</title>
+<link rel="icon" href="../favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue: #0c2c80; --sky: #a7d4f2; --gold: #eac262;
+    --ivory: #fdf9f3; --ink: #1b1f23;
+    --line: #e4dccd; --muted: #6b7280; --soft: #f7f4ee;
+    --good: #1a7f4b; --warn: #9a6b00; --bad: #a3231b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ivory); color: var(--ink);
+         font: 15px/1.6 "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+  a { color: var(--blue); }
+
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--line);
+                border-radius: 18px; padding: 34px 30px; text-align: center; }
+  .login-card img { width: 68px; height: 68px; margin: 0 auto 16px; display: block; }
+  .login-card h1 { margin: 0 0 6px; font-size: 21px; color: var(--blue); }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  label { display: block; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: .8px; color: var(--muted); margin-bottom: 6px; }
+  input[type=email], input[type=text], select, textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--soft); color: var(--ink); }
+  textarea { min-height: 84px; resize: vertical; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .btn { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 700; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-gold { background: var(--gold); color: var(--ink); }
+  .btn-ghost { background: #fff; color: var(--blue); border: 1px solid var(--line); font-weight: 600; }
+  .btn-sm { padding: 6px 11px; font-size: 13px; border-radius: 8px; }
+  .btn-block { width: 100%; margin-top: 18px; }
+  .error { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: #fdecec; color: #8c1c1c;
+           font-size: 13px; text-align: left; }
+
+  header.bar { background: var(--blue); color: #fff; padding: 14px 20px; display: flex;
+               align-items: center; gap: 14px; flex-wrap: wrap; }
+  header.bar img { width: 38px; height: 38px; }
+  .bar-title { font-weight: 700; font-size: 17px; }
+  .bar-sub { color: var(--sky); font-size: 12.5px; }
+  .bar-spacer { flex: 1; }
+  header.bar button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+                      border-radius: 8px; padding: 7px 13px; font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 70px; }
+
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 12px 18px; min-width: 128px; }
+  .stat .v { font-size: 24px; font-weight: 700; color: var(--blue); line-height: 1.2; }
+  .stat .k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+  .toolbar input[type=text] { max-width: 250px; }
+  .toolbar select { max-width: 230px; }
+
+  .sub { background: #fff; border: 1px solid var(--line); border-radius: 15px; margin-bottom: 16px; overflow: hidden; }
+  .sub-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+              border-bottom: 1px solid var(--line); background: var(--soft); flex-wrap: wrap; }
+  .sub-head h2 { margin: 0; font-size: 16.5px; color: var(--blue); }
+  .sub-head .count { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+  .wrap-x { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 860px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted);
+       font-weight: 700; padding: 9px 18px; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 18px; border-bottom: 1px solid #f2ede2; vertical-align: top; font-size: 14.5px; }
+  tr:last-child td { border-bottom: 0; }
+  tr[data-open] { cursor: pointer; }
+  tr[data-open]:hover { background: #fbf8f2; }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .empty { padding: 18px; color: var(--muted); font-size: 14px; }
+  .rank { font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .score { font-size: 19px; font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; }
+  .score.none { font-size: 14px; font-weight: 600; color: var(--muted); }
+
+  .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+  .pill.open { background: #eef2f7; color: var(--muted); }
+  .pill.part { background: #fff3d6; color: var(--warn); }
+  .pill.done { background: #e6f4ec; color: var(--good); }
+  .pill.bad { background: #fdecec; color: var(--bad); }
+
+  dialog { border: 0; border-radius: 16px; padding: 0; max-width: 620px; width: calc(100% - 32px);
+           box-shadow: 0 24px 60px rgba(12,44,128,.22); }
+  dialog::backdrop { background: rgba(12,44,128,.35); }
+  .dlg { padding: 24px 26px; max-height: 86vh; overflow-y: auto; }
+  .dlg h2 { margin: 0 0 4px; font-size: 20px; color: var(--blue); }
+  .dlg .who { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
+  .dlg h3 { margin: 22px 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .9px; color: var(--muted); }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .facts div { background: var(--soft); border-radius: 10px; padding: 9px 12px; font-size: 14px; }
+  .facts b { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .7px;
+             color: var(--muted); margin-bottom: 2px; }
+  .qa .q { font-weight: 700; color: var(--blue); font-size: 14px; margin-top: 14px; }
+  .qa .a { white-space: pre-wrap; font-size: 14.5px; }
+
+  .criteria { display: flex; flex-direction: column; gap: 12px; }
+  .crit { background: var(--soft); border-radius: 12px; padding: 12px 14px; }
+  .crit .top { display: flex; align-items: baseline; gap: 10px; }
+  .crit .label { font-weight: 700; font-size: 14.5px; }
+  .crit .hint { font-size: 12.5px; color: var(--muted); }
+  .crit .spacer { flex: 1; }
+  .crit .val { font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; }
+  .dots { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .dots button { width: 38px; height: 34px; border-radius: 9px; border: 1px solid var(--line);
+                 background: #fff; font-weight: 700; color: var(--muted); }
+  .dots button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  .others { font-size: 13.5px; color: var(--muted); }
+  .others div { padding: 7px 0; border-bottom: 1px solid #f2ede2; }
+  .others div:last-child { border-bottom: 0; }
+
+  .dlg-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap; }
+  .msg { margin-top: 12px; font-size: 13.5px; min-height: 20px; }
+  .msg.ok { color: var(--good); }
+  .msg.bad { color: var(--bad); }
+  .close { float: right; background: none; border: 0; font-size: 24px; color: var(--muted); line-height: 1; }
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-card">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
+    <h1>Committee Portal</h1>
+    <p>Your committee's member applicants, their scores, and the decision after each interview.</p>
+    <label for="email">AUC email</label>
+    <input type="email" id="email" autocomplete="email" placeholder="you@aucegypt.edu">
+    <button class="btn btn-block" id="login-btn">Open my committee</button>
+    <div class="error hidden" id="login-error"></div>
+  </div>
+</div>
+
+<div class="hidden" id="app">
+  <header class="bar">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
+    <div>
+      <div class="bar-title" id="bar-title">Committee Portal</div>
+      <div class="bar-sub" id="bar-sub">—</div>
+    </div>
+    <div class="bar-spacer"></div>
+    <button id="refresh">Refresh</button>
+    <button id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search a name or email">
+      <select id="filter-sub"><option value="">All sub-committees</option></select>
+      <select id="filter-state">
+        <option value="">Everyone</option>
+        <option value="unscored">Not scored yet</option>
+        <option value="scored">Scored</option>
+        <option value="undecided">Interviewed, no decision</option>
+        <option value="decided">Decided</option>
+      </select>
+    </div>
+
+    <div id="groups"></div>
+  </main>
+</div>
+
+<dialog id="dlg"><div class="dlg" id="dlg-body"></div></dialog>
+
+<dialog id="confirm-dialog" style="max-width:440px;">
+  <div class="dlg">
+    <p id="confirm-message" style="margin:0 0 20px;font-size:14.5px;line-height:1.6;white-space:pre-wrap;"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
+
+<script type="module">
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+
+/* Only what a committee may set straight after an interview. Accepting is a
+   real place on the team; the rest are holding positions until somebody
+   senior looks at the ranking. No email goes out from here. */
+const DECISIONS = [
+  { value: "Interviewed", label: "Interviewed — no call yet" },
+  { value: "Accepted", label: "Accept" },
+  { value: "Waitlisted", label: "Waitlist" },
+  { value: "General Volunteer", label: "General volunteer" },
+  { value: "Declined", label: "Decline" },
+  { value: "No Show", label: "No show" }
+];
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+const decided = (a) => !["New", "Interviewed", ""].includes(String(a.status ?? "").trim());
+
+let state = {
+  access: null, criteria: [], max: 5, applicants: [], subCommittees: [],
+  search: "", sub: "", filter: "", open: null, draft: null
+};
+
+async function api(payload) {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  let body;
+  try { body = await res.json(); }
+  catch { throw new Error(`The server answered ${res.status} with no detail.`); }
+  if (!res.ok || body.ok === false) throw new Error(body.error || `The server answered ${res.status} with no detail.`);
+  return body;
+}
+
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirm-dialog");
+    document.getElementById("confirm-message").textContent = message;
+    const okBtn = document.getElementById("confirm-ok");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const finish = (result) => {
+      dlg.close();
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+    if (!dlg.open) dlg.showModal();
+  });
+}
+
+function absorb(body) {
+  state.access = body.access ?? state.access;
+  state.criteria = body.criteria ?? state.criteria;
+  state.max = body.maxPerCriterion ?? state.max;
+  state.applicants = body.applicants ?? state.applicants;
+  state.subCommittees = body.subCommittees ?? state.subCommittees;
+}
+
+async function load(email) {
+  absorb(await api({ mode: "committee-member-load", email }));
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("bar-title").textContent = state.access.committee;
+  document.getElementById("bar-sub").textContent = `${state.access.name} · ${state.access.positionType}`;
+  const filter = document.getElementById("filter-sub");
+  filter.innerHTML = `<option value="">All sub-committees</option>` +
+    state.subCommittees.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+  filter.value = state.sub;
+  render();
+}
+
+function visible() {
+  const q = norm(state.search);
+  return state.applicants.filter((a) => {
+    if (state.sub && norm(a.subCommittee) !== norm(state.sub)) return false;
+    if (q && ![a.fullName, a.aucEmail].some((v) => norm(v).includes(q))) return false;
+    if (state.filter === "unscored" && a.scoreCount) return false;
+    if (state.filter === "scored" && !a.scoreCount) return false;
+    if (state.filter === "undecided" && decided(a)) return false;
+    if (state.filter === "decided" && !decided(a)) return false;
+    return true;
+  });
+}
+
+function renderStats() {
+  const all = state.applicants;
+  const cards = [
+    ["Applicants", all.length],
+    ["Sub-committees", state.subCommittees.length],
+    ["Scored by you", all.filter((a) => a.myScore).length],
+    ["Waiting on a decision", all.filter((a) => !decided(a)).length]
+  ];
+  document.getElementById("stats").innerHTML = cards
+    .map(([k, v]) => `<div class="stat"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`)
+    .join("");
+}
+
+function statusPill(status) {
+  const s = String(status ?? "New").trim() || "New";
+  const kind = s === "Accepted" ? "done"
+    : s === "Declined" || s === "No Show" ? "bad"
+    : s === "Interviewed" || s === "Waitlisted" || s === "General Volunteer" ? "part"
+    : "open";
+  return `<span class="pill ${kind}">${esc(s)}</span>`;
+}
+
+function renderGroups() {
+  const el = document.getElementById("groups");
+  const rows = visible();
+  if (!rows.length) {
+    el.innerHTML = `<div class="sub"><div class="empty">Nobody matches that.</div></div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const a of rows) {
+    if (!groups.has(a.subCommittee)) groups.set(a.subCommittee, []);
+    groups.get(a.subCommittee).push(a);
+  }
+
+  el.innerHTML = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([sub, people]) => `
+    <div class="sub">
+      <div class="sub-head">
+        <h2>${esc(sub)}</h2>
+        <span class="count">${people.length} ${people.length === 1 ? "applicant" : "applicants"}, best first</span>
+      </div>
+      <div class="wrap-x">
+        <table>
+          <thead><tr><th>#</th><th>Applicant</th><th>Score</th><th>Interview</th><th>Decision</th></tr></thead>
+          <tbody>
+            ${people.map((a, index) => `
+              <tr data-open="${esc(a.rowIndex)}">
+                <td class="rank">${a.averageScore === null ? "—" : index + 1}</td>
+                <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.yearLevel)} · ${esc(a.major)}</div></td>
+                <td>
+                  ${a.averageScore === null
+                    ? `<span class="score none">Not scored</span>`
+                    : `<span class="score">${a.averageScore.toFixed(1)}</span><span class="note"> / ${state.criteria.length * state.max}</span>
+                       <div class="note">${a.scoreCount} ${a.scoreCount === 1 ? "interviewer" : "interviewers"}${a.myScore ? " · incl. you" : ""}</div>`}
+                </td>
+                <td>${a.interviewSlot ? esc(a.interviewSlot) : `<span class="note">Not booked</span>`}</td>
+                <td>${statusPill(a.status)}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`).join("");
+}
+
+function render() {
+  renderStats();
+  renderGroups();
+}
+
+// ---- one applicant --------------------------------------------------------
+
+function renderDialog(a) {
+  const draft = state.draft ?? {};
+  const totalNow = state.criteria.reduce((sum, c) => sum + (draft[c.id] ?? 0), 0);
+  const others = a.scores.filter((s) => norm(s.scorerEmail) !== norm(state.access.email));
+
+  document.getElementById("dlg-body").innerHTML = `
+    <button class="close" data-close>&times;</button>
+    <h2>${esc(a.fullName)}</h2>
+    <div class="who">${esc(a.aucEmail)} · ${esc(a.subCommittee)}</div>
+
+    <div class="facts">
+      <div><b>Student ID</b>${esc(a.studentId)}</div>
+      <div><b>Standing</b>${esc(a.yearLevel)}</div>
+      <div><b>Major</b>${esc(a.major)}</div>
+      <div><b>Phone</b>${esc(a.phone)}</div>
+      <div><b>Interview</b>${esc(a.interviewSlot) || "Not booked"}</div>
+      <div><b>Status</b>${esc(a.status)}</div>
+    </div>
+
+    ${a.meetLink ? `<h3>Meeting</h3><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join the interview</a>` : ""}
+
+    <h3>Their answers</h3>
+    <div class="qa">
+      ${a.answers.filter(Boolean).length
+        ? a.answers.filter(Boolean).map((ans) => `<div class="a">${esc(ans)}</div>`).join("")
+        : `<div class="note">No written answers on file.</div>`}
+    </div>
+
+    <h3>Your score</h3>
+    <div class="criteria">
+      ${state.criteria.map((c) => `
+        <div class="crit">
+          <div class="top">
+            <span class="label">${esc(c.label)}</span>
+            <span class="spacer"></span>
+            <span class="val">${draft[c.id] ?? 0}/${state.max}</span>
+          </div>
+          <div class="hint">${esc(c.hint)}</div>
+          <div class="dots">
+            ${Array.from({ length: state.max }, (_, i) => i + 1).map((n) => `
+              <button type="button" data-crit="${esc(c.id)}" data-value="${n}"
+                      aria-pressed="${(draft[c.id] ?? 0) === n ? "true" : "false"}">${n}</button>`).join("")}
+          </div>
+        </div>`).join("")}
+    </div>
+    <p class="note" style="margin-top:10px;">Your total: <b>${totalNow}</b> / ${state.criteria.length * state.max}</p>
+
+    <h3>Notes</h3>
+    <textarea id="score-notes" placeholder="What they actually said. One line is plenty.">${esc(draft.notes ?? "")}</textarea>
+
+    ${others.length ? `
+      <h3>What the other interviewers gave</h3>
+      <div class="others">
+        ${others.map((s) => `<div><b>${esc(s.scorerName || s.scorerEmail)}</b> — ${s.total}/${state.criteria.length * state.max}${s.notes ? `<br>${esc(s.notes)}` : ""}</div>`).join("")}
+      </div>` : ""}
+
+    <h3>Decision after the interview</h3>
+    <select id="decision">
+      <option value="">Leave as ${esc(a.status)}</option>
+      ${DECISIONS.map((d) => `<option value="${esc(d.value)}"${a.status === d.value ? " selected" : ""}>${esc(d.label)}</option>`).join("")}
+    </select>
+    <p class="note" style="margin-top:8px;">Nothing is emailed to the applicant from here.</p>
+
+    <div class="msg" id="dlg-msg"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-close>Close</button>
+      <button type="button" class="btn btn-gold" id="save-score">Save score</button>
+      <button type="button" class="btn" id="save-decision">Save decision</button>
+    </div>`;
+
+  const dlg = document.getElementById("dlg");
+  if (!dlg.open) dlg.showModal();
+}
+
+function openApplicant(rowIndex) {
+  const a = state.applicants.find((x) => String(x.rowIndex) === String(rowIndex));
+  if (!a) return;
+  state.open = a;
+  state.draft = {
+    motivation: a.myScore?.motivation ?? 0,
+    reliability: a.myScore?.reliability ?? 0,
+    skill: a.myScore?.skill ?? 0,
+    teamFit: a.myScore?.teamFit ?? 0,
+    notes: a.myScore?.notes ?? ""
+  };
+  renderDialog(a);
+}
+
+document.getElementById("groups").addEventListener("click", (event) => {
+  const row = event.target.closest("[data-open]");
+  if (row) openApplicant(row.dataset.open);
+});
+
+document.getElementById("dlg-body").addEventListener("click", async (event) => {
+  if (event.target.closest("[data-close]")) { document.getElementById("dlg").close(); return; }
+
+  const dot = event.target.closest("[data-crit]");
+  if (dot) {
+    const id = dot.dataset.crit;
+    const value = Number(dot.dataset.value);
+    // Tapping the number already chosen clears it, so a misclick is undoable.
+    state.draft[id] = state.draft[id] === value ? 0 : value;
+    state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
+    renderDialog(state.open);
+    return;
+  }
+
+  const msg = document.getElementById("dlg-msg");
+
+  if (event.target.id === "save-score") {
+    const button = event.target;
+    button.disabled = true;
+    msg.className = "msg";
+    msg.textContent = "Saving…";
+    try {
+      absorb(await api({
+        mode: "committee-member-score",
+        email: state.access.email,
+        applicantEmail: state.open.aucEmail,
+        subCommittee: state.open.subCommittee,
+        motivation: state.draft.motivation,
+        reliability: state.draft.reliability,
+        skill: state.draft.skill,
+        teamFit: state.draft.teamFit,
+        notes: document.getElementById("score-notes").value
+      }));
+      render();
+      const fresh = state.applicants.find((x) => x.rowIndex === state.open.rowIndex);
+      if (fresh) { state.open = fresh; renderDialog(fresh); }
+      document.getElementById("dlg-msg").className = "msg ok";
+      document.getElementById("dlg-msg").textContent = "Saved. The ranking behind this has moved.";
+    } catch (error) {
+      msg.className = "msg bad";
+      msg.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+    return;
+  }
+
+  if (event.target.id === "save-decision") {
+    const decision = document.getElementById("decision").value;
+    if (!decision) { msg.className = "msg"; msg.textContent = "Pick a decision first."; return; }
+    if (!(await confirmDialog(
+      `Record "${decision}" for ${state.open.fullName}?\n\n` +
+      "This is what the recruitment dashboard will show. The applicant is not emailed."
+    ))) return;
+
+    const button = event.target;
+    button.disabled = true;
+    try {
+      absorb(await api({
+        mode: "committee-member-decide",
+        email: state.access.email,
+        rowIndex: state.open.rowIndex,
+        decision
+      }));
+      render();
+      const fresh = state.applicants.find((x) => x.rowIndex === state.open.rowIndex);
+      if (fresh) { state.open = fresh; renderDialog(fresh); }
+      document.getElementById("dlg-msg").className = "msg ok";
+      document.getElementById("dlg-msg").textContent = `Recorded as ${decision}.`;
+    } catch (error) {
+      document.getElementById("dlg-msg").className = "msg bad";
+      document.getElementById("dlg-msg").textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+});
+
+// ---- chrome ---------------------------------------------------------------
+
+document.getElementById("search").addEventListener("input", (e) => { state.search = e.target.value; renderGroups(); });
+document.getElementById("filter-sub").addEventListener("change", (e) => { state.sub = e.target.value; renderGroups(); });
+document.getElementById("filter-state").addEventListener("change", (e) => { state.filter = e.target.value; renderGroups(); });
+
+document.getElementById("refresh").addEventListener("click", async () => {
+  try { absorb(await api({ mode: "committee-member-load", email: state.access.email })); render(); }
+  catch (error) { await confirmDialog(error.message); }
+});
+
+document.getElementById("logout").addEventListener("click", () => {
+  localStorage.removeItem("resala-committee-members-email");
+  location.reload();
+});
+
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const errorEl = document.getElementById("login-error");
+  errorEl.classList.add("hidden");
+  if (!email) return;
+  try {
+    await load(email);
+    localStorage.setItem("resala-committee-members-email", email);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.classList.remove("hidden");
+  }
+});
+
+document.getElementById("email").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") document.getElementById("login-btn").click();
+});
+
+const remembered = localStorage.getItem("resala-committee-members-email");
+if (remembered) {
+  document.getElementById("email").value = remembered;
+  load(remembered).catch(() => {});
+}
+</script>
+</body>
+</html>

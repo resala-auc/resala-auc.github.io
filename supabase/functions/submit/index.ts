@@ -979,6 +979,37 @@ const HIERARCHY_HEADERS = [
 const TEAM_COMMITTEES_SHEET_NAME = "Board Committees";
 const TEAM_COMMITTEES_HEADERS = ["Committee", "Added At"];
 
+/*
+ * One row per interviewer per applicant, never one row per applicant: two
+ * heads sitting the same interview disagree, and the disagreement is worth
+ * more than whichever of them saved last. The ranking averages them.
+ */
+const MEMBER_SCORES_SHEET_NAME = "Member Scores";
+const MEMBER_SCORE_HEADERS = [
+  "Timestamp",
+  "Applicant Email",
+  "Committee",
+  "Sub-committee",
+  "Scorer Email",
+  "Scorer Name",
+  "Motivation",
+  "Reliability",
+  "Skill",
+  "Team Fit",
+  "Total",
+  "Notes",
+  "Recommendation"
+];
+
+/** The four things a 15-minute member interview can actually tell you. */
+const MEMBER_SCORE_CRITERIA = [
+  { id: "motivation", label: "Motivation", hint: "Why this committee, specifically — not why Resala." },
+  { id: "reliability", label: "Reliability", hint: "Will they still be here in November, on a bad week." },
+  { id: "skill", label: "Skill & fit", hint: "What they bring to this sub-committee in particular." },
+  { id: "teamFit", label: "Team fit", hint: "What they would be like to work beside." }
+];
+const MEMBER_SCORE_MAX = 5;
+
 const BOARD_ONBOARDING_SHEET_NAME = "Board Onboarding";
 const BOARD_ONBOARDING_HEADERS = [
   "Timestamp",
@@ -1126,6 +1157,26 @@ type MemberAdminCancelInterviewPayload = {
   mode: "member-admin-cancel-interview";
   email: string;
   rowIndex: number;
+};
+
+type CommitteeMemberLoadPayload = { mode: "committee-member-load"; email: string };
+type CommitteeMemberScorePayload = {
+  mode: "committee-member-score";
+  email: string;
+  applicantEmail: string;
+  subCommittee?: string;
+  motivation?: number;
+  reliability?: number;
+  skill?: number;
+  teamFit?: number;
+  notes?: string;
+  recommendation?: string;
+};
+type CommitteeMemberDecidePayload = {
+  mode: "committee-member-decide";
+  email: string;
+  rowIndex: number;
+  decision: string;
 };
 
 type TeamLoadPayload = { mode: "team-load"; email: string };
@@ -1710,6 +1761,9 @@ type SubmissionPayload =
   | TeamUpsertMemberPayload
   | TeamRemoveMemberPayload
   | TeamSaveCommitteesPayload
+  | CommitteeMemberLoadPayload
+  | CommitteeMemberScorePayload
+  | CommitteeMemberDecidePayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2494,6 +2548,21 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (isCommitteeMemberPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const portalToken = await getGoogleAccessToken();
+      const portalAccess = await requireMemberCommitteeAccess(portalToken, payload.email);
+
+      if (payload.mode === "committee-member-score") {
+        await saveMemberScore(portalToken, portalAccess, payload);
+      } else if (payload.mode === "committee-member-decide") {
+        await setMemberCommitteeDecision(portalToken, portalAccess, payload.rowIndex, payload.decision);
+      }
+      // Every action answers with the whole board, so the ranking a decision
+      // or a score just changed is the one that comes back.
+      return jsonResponse({ ok: true, ...(await loadMemberCommitteePortal(portalToken, portalAccess)) });
+    }
+
     if (isTeamPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const teamToken = await getGoogleAccessToken();
@@ -2685,6 +2754,14 @@ function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is M
 
 function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is MemberAdminReschedulePayload {
   return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
+}
+
+const COMMITTEE_MEMBER_MODES = new Set(["committee-member-load", "committee-member-score", "committee-member-decide"]);
+
+function isCommitteeMemberPayload(
+  payload: SubmissionPayload
+): payload is CommitteeMemberLoadPayload | CommitteeMemberScorePayload | CommitteeMemberDecidePayload {
+  return COMMITTEE_MEMBER_MODES.has(String((payload as { mode?: string }).mode ?? ""));
 }
 
 const TEAM_MODES = new Set(["team-load", "team-seed", "team-upsert-member", "team-remove-member", "team-save-committees"]);
@@ -4821,6 +4898,310 @@ async function loadTeamBoard(token: string): Promise<{
   ]);
 
   return { committees: allCommittees.sort((a, b) => a.localeCompare(b)), members, acceptedHeadsNotOnRoster };
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The committee's own portal for member recruitment.
+ *
+ * Open to the people who actually sit the interviews — the committee's
+ * directors and its heads, straight off the team board. Not recruitment
+ * admins: this is a committee looking at its own applicants, and a committee
+ * has no business reading another one's.
+ * ---------------------------------------------------------------------------
+ */
+
+type MemberCommitteeAccess = { email: string; name: string; committee: string; level: TeamLevel; positionType: string };
+
+/**
+ * Verifies the caller runs, or works on, this committee.
+ *
+ * Directors and heads both get in: a head sits the interviews and has to be
+ * able to score them, and locking the portal to directors would mean the
+ * person in the room cannot record what they saw.
+ */
+async function requireMemberCommitteeAccess(token: string, email: string): Promise<MemberCommitteeAccess> {
+  const wanted = normalize(email);
+  if (!wanted) throw new Error("Enter your AUC email.");
+
+  const { entries } = await loadHierarchy(token);
+  const match = entries.find(
+    (entry) =>
+      normalize(entry.aucEmail ?? "") === wanted &&
+      Boolean(String(entry.department ?? "").trim()) &&
+      (entry.level ?? teamLevel("", entry.positionType)) !== "member"
+  );
+  if (!match) {
+    throw new Error("No committee access found for this email. Ask whoever runs the team board to add you.");
+  }
+
+  return {
+    email: String(match.aucEmail ?? "").trim(),
+    name: String(match.name ?? "").trim(),
+    committee: canonicalTeamName(match.department),
+    level: match.level ?? teamLevel("", match.positionType),
+    positionType: String(match.positionType ?? "").trim()
+  };
+}
+
+async function ensureMemberScoresSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, MEMBER_SCORES_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_SCORES_SHEET_NAME, MEMBER_SCORE_HEADERS);
+}
+
+type MemberScoreRow = {
+  rowIndex: number;
+  applicantEmail: string;
+  committee: string;
+  subCommittee: string;
+  scorerEmail: string;
+  scorerName: string;
+  motivation: number;
+  reliability: number;
+  skill: number;
+  teamFit: number;
+  total: number;
+  notes: string;
+  recommendation: string;
+};
+
+async function readMemberScores(token: string): Promise<MemberScoreRow[]> {
+  await ensureMemberScoresSheet(token);
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_SCORES_SHEET_NAME, `A2:${columnLetter(MEMBER_SCORE_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+  return rows
+    .map((row, index) => ({
+      rowIndex: index + 2,
+      applicantEmail: String(row[1] ?? "").trim(),
+      committee: String(row[2] ?? "").trim(),
+      subCommittee: String(row[3] ?? "").trim(),
+      scorerEmail: String(row[4] ?? "").trim(),
+      scorerName: String(row[5] ?? "").trim(),
+      motivation: Number(row[6] ?? 0) || 0,
+      reliability: Number(row[7] ?? 0) || 0,
+      skill: Number(row[8] ?? 0) || 0,
+      teamFit: Number(row[9] ?? 0) || 0,
+      total: Number(row[10] ?? 0) || 0,
+      notes: String(row[11] ?? ""),
+      recommendation: String(row[12] ?? "").trim()
+    }))
+    .filter((score) => score.applicantEmail);
+}
+
+function clampScore(value: unknown): number {
+  const n = Math.round(Number(value ?? 0));
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(MEMBER_SCORE_MAX, Math.max(0, n));
+}
+
+/**
+ * Everything this committee needs to run its own recruitment, in one read.
+ *
+ * Applicants are grouped by the sub-committee they chose and ranked inside it
+ * by their average score. Unscored applicants sort last rather than first —
+ * a missing score is not a zero, but it must not outrank a real one either.
+ */
+async function loadMemberCommitteePortal(
+  token: string,
+  access: MemberCommitteeAccess
+): Promise<{
+  access: MemberCommitteeAccess;
+  criteria: typeof MEMBER_SCORE_CRITERIA;
+  maxPerCriterion: number;
+  subCommittees: string[];
+  applicants: Array<Record<string, unknown>>;
+}> {
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+
+  const [applicationsResponse, scores] = await Promise.all([
+    sheetsFetch(
+      token,
+      "GET",
+      sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+    ),
+    readMemberScores(token)
+  ]);
+  const rows = ((await applicationsResponse.json()).values ?? []) as string[][];
+  const wanted = committeeKey(access.committee);
+
+  const applicants = rows
+    .map((row, index) => ({ row, rowIndex: index + 2 }))
+    .filter(({ row }) => {
+      // The committee is stored as its member-cycle display name; the roster
+      // may know it by the director's name. committeeKey collapses both.
+      const byName = committeeKey(row[8] ?? "");
+      const byId = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[String(row[9] ?? "").trim()] ?? "");
+      return byName === wanted || (Boolean(byId) && byId === wanted);
+    })
+    .map(({ row, rowIndex }) => {
+      const aucEmail = String(row[2] ?? "").trim();
+      const mine = scores.filter((score) => normalize(score.applicantEmail) === normalize(aucEmail));
+      const average = mine.length ? mine.reduce((sum, score) => sum + score.total, 0) / mine.length : null;
+      const myScore = mine.find((score) => normalize(score.scorerEmail) === normalize(access.email)) ?? null;
+
+      return {
+        rowIndex,
+        fullName: String(row[1] ?? "").trim(),
+        aucEmail,
+        studentId: String(row[3] ?? "").trim(),
+        major: String(row[4] ?? "").trim(),
+        yearLevel: String(row[5] ?? "").trim(),
+        phone: String(row[6] ?? "").trim(),
+        committee: String(row[8] ?? "").trim(),
+        committeeId: String(row[9] ?? "").trim(),
+        answers: [String(row[12] ?? ""), String(row[13] ?? ""), String(row[14] ?? "")],
+        interviewSlot: String(row[15] ?? "").trim(),
+        interviewSlotId: String(row[16] ?? "").trim(),
+        status: String(row[17] ?? "").trim() || "New",
+        meetLink: String(row[19] ?? "").trim(),
+        subCommittee: String(row[23] ?? "").trim() || "Not given",
+        scores: mine.map((score) => ({
+          scorerEmail: score.scorerEmail,
+          scorerName: score.scorerName,
+          motivation: score.motivation,
+          reliability: score.reliability,
+          skill: score.skill,
+          teamFit: score.teamFit,
+          total: score.total,
+          notes: score.notes,
+          recommendation: score.recommendation
+        })),
+        myScore,
+        scoreCount: mine.length,
+        averageScore: average
+      };
+    });
+
+  /*
+   * Ranked within a sub-committee, best first, and scored applicants always
+   * above unscored ones. Sorting on a null average would otherwise put
+   * everybody nobody has met yet at the top of the list.
+   */
+  applicants.sort((a, b) => {
+    if ((a.averageScore === null) !== (b.averageScore === null)) return a.averageScore === null ? 1 : -1;
+    if (a.averageScore !== null && b.averageScore !== null && a.averageScore !== b.averageScore) {
+      return b.averageScore - a.averageScore;
+    }
+    return a.fullName.localeCompare(b.fullName);
+  });
+
+  const subCommittees = [...new Set(applicants.map((applicant) => applicant.subCommittee))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  return {
+    access,
+    criteria: MEMBER_SCORE_CRITERIA,
+    maxPerCriterion: MEMBER_SCORE_MAX,
+    subCommittees,
+    applicants
+  };
+}
+
+/** One interviewer's score for one applicant. Saving again replaces their own row, nobody else's. */
+async function saveMemberScore(
+  token: string,
+  access: MemberCommitteeAccess,
+  payload: {
+    applicantEmail: string;
+    subCommittee?: string;
+    motivation?: number;
+    reliability?: number;
+    skill?: number;
+    teamFit?: number;
+    notes?: string;
+    recommendation?: string;
+  }
+): Promise<{ total: number }> {
+  const applicantEmail = String(payload.applicantEmail ?? "").trim();
+  if (!applicantEmail) throw new Error("Which applicant?");
+
+  const motivation = clampScore(payload.motivation);
+  const reliability = clampScore(payload.reliability);
+  const skill = clampScore(payload.skill);
+  const teamFit = clampScore(payload.teamFit);
+  const total = motivation + reliability + skill + teamFit;
+
+  const scores = await readMemberScores(token);
+  const existing = scores.find(
+    (score) =>
+      normalize(score.applicantEmail) === normalize(applicantEmail) &&
+      normalize(score.scorerEmail) === normalize(access.email)
+  );
+
+  const values = [
+    new Date().toISOString(),
+    applicantEmail,
+    access.committee,
+    String(payload.subCommittee ?? "").trim(),
+    access.email,
+    access.name,
+    motivation,
+    reliability,
+    skill,
+    teamFit,
+    total,
+    String(payload.notes ?? "").trim(),
+    String(payload.recommendation ?? "").trim()
+  ];
+
+  if (existing) {
+    const width = columnLetter(MEMBER_SCORE_HEADERS.length);
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(MEMBER_SCORES_SHEET_NAME, `A${existing.rowIndex}:${width}${existing.rowIndex}`)}?valueInputOption=RAW`,
+      { values: [values] }
+    );
+  } else {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(MEMBER_SCORES_SHEET_NAME, `A:${columnLetter(MEMBER_SCORE_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: [values] }
+    );
+  }
+
+  return { total };
+}
+
+/** The statuses a committee may set on its own applicant. */
+const MEMBER_COMMITTEE_DECISIONS = ["Interviewed", "Accepted", "Waitlisted", MEMBER_GENERAL_VOLUNTEER_STATUS, "Declined", "No Show"];
+
+/**
+ * The initial decision, taken by the committee that ran the interview.
+ *
+ * Deliberately the same Status column the recruitment dashboard reads, so
+ * there is one answer to "what happened to this applicant" rather than a
+ * committee's view and an admin's view that can disagree. Sends no email: a
+ * decision recorded straight after an interview is not final until somebody
+ * says it is, and an applicant should not learn it before then.
+ */
+async function setMemberCommitteeDecision(
+  token: string,
+  access: MemberCommitteeAccess,
+  rowIndex: number,
+  decision: string
+): Promise<{ status: string }> {
+  const wanted = String(decision ?? "").trim();
+  if (!MEMBER_COMMITTEE_DECISIONS.includes(wanted)) throw new Error(`"${wanted}" is not a decision this portal can set.`);
+
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const rowCommittee = committeeKey(row[8] ?? "");
+  const rowById = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[String(row[9] ?? "").trim()] ?? "");
+  const mine = committeeKey(access.committee);
+  if (rowCommittee !== mine && !(rowById && rowById === mine)) {
+    throw new Error("That applicant did not apply to your committee.");
+  }
+
+  await writeMemberCells(token, rowIndex, "Status", [wanted]);
+  await writeMemberCells(token, rowIndex, "Decision By", [access.email, new Date().toISOString()]);
+  return { status: wanted };
 }
 
 /** Add or update one person. Identified by the email they are on the board under. */
