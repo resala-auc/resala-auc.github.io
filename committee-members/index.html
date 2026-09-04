@@ -205,7 +205,6 @@ const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 const DECISIONS = [
   { value: "Interviewed", label: "Interviewed — no call yet" },
   { value: "Accepted", label: "Accept" },
-  { value: "Waitlisted", label: "Waitlist" },
   { value: "General Volunteer", label: "General volunteer" },
   { value: "Declined", label: "Decline" },
   { value: "No Show", label: "No show" }
@@ -218,7 +217,7 @@ const decided = (a) => !["New", "Interviewed", ""].includes(String(a.status ?? "
 
 let state = {
   access: null, criteria: [], max: 5, applicants: [], subCommittees: [],
-  allSubs: [],
+  allSubs: [], questions: [],
   search: "", sub: "", filter: "", open: null, draft: null, slots: null, chosenSlot: null
 };
 
@@ -264,6 +263,7 @@ function absorb(body) {
   state.applicants = body.applicants ?? state.applicants;
   state.subCommittees = body.subCommittees ?? state.subCommittees;
   state.allSubs = body.allSubCommittees ?? state.allSubs;
+  state.questions = body.questions ?? state.questions;
 }
 
 async function load(email) {
@@ -309,7 +309,7 @@ function statusPill(status) {
   const s = String(status ?? "New").trim() || "New";
   const kind = s === "Accepted" ? "done"
     : s === "Declined" || s === "No Show" ? "bad"
-    : s === "Interviewed" || s === "Waitlisted" || s === "General Volunteer" ? "part"
+    : s === "Interviewed" || s === "General Volunteer" ? "part"
     : "open";
   return `<span class="pill ${kind}">${esc(s)}</span>`;
 }
@@ -434,8 +434,12 @@ function renderDialog(a) {
 
     <h3>Their answers</h3>
     <div class="qa">
-      ${a.answers.filter(Boolean).length
-        ? a.answers.filter(Boolean).map((ans) => `<div class="a">${esc(ans)}</div>`).join("")
+      ${a.answers.some(Boolean)
+        ? a.answers
+            .map((ans, i) => ({ ans, q: state.questions[i] }))
+            .filter((pair) => pair.ans)
+            .map((pair) => `${pair.q ? `<div class="q">${esc(pair.q)}</div>` : ""}<div class="a">${esc(pair.ans)}</div>`)
+            .join("")
         : `<div class="note">No written answers on file.</div>`}
     </div>
 
@@ -488,7 +492,11 @@ function renderDialog(a) {
     <h3>Decision after the interview</h3>
     <select id="decision">
       <option value="">Leave as ${esc(a.status)}</option>
-      ${DECISIONS.map((d) => `<option value="${esc(d.value)}"${a.status === d.value ? " selected" : ""}>${esc(d.label)}</option>`).join("")}
+      ${(DECISIONS.some((d) => d.value === a.status) || !a.status || a.status === "New"
+          ? DECISIONS
+          : [{ value: a.status, label: `${a.status} (retired)` }, ...DECISIONS])
+        .map((d) => `<option value="${esc(d.value)}"${a.status === d.value ? " selected" : ""}>${esc(d.label)}</option>`)
+        .join("")}
     </select>
     <p class="note" style="margin-top:8px;">Nothing is emailed to the applicant from here.</p>
 

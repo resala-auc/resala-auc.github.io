@@ -1051,6 +1051,56 @@ const MEMBER_SUB_COMMITTEES: Record<string, string[]> = {
   "initiatives": ["Execution Management", "Field Execution", "Teaching & Engagement"]
 };
 
+/*
+ * The three questions each committee asks, mirrored by hand from
+ * experience/src/data/members.ts. The sheet stores answers in three unlabelled
+ * columns, so without these an interviewer reads three paragraphs and has to
+ * guess which was answering what. Served to the dashboards rather than copied
+ * into each of them, so there is one mirror to keep in step instead of three.
+ */
+const MEMBER_QUESTIONS: Record<string, string[]> = {
+  "tech": [
+    "What interests you about joining the Tech Team?",
+    "Have you used or are you interested in learning any technical skills? (For example: coding, website building, spreadsheets, automation, design systems, etc.)",
+    "What is one thing you would like to help improve or build in Resala?"
+  ],
+  "operations": [
+    "Why do you want to join the Operations Team?",
+    "Do you enjoy planning, organizing, or solving problems? Tell us a little about why.",
+    "What do you think is most important when organizing an event or activity?"
+  ],
+  "branding-media": [
+    "What interests you about joining Branding/Media?",
+    "Which area interests you the most? (Design, photography, videography, editing, content creation, writing, or social media)",
+    "If you could help people see one side of Resala better, what would it be?"
+  ],
+  "hr": [
+    "Why do you want to join HR?",
+    "What do you think makes a community feel welcoming and connected?",
+    "How would you like to help make the Resala experience better for its members?"
+  ],
+  "pr-fundraising": [
+    "What interests you about PR/Fundraising?",
+    "Which part interests you the most? (Partnerships, sponsorships, outreach, fundraising, communication, or something else.)",
+    "What do you think makes someone good at representing Resala to other people or organizations?"
+  ],
+  "visits": [
+    "Why do you want to join the Visits Committee?",
+    "What type of visits or activities would you be interested in helping organize?",
+    "What do you think is important when interacting with the people and communities we visit?"
+  ],
+  "childrens-day": [
+    "Why do you want to join Children's Day?",
+    "Have you worked with or spent time with children before? (Tell us about any experience you have.)",
+    "What do you think makes a child enjoy and benefit from an activity?"
+  ],
+  "initiatives": [
+    "Why do you want to join Initiatives?",
+    "If you noticed a problem around you, what is one thing you would want to help change?",
+    "Do you prefer coming up with ideas, planning them, organizing them, or working during execution? Why?"
+  ]
+};
+
 /** Where an applicant sits until somebody says otherwise. */
 const MEMBER_UNASSIGNED_SUB = "Not assigned yet";
 
@@ -5466,6 +5516,8 @@ async function loadMemberCommitteePortal(
   subCommittees: string[];
   /** Every sub-committee this committee has, whether or not anyone is in it. */
   allSubCommittees: string[];
+  /** This committee's questions, in the order the answers are stored. */
+  questions: string[];
   applicants: Array<Record<string, unknown>>;
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
@@ -5567,6 +5619,7 @@ async function loadMemberCommitteePortal(
     maxPerCriterion: MEMBER_SCORE_MAX,
     subCommittees,
     allSubCommittees: MEMBER_SUB_COMMITTEES[memberCommitteeIdFor(access.committee)] ?? [],
+    questions: MEMBER_QUESTIONS[memberCommitteeIdFor(access.committee)] ?? [],
     applicants
   };
 }
@@ -5814,7 +5867,13 @@ async function withdrawMemberFinalList(
 }
 
 /** The statuses a committee may set on its own applicant. */
-const MEMBER_COMMITTEE_DECISIONS = ["Interviewed", "Accepted", "Waitlisted", MEMBER_GENERAL_VOLUNTEER_STATUS, "Declined", "No Show"];
+/*
+ * There is no waitlist. An applicant is taken onto a committee, offered a
+ * place as a general volunteer, or turned down — a fourth answer that means
+ * "we have not decided" is what leaves people waiting to hear for weeks.
+ * Interviewed and No Show are states on the way there, not outcomes.
+ */
+const MEMBER_COMMITTEE_DECISIONS = ["Interviewed", "Accepted", MEMBER_GENERAL_VOLUNTEER_STATUS, "Declined", "No Show"];
 
 /**
  * The initial decision, taken by the committee that ran the interview.

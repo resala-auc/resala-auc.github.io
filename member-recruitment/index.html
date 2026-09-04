@@ -172,7 +172,6 @@
             <option value="Interviewed">Interviewed</option>
             <option value="Accepted">Accepted</option>
             <option value="Declined">Declined</option>
-            <option value="Waitlisted">Waitlisted</option>
           </select>
         </div>
         <div>
@@ -265,7 +264,12 @@ const COMMITTEE_QUESTIONS = {
     "Do you prefer coming up with ideas, planning them, organizing them, or working during execution? Why?"
   ]
 };
-const STATUSES = ["New", "Interviewed", "Accepted", GENERAL_VOLUNTEER, "Declined", "Waitlisted"];
+/* No waitlist: accepted, general volunteer, or turned down. Waitlisted is kept
+   out of the list but still shown on anyone who already carries it, so nobody
+   is silently retitled by a dropdown that no longer offers what they are. */
+const STATUSES = ["New", "Interviewed", "Accepted", GENERAL_VOLUNTEER, "Declined", "No Show"];
+const statusesFor = (current) =>
+  current && !STATUSES.includes(current) ? [...STATUSES, current] : STATUSES;
 
 const norm = (v) => String(v ?? "").trim().toLowerCase();
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
@@ -531,7 +535,7 @@ function renderDialog(a) {
     <div class="row2">
       <div>
         <select id="dlg-status">
-          ${STATUSES.map((s) => `<option value="${esc(s)}"${(a.status || "New") === s ? " selected" : ""}>${esc(s)}</option>`).join("")}
+          ${statusesFor(a.status).map((s) => `<option value="${esc(s)}"${(a.status || "New") === s ? " selected" : ""}>${esc(s)}</option>`).join("")}
         </select>
       </div>
       <div style="flex:0 0 auto;">
