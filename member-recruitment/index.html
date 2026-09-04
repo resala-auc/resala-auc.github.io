@@ -152,6 +152,7 @@
 
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
+      <button class="tab" data-view="approvals">Approvals</button>
       <button class="tab" data-view="slots">Slots</button>
     </div>
 
@@ -187,6 +188,7 @@
       <div class="empty hidden" id="applicants-empty">No applications yet.</div>
     </div>
 
+    <div id="view-approvals" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
 </div>
@@ -581,8 +583,114 @@ function renderSlots() {
   `;
 }
 
+/*
+ * The lists committees have sent up, grouped the way they were decided —
+ * committee, then sub-committee. Approving is what sends the acceptance
+ * emails, and it is the only place in the members cycle that does, so it
+ * confirms with a count and names the people first.
+ */
+function renderApprovals() {
+  const el = document.getElementById("view-approvals");
+  const rows = (state.data?.applicants ?? []).filter((a) => a.submittedAt);
+  if (!rows.length) {
+    el.innerHTML = `<div class="committee-group"><div class="empty">No committee has sent a list up yet.</div></div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const a of rows) {
+    const key = `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(a);
+  }
+
+  el.innerHTML = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([key, people]) => {
+    const [committee, sub] = key.split("\u0000");
+    const pending = people.filter((a) => !a.approvedAt);
+    const emailed = people.filter((a) => a.acceptanceSentAt).length;
+    return `
+    <div class="committee-group">
+      <div class="wrap-x"><table>
+        <thead><tr>
+          <th colspan="4">${esc(committee)} · ${esc(sub)} — ${people.length} submitted${
+            emailed ? `, ${emailed} emailed` : ""
+          }</th>
+        </tr></thead>
+        <tbody>
+          ${people.map((a) => `
+            <tr>
+              <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
+              <td>${esc(a.status)}</td>
+              <td>${
+                a.acceptanceSentAt
+                  ? `<span class="pill done">Accepted &amp; emailed</span>`
+                  : a.approvedAt
+                    ? `<span class="pill part">Approved, not emailed</span>`
+                    : `<span class="pill open">Waiting on you</span>`
+              }<div class="note">sent up by ${esc(a.submittedBy)}</div></td>
+              <td></td>
+            </tr>`).join("")}
+          <tr>
+            <td colspan="4">
+              ${pending.length
+                ? `<button class="btn btn-gold btn-sm" data-approve="${esc(key)}">Approve ${pending.length} and email them</button>
+                   <button class="btn btn-ghost btn-sm" data-return="${esc(key)}">Send back</button>`
+                : `<span class="note">Nothing here is waiting on you.</span>`}
+            </td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>`;
+  }).join("");
+}
+
+document.getElementById("view-approvals").addEventListener("click", async (event) => {
+  const approveKey = event.target.closest("[data-approve]")?.dataset.approve;
+  const returnKey = event.target.closest("[data-return]")?.dataset.return;
+  const key = approveKey ?? returnKey;
+  if (!key) return;
+
+  const people = (state.data?.applicants ?? []).filter(
+    (a) => a.submittedAt && !a.approvedAt && `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}` === key
+  );
+  if (!people.length) return;
+  const [committee, sub] = key.split("\u0000");
+
+  if (approveKey) {
+    const names = people.slice(0, 15).map((a) => `  ${a.fullName}`).join("\n");
+    if (!(await confirmDialog(
+      `Accept ${people.length} ${people.length === 1 ? "person" : "people"} into ${committee} · ${sub}?\n\n` +
+      names + (people.length > 15 ? `\n  …and ${people.length - 15} more` : "") +
+      "\n\nEach one is emailed that they are in, as a reply on their own confirmation thread. This is the message they will treat as final."
+    ))) return;
+
+    try {
+      const r = await api({ mode: "member-admin-approve", email: state.admin.email, rowIndexes: people.map((a) => a.rowIndex) });
+      await load(state.admin.email);
+      state.view = "approvals";
+      renderAll();
+      await noticeDialog(
+        `${r.emailed} accepted and emailed.` +
+        (r.failures?.length
+          ? `\n\n${r.failures.length} did not go out:\n` + r.failures.map((f) => `  ${f.fullName} — ${f.reason}`).join("\n")
+          : "")
+      );
+    } catch (error) { await noticeDialog(error.message); }
+    return;
+  }
+
+  if (!(await confirmDialog(`Send ${committee} · ${sub} back to the committee? Nobody is emailed.`))) return;
+  try {
+    await api({ mode: "member-admin-return", email: state.admin.email, rowIndexes: people.map((a) => a.rowIndex) });
+    await load(state.admin.email);
+    state.view = "approvals";
+    renderAll();
+  } catch (error) { await noticeDialog(error.message); }
+});
+
 function renderAll() {
   renderStats();
+  renderApprovals();
   renderCommitteeGrid();
   renderApplicants();
   renderSlots();
@@ -739,6 +847,7 @@ document.getElementById("views").addEventListener("click", (e) => {
   state.view = btn.dataset.view;
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t === btn));
   document.getElementById("view-applicants").classList.toggle("hidden", state.view !== "applicants");
+  document.getElementById("view-approvals").classList.toggle("hidden", state.view !== "approvals");
   document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
 });
 

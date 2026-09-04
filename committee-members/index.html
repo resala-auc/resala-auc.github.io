@@ -69,6 +69,18 @@
               border-bottom: 1px solid var(--line); background: var(--soft); flex-wrap: wrap; }
   .sub-head h2 { margin: 0; font-size: 16.5px; color: var(--blue); }
   .sub-head .count { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .sub-head .spacer { flex: 1; }
+  .sub-head .state { font-size: 12.5px; font-weight: 700; }
+  .sub-head .state.waiting { color: var(--warn); }
+  .sub-head .state.approved { color: var(--good); }
+
+  .slots { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; max-height: 240px; overflow-y: auto; }
+  .slots button { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 7px 11px;
+                  font-size: 13px; color: var(--ink); }
+  .slots button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .slots button.current { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+  .day { width: 100%; font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px;
+         color: var(--muted); font-weight: 700; margin-top: 6px; }
 
   .wrap-x { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; min-width: 860px; }
@@ -206,7 +218,7 @@ const decided = (a) => !["New", "Interviewed", ""].includes(String(a.status ?? "
 
 let state = {
   access: null, criteria: [], max: 5, applicants: [], subCommittees: [],
-  search: "", sub: "", filter: "", open: null, draft: null
+  search: "", sub: "", filter: "", open: null, draft: null, slots: null, chosenSlot: null
 };
 
 async function api(payload) {
@@ -300,6 +312,32 @@ function statusPill(status) {
   return `<span class="pill ${kind}">${esc(s)}</span>`;
 }
 
+/* A sub-committee's list is one of three things: still being decided, waiting
+   on an admin, or approved and told. The button only exists in the first. */
+function finalListState(sub) {
+  const people = state.applicants.filter((a) => norm(a.subCommittee) === norm(sub));
+  const accepted = people.filter((a) => a.status === "Accepted");
+  return {
+    accepted: accepted.length,
+    submitted: accepted.filter((a) => a.submittedAt && !a.approvedAt).length,
+    approved: accepted.filter((a) => a.approvedAt).length,
+    told: accepted.filter((a) => a.acceptanceSentAt).length
+  };
+}
+
+function finalListControls(sub) {
+  const s = finalListState(sub);
+  if (s.approved) {
+    return `<span class="state approved">${s.approved} approved${s.told ? ` · ${s.told} emailed` : " · not emailed yet"}</span>`;
+  }
+  if (s.submitted) {
+    return `<span class="state waiting">${s.submitted} waiting for approval</span>
+            <button class="btn btn-ghost btn-sm" data-withdraw="${esc(sub)}">Pull back</button>`;
+  }
+  if (!s.accepted) return `<span class="count">Nobody accepted yet</span>`;
+  return `<button class="btn btn-gold btn-sm" data-submit="${esc(sub)}">Submit ${s.accepted} for approval</button>`;
+}
+
 function renderGroups() {
   const el = document.getElementById("groups");
   const rows = visible();
@@ -319,6 +357,8 @@ function renderGroups() {
       <div class="sub-head">
         <h2>${esc(sub)}</h2>
         <span class="count">${people.length} ${people.length === 1 ? "applicant" : "applicants"}, best first</span>
+        <div class="spacer"></div>
+        ${finalListControls(sub)}
       </div>
       <div class="wrap-x">
         <table>
@@ -371,6 +411,16 @@ function renderDialog(a) {
 
     ${a.meetLink ? `<h3>Meeting</h3><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join the interview</a>` : ""}
 
+    <h3>Interview time</h3>
+    <p class="note" style="margin:0 0 8px;">
+      ${a.interviewSlot ? `Currently ${esc(a.interviewSlot)}.` : "Not booked."}
+      Moving it frees the old time for somebody else and emails them the new one.
+    </p>
+    <button type="button" class="btn btn-ghost btn-sm" id="load-slots">${
+      state.slots ? "Refresh the times" : "Show the open times"
+    }</button>
+    ${state.slots ? renderSlots(a) : ""}
+
     <h3>Their answers</h3>
     <div class="qa">
       ${a.answers.filter(Boolean).length
@@ -420,14 +470,52 @@ function renderDialog(a) {
       <button type="button" class="btn" id="save-decision">Save decision</button>
     </div>`;
 
+  // Restore the notes box after a re-render, or a half-typed note is lost on
+  // every score tap.
+  const notes = document.getElementById("score-notes");
+  if (notes) notes.value = draft.notes ?? "";
+
   const dlg = document.getElementById("dlg");
   if (!dlg.open) dlg.showModal();
+}
+
+/* Only times that are actually open, plus the one they are on. A committee
+   moving an interview is picking a new time, not auditing the board. */
+function renderSlots(a) {
+  if (!state.slots.length) {
+    return `<p class="note">No open times left on this committee's board.</p>`;
+  }
+  const byDay = new Map();
+  for (const slot of state.slots) {
+    if (!byDay.has(slot.date)) byDay.set(slot.date, []);
+    byDay.get(slot.date).push(slot);
+  }
+  const chosen = state.chosenSlot;
+  return `<div class="slots">${[...byDay.entries()].map(([date, slots]) => `
+      <div class="day">${esc(new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Africa/Cairo", weekday: "short", day: "numeric", month: "short"
+      }).format(new Date(`${date}T12:00:00Z`)))}</div>
+      ${slots.map((slot) => `
+        <button type="button" data-slot="${esc(slot.id)}"
+                class="${slot.current ? "current" : ""}"
+                aria-pressed="${chosen === slot.id ? "true" : "false"}"
+                title="${slot.current ? "Where they are now" : ""}">
+          ${esc(slot.startTime)}${slot.current ? " ·" : ""}
+        </button>`).join("")}`).join("")}
+    </div>
+    <div class="dlg-actions" style="margin-top:12px;">
+      <button type="button" class="btn btn-sm" id="do-reschedule" ${chosen && chosen !== a.interviewSlotId ? "" : "disabled"}>
+        Move the interview
+      </button>
+    </div>`;
 }
 
 function openApplicant(rowIndex) {
   const a = state.applicants.find((x) => String(x.rowIndex) === String(rowIndex));
   if (!a) return;
   state.open = a;
+  state.slots = null;
+  state.chosenSlot = a.interviewSlotId || null;
   state.draft = {
     motivation: a.myScore?.motivation ?? 0,
     reliability: a.myScore?.reliability ?? 0,
@@ -438,7 +526,33 @@ function openApplicant(rowIndex) {
   renderDialog(a);
 }
 
-document.getElementById("groups").addEventListener("click", (event) => {
+document.getElementById("groups").addEventListener("click", async (event) => {
+  const submit = event.target.closest("[data-submit]")?.dataset.submit;
+  if (submit) {
+    const s = finalListState(submit);
+    if (!(await confirmDialog(
+      `Send ${s.accepted} accepted applicant${s.accepted === 1 ? "" : "s"} from ${submit} up for approval?\n\n` +
+      "Nobody is emailed by this. An admin approves the list and the acceptance emails go out from there.\n" +
+      "You can pull it back until they do."
+    ))) return;
+    try {
+      const r = await api({ mode: "committee-member-submit-final", email: state.access.email, subCommittee: submit });
+      absorb(r);
+      render();
+    } catch (error) { await confirmDialog(error.message); }
+    return;
+  }
+
+  const withdraw = event.target.closest("[data-withdraw]")?.dataset.withdraw;
+  if (withdraw) {
+    if (!(await confirmDialog(`Pull ${withdraw}'s list back so you can change it?`))) return;
+    try {
+      absorb(await api({ mode: "committee-member-withdraw-final", email: state.access.email, subCommittee: withdraw }));
+      render();
+    } catch (error) { await confirmDialog(error.message); }
+    return;
+  }
+
   const row = event.target.closest("[data-open]");
   if (row) openApplicant(row.dataset.open);
 });
@@ -454,6 +568,68 @@ document.getElementById("dlg-body").addEventListener("click", async (event) => {
     state.draft[id] = state.draft[id] === value ? 0 : value;
     state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
     renderDialog(state.open);
+    return;
+  }
+
+  if (event.target.id === "load-slots") {
+    const button = event.target;
+    button.disabled = true;
+    button.textContent = "Loading…";
+    try {
+      const r = await api({
+        mode: "committee-member-slots",
+        email: state.access.email,
+        currentSlotId: state.open.interviewSlotId
+      });
+      state.slots = r.slots ?? [];
+      state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
+      renderDialog(state.open);
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Show the open times";
+      document.getElementById("dlg-msg").className = "msg bad";
+      document.getElementById("dlg-msg").textContent = error.message;
+    }
+    return;
+  }
+
+  const slotButton = event.target.closest("[data-slot]");
+  if (slotButton) {
+    state.chosenSlot = state.chosenSlot === slotButton.dataset.slot ? null : slotButton.dataset.slot;
+    state.draft.notes = document.getElementById("score-notes")?.value ?? state.draft.notes;
+    renderDialog(state.open);
+    return;
+  }
+
+  if (event.target.id === "do-reschedule") {
+    const slot = state.slots.find((x) => x.id === state.chosenSlot);
+    if (!slot) return;
+    if (!(await confirmDialog(
+      `Move ${state.open.fullName}'s interview to ${slot.label}?\n\n` +
+      "Their old time goes back on the board for somebody else, the old invite is withdrawn, " +
+      "and they are emailed the new time."
+    ))) return;
+
+    const button = event.target;
+    button.disabled = true;
+    try {
+      absorb(await api({
+        mode: "committee-member-reschedule",
+        email: state.access.email,
+        rowIndex: state.open.rowIndex,
+        slotId: slot.id
+      }));
+      render();
+      const fresh = state.applicants.find((x) => x.rowIndex === state.open.rowIndex);
+      state.slots = null;
+      if (fresh) { state.open = fresh; state.chosenSlot = fresh.interviewSlotId || null; renderDialog(fresh); }
+      document.getElementById("dlg-msg").className = "msg ok";
+      document.getElementById("dlg-msg").textContent = `Moved to ${slot.label}.`;
+    } catch (error) {
+      button.disabled = false;
+      document.getElementById("dlg-msg").className = "msg bad";
+      document.getElementById("dlg-msg").textContent = error.message;
+    }
     return;
   }
 

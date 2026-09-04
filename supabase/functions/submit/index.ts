@@ -155,7 +155,19 @@ const MEMBER_APPLICATION_HEADERS = [
    */
   "Confirmation Thread Id",
   "Confirmation Message Id",
-  "Reminder Sent At"
+  "Reminder Sent At",
+  /*
+   * The approval trail. A committee decides, then submits its final list; an
+   * admin approves it and only then is anybody emailed. Kept as timestamps
+   * rather than one status word because the questions asked of it are "has
+   * this been submitted", "has it been approved" and "have they been told" —
+   * three different questions with three different answers.
+   */
+  "Submitted For Approval At",
+  "Submitted By",
+  "Approved At",
+  "Approved By",
+  "Acceptance Email Sent At"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
 
@@ -1178,6 +1190,12 @@ type CommitteeMemberDecidePayload = {
   rowIndex: number;
   decision: string;
 };
+type CommitteeMemberSlotsPayload = { mode: "committee-member-slots"; email: string; currentSlotId?: string };
+type CommitteeMemberReschedulePayload = { mode: "committee-member-reschedule"; email: string; rowIndex: number; slotId: string };
+type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"; email: string; subCommittee: string };
+type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
+type MemberAdminApprovePayload = { mode: "member-admin-approve"; email: string; rowIndexes: number[] };
+type MemberAdminReturnPayload = { mode: "member-admin-return"; email: string; rowIndexes: number[] };
 
 type TeamLoadPayload = { mode: "team-load"; email: string };
 type TeamSeedPayload = { mode: "team-seed"; email: string };
@@ -1764,6 +1782,12 @@ type SubmissionPayload =
   | CommitteeMemberLoadPayload
   | CommitteeMemberScorePayload
   | CommitteeMemberDecidePayload
+  | CommitteeMemberSlotsPayload
+  | CommitteeMemberReschedulePayload
+  | CommitteeMemberSubmitFinalPayload
+  | CommitteeMemberWithdrawFinalPayload
+  | MemberAdminApprovePayload
+  | MemberAdminReturnPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2553,14 +2577,34 @@ Deno.serve(async (request) => {
       const portalToken = await getGoogleAccessToken();
       const portalAccess = await requireMemberCommitteeAccess(portalToken, payload.email);
 
+      // Read-only, and the one action that does not want the whole board back.
+      if (payload.mode === "committee-member-slots") {
+        return jsonResponse({
+          ok: true,
+          slots: await loadMemberCommitteeSlots(portalToken, portalAccess, String(payload.currentSlotId ?? ""))
+        });
+      }
+
+      let portalResult: Record<string, unknown> = {};
       if (payload.mode === "committee-member-score") {
         await saveMemberScore(portalToken, portalAccess, payload);
       } else if (payload.mode === "committee-member-decide") {
         await setMemberCommitteeDecision(portalToken, portalAccess, payload.rowIndex, payload.decision);
+      } else if (payload.mode === "committee-member-reschedule") {
+        portalResult = await rescheduleMemberInterviewAsCommittee(
+          portalToken,
+          portalAccess,
+          payload.rowIndex,
+          payload.slotId
+        );
+      } else if (payload.mode === "committee-member-submit-final") {
+        portalResult = await submitMemberFinalList(portalToken, portalAccess, payload.subCommittee);
+      } else if (payload.mode === "committee-member-withdraw-final") {
+        portalResult = await withdrawMemberFinalList(portalToken, portalAccess, payload.subCommittee);
       }
       // Every action answers with the whole board, so the ranking a decision
       // or a score just changed is the one that comes back.
-      return jsonResponse({ ok: true, ...(await loadMemberCommitteePortal(portalToken, portalAccess)) });
+      return jsonResponse({ ok: true, ...portalResult, ...(await loadMemberCommitteePortal(portalToken, portalAccess)) });
     }
 
     if (isTeamPayload(payload)) {
@@ -2584,6 +2628,17 @@ Deno.serve(async (request) => {
       }
       await writeTeamCommittees(teamToken, payload.committees ?? []);
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
+    }
+
+    if (isMemberApprovalPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const approvalToken = await getGoogleAccessToken();
+      const approvalAdmin = await requireRecruitmentAdmin(approvalToken, payload.email);
+      const result =
+        payload.mode === "member-admin-approve"
+          ? await approveMemberFinalList(approvalToken, approvalAdmin.email, payload.rowIndexes)
+          : await returnMemberFinalList(approvalToken, payload.rowIndexes);
+      return jsonResponse({ ok: true, ...result });
     }
 
     if (isMemberSendRemindersPayload(payload)) {
@@ -2756,11 +2811,26 @@ function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is 
   return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
 }
 
-const COMMITTEE_MEMBER_MODES = new Set(["committee-member-load", "committee-member-score", "committee-member-decide"]);
+const COMMITTEE_MEMBER_MODES = new Set([
+  "committee-member-load",
+  "committee-member-score",
+  "committee-member-decide",
+  "committee-member-slots",
+  "committee-member-reschedule",
+  "committee-member-submit-final",
+  "committee-member-withdraw-final"
+]);
 
 function isCommitteeMemberPayload(
   payload: SubmissionPayload
-): payload is CommitteeMemberLoadPayload | CommitteeMemberScorePayload | CommitteeMemberDecidePayload {
+): payload is
+  | CommitteeMemberLoadPayload
+  | CommitteeMemberScorePayload
+  | CommitteeMemberDecidePayload
+  | CommitteeMemberSlotsPayload
+  | CommitteeMemberReschedulePayload
+  | CommitteeMemberSubmitFinalPayload
+  | CommitteeMemberWithdrawFinalPayload {
   return COMMITTEE_MEMBER_MODES.has(String((payload as { mode?: string }).mode ?? ""));
 }
 
@@ -2770,6 +2840,13 @@ function isTeamPayload(
   payload: SubmissionPayload
 ): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
+}
+
+function isMemberApprovalPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminApprovePayload | MemberAdminReturnPayload {
+  const mode = String((payload as { mode?: string }).mode ?? "");
+  return mode === "member-admin-approve" || mode === "member-admin-return";
 }
 
 function isMemberSendRemindersPayload(payload: SubmissionPayload): payload is MemberSendRemindersPayload {
@@ -3708,7 +3785,13 @@ async function loadMemberAdmin(token: string): Promise<{
     calendarEventId: row[20] ?? "",
     // Columns 21/22 are Decision By / Decision At.
     subCommittee: row[23] ?? "",
-    subCommitteeId: row[24] ?? ""
+    subCommitteeId: row[24] ?? "",
+    // 25/26/27 are the confirmation thread and the reminder stamp.
+    submittedAt: row[28] ?? "",
+    submittedBy: row[29] ?? "",
+    approvedAt: row[30] ?? "",
+    approvedBy: row[31] ?? "",
+    acceptanceSentAt: row[32] ?? ""
   }));
 
   let reservations: Array<Record<string, string>> = [];
@@ -4291,6 +4374,86 @@ async function sendMemberInterviewReminders(
   }
 
   return { apply, windowMinutes: MEMBER_REMINDER_MINUTES, due, alreadyReminded, problems };
+}
+
+/**
+ * Approves a committee's submitted list and tells those applicants.
+ *
+ * The one place an acceptance email is sent, and it sends one per applicant
+ * rather than in a batch, so a single failure costs one email and not the
+ * rest of the list. An applicant already emailed is skipped outright: the
+ * stamp is what makes this safe to press twice, which somebody will.
+ *
+ * Approval is recorded before the email is attempted. If Gmail fails, the
+ * decision still stands and the applicant shows as approved-but-not-told,
+ * which is a state a person can fix; the reverse — told but not recorded —
+ * is not.
+ */
+async function approveMemberFinalList(
+  token: string,
+  adminEmail: string,
+  rowIndexes: number[]
+): Promise<{ approved: number; emailed: number; failures: Array<{ rowIndex: number; fullName: string; reason: string }> }> {
+  const wanted = [...new Set((rowIndexes ?? []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 2))];
+  if (!wanted.length) throw new Error("Nobody was selected.");
+
+  const at = new Date().toISOString();
+  const failures: Array<{ rowIndex: number; fullName: string; reason: string }> = [];
+  let approved = 0;
+  let emailed = 0;
+
+  for (const rowIndex of wanted) {
+    const row = await readMemberApplicationRow(token, rowIndex);
+    const fullName = String(row[1] ?? "").trim();
+    const aucEmail = String(row[2] ?? "").trim();
+
+    if (!String(row[28] ?? "").trim()) {
+      failures.push({ rowIndex, fullName, reason: "Not submitted for approval." });
+      continue;
+    }
+    if (String(row[32] ?? "").trim()) {
+      // Already told. Nothing to do, and certainly not a second email.
+      continue;
+    }
+
+    if (!String(row[30] ?? "").trim()) {
+      await writeMemberCells(token, rowIndex, "Approved At", [at, adminEmail]);
+      approved++;
+    }
+
+    const template = buildMemberAcceptanceEmail(fullName, String(row[8] ?? "").trim(), String(row[23] ?? "").trim());
+    const sent = await sendMemberReminderEmail(
+      aucEmail,
+      "",
+      template,
+      { threadId: String(row[25] ?? "").trim(), messageId: String(row[26] ?? "").trim() }
+    );
+    if (sent) {
+      await writeMemberCells(token, rowIndex, "Acceptance Email Sent At", [new Date().toISOString()]);
+      emailed++;
+    } else {
+      failures.push({ rowIndex, fullName, reason: "Approved, but the acceptance email would not send." });
+    }
+  }
+
+  return { approved, emailed, failures };
+}
+
+/** Hands a submitted list back to the committee, unapproved, with nobody emailed. */
+async function returnMemberFinalList(token: string, rowIndexes: number[]): Promise<{ returned: number }> {
+  const wanted = [...new Set((rowIndexes ?? []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 2))];
+  if (!wanted.length) throw new Error("Nobody was selected.");
+
+  let returned = 0;
+  for (const rowIndex of wanted) {
+    const row = await readMemberApplicationRow(token, rowIndex);
+    if (String(row[32] ?? "").trim()) continue; // already told; sending this back would be a lie
+    await writeMemberCells(token, rowIndex, "Submitted For Approval At", ["", ""]);
+    await writeMemberCells(token, rowIndex, "Approved At", ["", ""]);
+    returned++;
+  }
+  if (!returned) throw new Error("Nothing could be sent back — those applicants have already been told.");
+  return { returned };
 }
 
 /**
@@ -5073,7 +5236,12 @@ async function loadMemberCommitteePortal(
         })),
         myScore,
         scoreCount: mine.length,
-        averageScore: average
+        averageScore: average,
+        submittedAt: String(row[28] ?? "").trim(),
+        submittedBy: String(row[29] ?? "").trim(),
+        approvedAt: String(row[30] ?? "").trim(),
+        approvedBy: String(row[31] ?? "").trim(),
+        acceptanceSentAt: String(row[32] ?? "").trim()
       };
     });
 
@@ -5170,6 +5338,137 @@ async function saveMemberScore(
   return { total };
 }
 
+/**
+ * The committee's own view of its interview board.
+ *
+ * Full slots and slots in the past are dropped rather than shown greyed out —
+ * a committee moving an interview is picking a new time, not auditing the
+ * board — except the applicant's current slot, which is kept and marked so
+ * the list does not silently lose the time they are on. The applicant's own
+ * five-day window is not applied: that rule exists to stop applicants booking
+ * themselves weeks out, and a committee moving somebody is a deliberate act.
+ */
+async function loadMemberCommitteeSlots(
+  token: string,
+  access: MemberCommitteeAccess,
+  currentSlotId: string,
+  now: Date = new Date()
+): Promise<Array<InterviewSlotOption & { current?: boolean }>> {
+  const committeeId = memberCommitteeIdFor(access.committee);
+  if (!committeeId) return [];
+
+  const slots = await getMemberInterviewSlots(token, committeeId);
+  const floor = now.getTime();
+  return slots
+    .filter((slot) => {
+      if (slot.id === currentSlotId) return true;
+      if (new Date(slot.startDateTime).getTime() < floor) return false;
+      return !slot.full;
+    })
+    .map((slot) => (slot.id === currentSlotId ? { ...slot, current: true } : slot));
+}
+
+/** The member-cycle committee id behind a roster committee name, or "" if it is not one. */
+function memberCommitteeIdFor(committeeName: string): string {
+  const wanted = committeeKey(committeeName);
+  for (const [id, hierarchyName] of Object.entries(MEMBER_COMMITTEE_HIERARCHY_NAMES)) {
+    if (committeeKey(hierarchyName) === wanted) return id;
+  }
+  return "";
+}
+
+/** Confirms this applicant belongs to this committee before anything is written about them. */
+function assertApplicantIsOurs(row: string[], access: MemberCommitteeAccess): void {
+  const rowCommittee = committeeKey(row[8] ?? "");
+  const rowById = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[String(row[9] ?? "").trim()] ?? "");
+  const mine = committeeKey(access.committee);
+  if (rowCommittee !== mine && !(rowById && rowById === mine)) {
+    throw new Error("That applicant did not apply to your committee.");
+  }
+}
+
+/**
+ * Moves one of this committee's interviews.
+ *
+ * Reuses the admin reschedule wholesale — the old reservation is released, the
+ * old calendar event deleted, a new one created and the applicant emailed —
+ * because releasing the old hold is exactly what puts that time back on the
+ * board for everybody else, and doing it a second way here would be a second
+ * way for it to go wrong.
+ */
+async function rescheduleMemberInterviewAsCommittee(
+  token: string,
+  access: MemberCommitteeAccess,
+  rowIndex: number,
+  slotId: string
+): Promise<{ slotLabel: string; meetLink: string; emailSent: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  assertApplicantIsOurs(row, access);
+
+  const committeeId = memberCommitteeIdFor(access.committee);
+  if (committeeId && !slotId.startsWith(`${committeeId}-`)) {
+    throw new Error("That time belongs to another committee's board.");
+  }
+
+  return rescheduleMemberInterview(token, rowIndex, slotId, access.email);
+}
+
+/**
+ * Sends a sub-committee's accepted applicants up for approval.
+ *
+ * Only the ones the committee has already marked Accepted go — submitting is
+ * saying "these are the people", not a second place to choose them. Anyone
+ * already approved is left alone, so re-submitting after adding one more
+ * person does not un-approve the rest.
+ */
+async function submitMemberFinalList(
+  token: string,
+  access: MemberCommitteeAccess,
+  subCommittee: string
+): Promise<{ submitted: number; alreadyApproved: number }> {
+  const wanted = normalize(subCommittee);
+  const board = await loadMemberCommitteePortal(token, access);
+  const at = new Date().toISOString();
+
+  let submitted = 0;
+  let alreadyApproved = 0;
+  for (const applicant of board.applicants) {
+    if (wanted && normalize(String(applicant.subCommittee ?? "")) !== wanted) continue;
+    if (String(applicant.status ?? "").trim() !== "Accepted") continue;
+    if (applicant.approvedAt) {
+      alreadyApproved++;
+      continue;
+    }
+    await writeMemberCells(token, Number(applicant.rowIndex), "Submitted For Approval At", [at, access.email]);
+    submitted++;
+  }
+
+  if (!submitted && !alreadyApproved) {
+    throw new Error("Nobody in this sub-committee is marked Accepted yet.");
+  }
+  return { submitted, alreadyApproved };
+}
+
+/** Pulls a sub-committee's list back, as long as nobody has approved it yet. */
+async function withdrawMemberFinalList(
+  token: string,
+  access: MemberCommitteeAccess,
+  subCommittee: string
+): Promise<{ withdrawn: number }> {
+  const wanted = normalize(subCommittee);
+  const board = await loadMemberCommitteePortal(token, access);
+
+  let withdrawn = 0;
+  for (const applicant of board.applicants) {
+    if (wanted && normalize(String(applicant.subCommittee ?? "")) !== wanted) continue;
+    if (!applicant.submittedAt || applicant.approvedAt) continue;
+    await writeMemberCells(token, Number(applicant.rowIndex), "Submitted For Approval At", ["", ""]);
+    withdrawn++;
+  }
+  if (!withdrawn) throw new Error("Nothing here is waiting for approval.");
+  return { withdrawn };
+}
+
 /** The statuses a committee may set on its own applicant. */
 const MEMBER_COMMITTEE_DECISIONS = ["Interviewed", "Accepted", "Waitlisted", MEMBER_GENERAL_VOLUNTEER_STATUS, "Declined", "No Show"];
 
@@ -5202,6 +5501,67 @@ async function setMemberCommitteeDecision(
   await writeMemberCells(token, rowIndex, "Status", [wanted]);
   await writeMemberCells(token, rowIndex, "Decision By", [access.email, new Date().toISOString()]);
   return { status: wanted };
+}
+
+/**
+ * The acceptance email, sent by an admin once a committee's final list is
+ * approved — never by the committee, and never at the moment a decision is
+ * recorded. It is the only email in the members cycle an applicant reads as
+ * final, so nothing sends it on a single click.
+ *
+ * Goes out as a reply on the confirmation's own thread where one was captured,
+ * for the same reason the reminder does: the applicant already has the whole
+ * conversation, and a fourth unrelated message from us is one they have to
+ * connect to the other three themselves.
+ */
+function buildMemberAcceptanceEmail(
+  fullName: string,
+  committee: string,
+  subCommittee: string
+): { subject: string; text: string; html: string } {
+  const firstName = fullName.trim().split(/\s+/)[0] || "there";
+  const place = subCommittee ? `${committee} — ${subCommittee}` : committee;
+
+  const text = [
+    `Hi ${firstName},`,
+    "",
+    `You are in. Welcome to ${place}.`,
+    "",
+    "Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.",
+    "",
+    "Reply on this thread if anything is unclear.",
+    "",
+    "Be the first step toward someone's better life.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = memberEmailShell({
+    heading: "You're In",
+    subheading: committee,
+    bodyHtml: `
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">You are in. Welcome to Resala AUC.</p>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Your place</div>
+                      <div style="font-size:20px;line-height:1.35;font-weight:bold;color:#0d2b45;">${escapeHtml(committee)}</div>
+                      ${
+                        subCommittee
+                          ? `<div style="font-size:15px;line-height:1.6;color:#8a4706;margin-top:6px;">${escapeHtml(subCommittee)}</div>`
+                          : ""
+                      }
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#172033;">Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.</p>
+                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply on this thread if anything is unclear.</p>
+                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>`
+  });
+
+  return { subject: `Resala AUC — welcome to ${place}`, text, html };
 }
 
 /** Add or update one person. Identified by the email they are on the board under. */
