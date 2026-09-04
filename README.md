@@ -6,7 +6,8 @@ This repo contains the Resala AUC recruitment landing page, application form, an
 
 - `src/` — static site source for the landing page and application form
 - `supabase/functions/submit/` — public form submission endpoint for the static GitHub Pages site
-- `supabase/functions/send-interview-reminders/` — scheduled reminder email job for upcoming interviews
+- `supabase/functions/send-interview-reminders/` — scheduled reminder email job for the heads cycle's interviews
+- `member-recruitment/`, `committee-members/`, `team/` — the members cycle's three dashboards
 - `dist/` — generated static site output after `npm run build`
 
 ## Supabase setup
@@ -30,17 +31,32 @@ Required Supabase secrets:
 - `TASK_SUBMISSION_URL` is optional but recommended. Set it to the deployed `/tasks/` page URL so confirmation and reminder emails send applicants to the task submission form. If unset, emails ask applicants to reply with their files or links.
 - `CALENDAR_ID` is optional if it is the same as `GMAIL_SENDER_EMAIL`
 - `CALENDAR_TIME_ZONE` is optional and defaults to `Africa/Cairo`
+- `MEMBER_REMINDER_SECRET` is optional and falls back to `REMINDER_JOB_SECRET`, then `ADMIN_RESET_SECRET`. With none of the three set the member reminder endpoint refuses every request rather than falling open
+- `MEMBER_REMINDER_MINUTES` is optional and defaults to 60
+- `MEMBER_APPLICATION_DEADLINE` is optional. It is a Cairo wall-clock time, so a September date is `+03:00`, not `+02:00`
 
 `GOOGLE_SERVICE_ACCOUNT_KEY` can be the full Google service account JSON or its base64-encoded JSON. The Google Sheet must be shared with that service account's `client_email`. To attach task PDFs when the Google Docs are not public, also share the task documents with the same service account.
 
-For Gmail confirmation emails and applicant Calendar invites, the function uses OAuth refresh-token flow with the Gmail sender account. The refresh token must include both scopes:
+For Gmail confirmation emails and applicant Calendar invites, the function uses OAuth refresh-token flow with the Gmail sender account. The refresh token must include all three scopes:
 
 ```text
 https://www.googleapis.com/auth/gmail.send
 https://www.googleapis.com/auth/calendar.events
+https://www.googleapis.com/auth/meetings.space.created
 ```
 
-If the existing refresh token was generated with only Gmail access, regenerate it with both scopes and update `GMAIL_REFRESH_TOKEN`.
+The third is what lets the function create the interview as a Google Meet space of its own with `accessType: OPEN`, so an applicant with no AUC account walks straight in instead of waiting to be admitted. Without it every Meet call fails and the event falls back to letting Calendar create the meeting — working, but people may have to be knocked through by a host. `Check Meet access` on the member recruitment dashboard reports which of the two you are getting.
+
+Regenerating the token, without breaking everything:
+
+- Request **all three** scopes, not just the new one. The token is replaced wholesale, so anything omitted stops working.
+- The OAuth Playground is a registered redirect URI on the client. Use the gear icon, tick **Use your own OAuth credentials**, and set **Access type: Offline** with **Force prompt: Consent Screen** — without both, Google returns no refresh token at all.
+- `GMAIL_REFRESH_TOKEN` takes the `1//…` refresh token, never the `ya29.…` access token, which expires in an hour.
+- **Do not reset the client secret** while fetching it from the Cloud Console. Resetting invalidates the secret Supabase holds and takes down every email and calendar invite until `GMAIL_CLIENT_SECRET` is updated too. The symptom is `invalid_client: The provided client secret is invalid` in the function logs.
+- A refresh token belongs to the client that minted it. If you change the OAuth client, all three of `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET` and `GMAIL_REFRESH_TOKEN` must change together.
+- Verify before deploying: `curl -s https://oauth2.googleapis.com/token -d client_id=… -d client_secret=… -d refresh_token=… -d grant_type=refresh_token` should return an `access_token`.
+- Supabase secrets are stored as digests; `supabase secrets list` shows names and SHA-256 only. A value that is lost cannot be read back, only replaced.
+- Redeploy the function after changing a secret. The constants are read once when an instance boots, so a running one keeps the old value.
 
 The function will also create and use two sheet tabs if they do not already exist:
 
@@ -142,10 +158,13 @@ supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfw
 `/apply/` is untouched and still works; both post the identical
 `ApplicationPayload` to the Supabase `submit` function.
 
-The flow runs as six acts: identity → the pen handover → chapter choice →
-the chapter's questions, one screen at a time → interview slot → sealed.
-A draft is kept in `localStorage` under `resala-join-draft`, so a refresh
-mid-flow never costs the applicant their typing; it is cleared on success.
+The flow runs as: identity → the pen handover → which lane → committee and
+sub-committee → the committee's questions, one screen at a time → interview
+slot → sealed. A draft is kept in `localStorage` under `resala-join-draft`, so
+a refresh mid-flow never costs the applicant their typing; it is cleared on
+success.
+
+`/join/` now serves the **members** cycle, not heads — see the section below.
 
 Source lives in `experience/` (React 19 + Vite + Tailwind v4 + `motion/react`):
 
@@ -153,7 +172,8 @@ Source lives in `experience/` (React 19 + Vite + Tailwind v4 + `motion/react`):
 | --- | --- |
 | `experience/src/App.tsx` | Act state machine and payload assembly |
 | `experience/src/acts/` | One file per act |
-| `experience/src/data/committees.ts` | Reads `src/role-guide-data.mjs`, drops Treasurer, adds the one-line vow shown on each chapter card |
+| `experience/src/data/members.ts` | The members cycle's committees and sub-committees. Self-contained on purpose — it does not read `src/role-guide-data.mjs`, so a members edit cannot desync `/guides/` or the heads dashboards |
+| `experience/src/data/committees.ts` | The heads cycle's version, reading `src/role-guide-data.mjs`. No longer imported by the app; kept because the heads cycle may run again |
 | `experience/src/lib/api.ts` | Slot fetch + submit against the same endpoint |
 | `experience/public/media/` | Optional recorded handover audio and hero film — see the README there |
 
@@ -166,11 +186,119 @@ npm run build        # static site + experience together, into dist/
 
 `npm run build` also runs the Vite build, which writes to `dist/join/`. Assets
 are emitted with a relative base, so the route works under any deploy path.
-The chapter list is derived from `src/role-guide-data.mjs`, so editing a role
-guide updates `/guides/`, `/apply/`, and `/join/` at once.
+The heads chapter list is derived from `src/role-guide-data.mjs`, so editing a
+role guide updates `/guides/` and `/apply/` at once. `/join/` reads
+`experience/src/data/members.ts` instead.
 
 Note: the landing page CTA still reads "Applications closed" and points at
 `/apply/`. Point it at `./join/` when the new cycle opens.
+
+## The members cycle
+
+`/join/` serves member recruitment. Members choose a committee and then a
+sub-committee inside it, answer three questions, and book a 15-minute
+interview. There is no second-preference committee and no task.
+
+Its data lives in `experience/src/data/members.ts`, deliberately apart from the
+heads cycle's `src/role-guide-data.mjs`, and is mirrored by hand in the edge
+function — the interview board and the Cairo offset appear in both files and
+must be changed together.
+
+### Pages
+
+| URL | Who signs in | What it is for |
+| --- | --- | --- |
+| `/join/` | applicants | The application itself |
+| `/member-recruitment/` | recruitment admins | Every committee's applicants, approvals, reminders, and the repair tools |
+| `/committee-members/` | a committee's directors and heads | That committee's applicants only: scoring, ranking, decisions, rescheduling |
+| `/team/` | recruitment admins | The team board — who is on the team, which grants access to the two above |
+
+### The team board is the roster of record
+
+`Board Hierarchy` holds everyone on the team, heads included. It used to hold
+only directors, with "who is a head" read off whoever had `Accepted = Yes` in
+the heads applications — which can represent neither a resignation nor somebody
+head-hunted who never applied.
+
+Everything that needs to know who is on a committee reads it live: the
+interview email Cc, the committee portal's sign-in, the committee dashboard's
+sign-in. Add a head at `/team/` and they can sign in immediately; remove them
+and they are off the Cc and locked out, and their recruitment-admin row is
+revoked once they are off the board entirely.
+
+Three committees go by two names — a director's row says `Tech Director`,
+`Initiatives Director` or `Children Day Director` while everything downstream
+of the heads cycle writes `Tech Team`, `Initiatives` and `Children's Day`.
+Compare committees with `committeeKey`, never `normalizeRole`; it collapses
+both forms and folds the two apostrophes of "Children's Day".
+
+### Sheet tabs
+
+| Tab | Holds |
+| --- | --- |
+| `Member Recruitment` | One row per applicant, including the interview, the decision, the confirmation's Gmail thread, and the approval trail |
+| `Member Recruitment Interview Reservations` | The live slot holds. Availability is counted from these rows, so deleting one is what frees a time |
+| `Member Scores` | One row per interviewer per applicant. The portal ranks on the average |
+| `Board Hierarchy` | The team roster |
+| `Board Committees` | Committee names, so a team can exist before anyone is on it |
+
+Columns are only ever **appended** to `Member Recruitment`; inserting one
+shifts every existing row under its headers.
+
+### Interview times are Cairo time, with a real offset
+
+Egypt reinstated daylight saving in 2023: `+02:00` in winter, `+03:00` from the
+last Friday of April to the last Thursday of October. The whole September board
+is `+03:00`. Hardcoding `+02:00` put every booking on the calendar an hour
+after the time the portal, the sheet and the email all displayed. `cairoOffsetFor`
+derives it from `Africa/Cairo` per date; `Check interview times` on the admin
+dashboard repairs any invite that drifted, and leaves interviews that have
+already happened alone.
+
+### The decision path
+
+A committee scores its applicants in `/committee-members/` and records an
+initial decision. Accepted applicants are submitted per sub-committee, an
+admin approves the list at `/member-recruitment/` → **Approvals**, and only
+then is an acceptance email sent. Approval is recorded before the email is
+attempted: approved-but-not-told is fixable, told-but-not-recorded is not.
+
+### Member reminders
+
+The member reminder lives in the `submit` function, not in
+`send-interview-reminders`, because the thread ids it replies onto are stored
+beside the application. It authenticates with `MEMBER_REMINDER_SECRET`, falling
+back to `REMINDER_JOB_SECRET` so it can join the existing schedule:
+
+```sql
+select cron.schedule(
+  'member-interview-reminders',
+  '*/10 * * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/submit',
+    headers := '{"Content-Type":"application/json"}'::jsonb,
+    body := jsonb_build_object(
+      'mode', 'member-send-reminders',
+      'secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminder_job_secret'),
+      'apply', true
+    )
+  ) as request_id;
+  $$
+);
+```
+
+A `Reminder Sent At` stamp makes over-firing free, so a tight schedule is
+correct — a coarse one just means somebody is reminded 40 minutes before
+instead of 60.
+
+### When Google fails
+
+Booking an interview never fails because Google did: the row is written and the
+slot held even with no calendar invite and no email. The other half of that
+bargain is on the dashboard — applicants holding a slot with no Meet link get a
+**Send the invite and email** button that rebuilds both without touching the
+time they already have.
 
 ## Local testing
 
