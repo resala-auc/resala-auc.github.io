@@ -660,7 +660,69 @@ export const committees: Committee[] = seeds.map((seed) => ({
   contacts: [GENERAL_CONTACT]
 }));
 
+/**
+ * The general volunteer path.
+ *
+ * Not a committee and deliberately not in the list above, so it never appears
+ * in a lane's grid: somebody choosing this is choosing not to join a committee
+ * at all. No sub-committee, no interview, no committee questions — they come
+ * to what they can and help on the day.
+ */
+export const GENERAL_VOLUNTEER_ID = "general-volunteer";
+
+export const generalVolunteer: Committee = {
+  id: GENERAL_VOLUNTEER_ID,
+  name: "General Volunteer",
+  displayName: "General Volunteer",
+  stepTitle: "General Volunteer",
+  vow: "You come to what you can, and you are always welcome.",
+  whyChoose:
+    "A general volunteer is not on a committee and carries none of the weekly commitment one does. You come to the events and initiatives you can make, and you help on the day. No interview, no sub-committee — and, to be straight with you, no place in the promotions or recognition a committee member is considered for.",
+  actualWork: [
+    "Come to the events and initiatives that fit your week.",
+    "Help on the ground on the day — setup, packing, the visit itself.",
+    "Hear about what is coming through the volunteers group.",
+    "Move onto a committee later if you decide you want more."
+  ],
+  guidingQuestion: "What would you like to help with, whenever you can make it?",
+  group: "backstage",
+  roles: [],
+  questions: () => [
+    {
+      id: "gv-why",
+      field: "whyThisRole",
+      eyebrow: "First",
+      prompt: "Why do you want to volunteer with Resala?",
+      placeholder: "A couple of honest sentences is plenty.",
+      required: true
+    },
+    {
+      id: "gv-what",
+      field: "whyChooseYourself",
+      eyebrow: "Second",
+      prompt: "What kind of work would you like to help with? (Visits, packing, children's activities, events, anything.)",
+      placeholder: "Whatever you would actually turn up for.",
+      required: true
+    },
+    {
+      id: "gv-when",
+      field: "hopeToLearn",
+      eyebrow: "Third",
+      prompt: "Roughly when are you usually free — weekdays, weekends, evenings?",
+      helper: "So we only send you things you could actually make.",
+      placeholder: "No need to be exact.",
+      required: true
+    }
+  ],
+  alsoAsked: () => [],
+  interviewDurationMinutes: 0,
+  interviewTask: () => ({ required: false }),
+  interviewSlots: () => [],
+  contacts: [GENERAL_CONTACT]
+};
+
 export function findCommittee(id: string | null): Committee | null {
+  if (id === GENERAL_VOLUNTEER_ID) return generalVolunteer;
   if (!id) return null;
   return committees.find((committee) => committee.id === id) ?? null;
 }

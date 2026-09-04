@@ -358,8 +358,11 @@ function renderGroups() {
     <div class="sub">
       <div class="sub-head">
         <h2>${esc(sub)}</h2>
+        ${sub === "General volunteers" ? `<span class="count">No interview, no decision — add them to the volunteers group</span>` : ""}
         <span class="count">${
-          sub === "Not assigned yet"
+          sub === "General volunteers"
+            ? `${people.length} ${people.length === 1 ? "person" : "people"}`
+            : sub === "Not assigned yet"
             ? `${people.length} waiting to be placed — open one to put them in a sub-committee`
             : `${people.length} ${people.length === 1 ? "applicant" : "applicants"}, best first`
         }</span>
@@ -443,7 +446,17 @@ function renderDialog(a) {
         : `<div class="note">No written answers on file.</div>`}
     </div>
 
-    <h3>Sub-committee</h3>
+    ${a.isGeneralVolunteer ? `
+      <div class="crit" style="margin-top:14px;">
+        <div class="label">General volunteer</div>
+        <div class="hint" style="margin-top:4px;">
+          They are not on a committee and were not interviewed. They have already been told they are in and
+          are copied to you — add them to the volunteers group. Nothing here needs scoring or deciding.
+        </div>
+        <div class="hint" style="margin-top:8px;">Phone: <b>${esc(a.phone)}</b></div>
+      </div>` : ""}
+
+    ${a.isGeneralVolunteer ? "" : `<h3>Sub-committee</h3>
     <p class="note" style="margin:0 0 8px;">
       ${a.chosenSubCommittee
         ? `They applied for <b>${esc(a.chosenSubCommittee)}</b>.`
@@ -459,9 +472,9 @@ function renderDialog(a) {
     </select>
     <div class="dlg-actions" style="margin-top:10px;">
       <button type="button" class="btn btn-ghost btn-sm" id="save-sub">Place them</button>
-    </div>
+    </div>`}
 
-    <h3>Your score</h3>
+    ${a.isGeneralVolunteer ? "" : `<h3>Your score</h3>
     <div class="criteria">
       ${state.criteria.map((c) => `
         <div class="crit">
@@ -498,13 +511,14 @@ function renderDialog(a) {
         .map((d) => `<option value="${esc(d.value)}"${a.status === d.value ? " selected" : ""}>${esc(d.label)}</option>`)
         .join("")}
     </select>
-    <p class="note" style="margin-top:8px;">Nothing is emailed to the applicant from here.</p>
+    <p class="note" style="margin-top:8px;">Nothing is emailed to the applicant from here.</p>`}
 
     <div class="msg" id="dlg-msg"></div>
     <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" data-close>Close</button>
-      <button type="button" class="btn btn-gold" id="save-score">Save score</button>
-      <button type="button" class="btn" id="save-decision">Save decision</button>
+      ${a.isGeneralVolunteer ? "" : `
+        <button type="button" class="btn btn-gold" id="save-score">Save score</button>
+        <button type="button" class="btn" id="save-decision">Save decision</button>`}
     </div>`;
 
   // Restore the notes box after a re-render, or a half-typed note is lost on

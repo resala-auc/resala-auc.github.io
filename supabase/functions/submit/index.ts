@@ -1101,6 +1101,9 @@ const MEMBER_QUESTIONS: Record<string, string[]> = {
   ]
 };
 
+/** The committee id a general volunteer's application carries. Mirrors members.ts. */
+const GENERAL_VOLUNTEER_COMMITTEE_ID = "general-volunteer";
+
 /** Where an applicant sits until somebody says otherwise. */
 const MEMBER_UNASSIGNED_SUB = "Not assigned yet";
 
@@ -1221,6 +1224,12 @@ type MemberApplicationPayload = {
   /** The sub-committee inside that committee, and its stable id. */
   subCommittee: string;
   subCommitteeId?: string;
+  /**
+   * They applied to be a general volunteer: no committee, no sub-committee,
+   * no interview. Sent as a flag rather than inferred from the committee id,
+   * so the two cannot disagree about what kind of application this is.
+   */
+  isGeneralVolunteer?: boolean;
   /*
    * Retired: the flow asked for a backup committee until the members cycle
    * replaced it with a sub-committee choice. Still accepted so an application
@@ -2818,29 +2827,46 @@ Deno.serve(async (request) => {
       await ensureSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
       await ensureMemberApplicationNotDuplicate(memberToken, payload);
 
-      // The committee's directors, its placed heads, and HR — resolved once
-      // and used for both the calendar invite and the email's Cc.
-      const memberRecipients = await getMemberCommitteeRecipients(
-        memberToken,
-        payload.committeeId,
-        payload.aucEmail
-      );
+      /*
+       * The committee's directors, its placed heads, and HR — resolved once
+       * and used for both the calendar invite and the email's Cc. A general
+       * volunteer joins no committee, so theirs is HR alone: HR is who adds
+       * them to the volunteers group, and nobody else needs telling.
+       */
+      const memberRecipients = payload.isGeneralVolunteer
+        ? await getMemberCommitteeRecipients(memberToken, MONITOR_COMMITTEE, payload.aucEmail)
+        : await getMemberCommitteeRecipients(memberToken, payload.committeeId, payload.aucEmail);
 
       let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
       let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
-      if (payload.interviewSlotId) {
+      // No interview to hold a slot for, whatever a stale tab might send.
+      if (payload.interviewSlotId && !payload.isGeneralVolunteer) {
         const reserved = await reserveMemberInterviewSlot(memberToken, payload, memberRecipients);
         memberSlotLabel = reserved.slot.label;
         memberBooking = { meetLink: reserved.meetLink, calendarEventId: reserved.calendarEventId };
       }
 
-      const memberRowIndex = await appendMemberApplication(memberToken, payload, memberSlotLabel, memberBooking);
-      const confirmation = await trySendMemberConfirmationEmail(
+      const memberRowIndex = await appendMemberApplication(
+        memberToken,
         payload,
-        memberSlotLabel,
-        memberBooking?.meetLink ?? "",
-        memberRecipients
+        payload.isGeneralVolunteer ? "" : memberSlotLabel,
+        memberBooking
       );
+
+      /*
+       * A general volunteer is told they are in, not that an interview is
+       * booked — there is no interview. It is the same email an admin sends
+       * when they place somebody as a volunteer after one, so the two arrive
+       * saying the same thing.
+       */
+      const confirmation = payload.isGeneralVolunteer
+        ? await trySendGeneralVolunteerConfirmation(payload, memberRecipients)
+        : await trySendMemberConfirmationEmail(
+            payload,
+            memberSlotLabel,
+            memberBooking?.meetLink ?? "",
+            memberRecipients
+          );
 
       // Written after the row exists, so the reminder can reply onto this very
       // thread instead of starting a second one the applicant has to connect.
@@ -3505,7 +3531,16 @@ function validateMemberApplication(payload: MemberApplicationPayload): void {
    * rather than throwing away everything the applicant typed. Which one
    * arrived is visible in the sheet — they are separate columns.
    */
-  if (!String(payload.subCommittee ?? "").trim() && !String(payload.secondPreference ?? "").trim()) {
+  /*
+   * A general volunteer joins no committee, so there is nothing to name here.
+   * Everyone else names either a sub-committee or, from a tab left open across
+   * the change, the second preference the flow used to ask for.
+   */
+  if (
+    !payload.isGeneralVolunteer &&
+    !String(payload.subCommittee ?? "").trim() &&
+    !String(payload.secondPreference ?? "").trim()
+  ) {
     throw new Error("Missing required fields: subCommittee.");
   }
 
@@ -3567,7 +3602,9 @@ async function appendMemberApplication(
     memberAnswerAt(payload, 2, payload.hopeToLearn),
     slotLabel,
     payload.interviewSlotId ?? "",
-    "Submitted",
+    // A general volunteer has already been accepted as one — there is no
+    // interview and no decision left to take.
+    payload.isGeneralVolunteer ? MEMBER_GENERAL_VOLUNTEER_STATUS : "Submitted",
     payload.createdAt,
     booking?.meetLink ?? "",
     booking?.calendarEventId ?? "",
@@ -5548,6 +5585,14 @@ async function loadMemberCommitteePortal(
   const applicants = rows
     .map((row, index) => ({ row, rowIndex: index + 2 }))
     .filter(({ row }) => {
+      /*
+       * General volunteers belong to no committee, so they would be visible to
+       * nobody. They land in HR's portal: HR is who adds them to the
+       * volunteers group, and this is where that list lives.
+       */
+      if (String(row[9] ?? "").trim() === GENERAL_VOLUNTEER_COMMITTEE_ID) {
+        return wanted === committeeKey(MONITOR_COMMITTEE);
+      }
       // The committee is stored as its member-cycle display name; the roster
       // may know it by the director's name. committeeKey collapses both.
       const byName = committeeKey(row[8] ?? "");
@@ -5582,7 +5627,10 @@ async function loadMemberCommitteePortal(
          * for anyone who applied before the flow asked.
          */
         subCommittee:
-          String(row[33] ?? "").trim() || String(row[23] ?? "").trim() || MEMBER_UNASSIGNED_SUB,
+          String(row[9] ?? "").trim() === GENERAL_VOLUNTEER_COMMITTEE_ID
+            ? "General volunteers"
+            : String(row[33] ?? "").trim() || String(row[23] ?? "").trim() || MEMBER_UNASSIGNED_SUB,
+        isGeneralVolunteer: String(row[9] ?? "").trim() === GENERAL_VOLUNTEER_COMMITTEE_ID,
         chosenSubCommittee: String(row[23] ?? "").trim(),
         assignedSubCommittee: String(row[33] ?? "").trim(),
         scores: mine.map((score) => ({
@@ -6187,6 +6235,51 @@ export function buildMemberInterviewIcs(
     contentType: "text/calendar; charset=utf-8; method=PUBLISH",
     contentBytes: new TextEncoder().encode(lines.join("\r\n"))
   };
+}
+
+/**
+ * The general volunteer's own confirmation.
+ *
+ * Sends the welcome an admin would send after an interview, because for a
+ * general volunteer there is no interview to wait for — they applied to help
+ * when they can, and that is a yes on the spot. Cc'd to HR, who add them to
+ * the volunteers group. Reports the thread the way the committee confirmation
+ * does, so anything later replies onto it.
+ */
+async function trySendGeneralVolunteerConfirmation(
+  payload: MemberApplicationPayload,
+  recipients: Array<{ email: string; name: string; positionType: string }>
+): Promise<{ sent: boolean; threadId: string; messageId: string }> {
+  if (!gmailConfigured()) return { sent: false, threadId: "", messageId: "" };
+
+  try {
+    const accessToken = await getGmailAccessToken();
+    const template = buildGeneralVolunteerEmail(payload.fullName, "");
+
+    const rawMessage = buildRawEmailMessage({
+      from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+      to: payload.aucEmail,
+      cc: recipients.map((person) => person.email).join(", "),
+      subject: template.subject,
+      text: template.text,
+      html: template.html
+    });
+
+    const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw: rawMessage })
+    });
+    if (!response.ok) return { sent: false, threadId: "", messageId: "" };
+
+    const sentMessage = await response.json();
+    return { sent: true, threadId: String(sentMessage?.threadId ?? ""), messageId: "" };
+  } catch (error) {
+    console.error(
+      `General volunteer confirmation failed for ${payload.aucEmail}: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+    return { sent: false, threadId: "", messageId: "" };
+  }
 }
 
 async function trySendMemberConfirmationEmail(

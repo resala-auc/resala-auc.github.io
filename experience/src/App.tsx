@@ -10,7 +10,13 @@ import { ActChapters } from "./acts/ActChapters";
 import { ActQuestions } from "./acts/ActQuestions";
 import { ActSlot } from "./acts/ActSlot";
 import { ActSealed } from "./acts/ActSealed";
-import { APPLICATION_DEADLINE_LABEL, applicationsClosed, findCommittee, findCommitteeRole } from "./data/members";
+import {
+  APPLICATION_DEADLINE_LABEL,
+  GENERAL_VOLUNTEER_ID,
+  applicationsClosed,
+  findCommittee,
+  findCommitteeRole
+} from "./data/members";
 import type { Committee, CommitteeRole } from "./data/members";
 import { submitApplication } from "./lib/api";
 import type { Act, ApplicationPayload, CommitteeGroup, Identity, InterviewSlot } from "./types";
@@ -134,6 +140,9 @@ export default function App() {
 
   const committee = findCommittee(committeeId);
   const role = findCommitteeRole(committee, roleId);
+  /* A general volunteer joins no committee, so there is no sub-committee to
+     pick and no interview to sit. The questions are the whole application. */
+  const isVolunteer = committeeId === GENERAL_VOLUNTEER_ID;
   const firstName = identity.fullName.trim().split(/\s+/)[0] ?? "";
 
   // A refresh mid-flow should never cost the applicant their typing.
@@ -154,7 +163,7 @@ export default function App() {
 
   const submit = async () => {
     if (!committee) throw new Error("Choose a chapter before sending your application.");
-    if (!role) throw new Error("Choose a sub-committee before sending your application.");
+    if (!isVolunteer && !role) throw new Error("Choose a sub-committee before sending your application.");
     const now = new Date().toISOString();
 
     const payload: ApplicationPayload = {
@@ -172,6 +181,8 @@ export default function App() {
       // up verbatim. The sub-committee goes into the free-text step title as well,
       // which nothing keys off of.
       roleAppliedFor: committee.name,
+      // Never a lane, and never a chapter grid.
+      isGeneralVolunteer: isVolunteer,
       roleStepTitle: role ? `${committee.stepTitle} · ${role.name}` : committee.stepTitle,
       roleDescription: role ? role.description : committee.whyChoose,
       // The sub-committee the applicant will actually sit in. Sent under its own
@@ -258,8 +269,16 @@ export default function App() {
           <ActPath
             key="path"
             onSelect={(group) => {
+              if (group === "volunteer") {
+                // Straight to the questions: there is no chapter to choose.
+                setCommitteeId(GENERAL_VOLUNTEER_ID);
+                setRoleId(null);
+                setPathGroup(group);
+                setAct("questions");
+                return;
+              }
               // Only clear the choice already made if it belongs to the lane being left.
-              if (committee && committee.group !== group) {
+              if (!committee || committee.group !== group || committeeId === GENERAL_VOLUNTEER_ID) {
                 setCommitteeId(null);
                 setRoleId(null);
               }
@@ -293,8 +312,10 @@ export default function App() {
             role={role}
             answers={answers}
             onChange={(patch) => setAnswers((current) => ({ ...current, ...patch }))}
-            onContinue={() => setAct("slot")}
-            onBack={() => setAct("chapters")}
+            // A general volunteer books nothing, so the questions are the last
+            // step and sending happens here rather than on the slot screen.
+            onContinue={isVolunteer ? submit : () => setAct("slot")}
+            onBack={() => setAct(isVolunteer ? "path" : "chapters")}
           />
         ) : null}
 

@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { Users, Wrench } from "lucide-react";
+import { HandHeart, Users, Wrench } from "lucide-react";
 import { ActLayout, TopNav } from "../components/Chrome";
 import { AnimatedHeading } from "../components/AnimatedHeading";
 import { BackLink, Eyebrow, InkDivider } from "../components/ui";
@@ -42,6 +42,13 @@ const lanes: {
     // Ramadan pack or a blood drive long before they recognise a committee.
     subtitle: "Visits · Children's Day · Ramadan packs · Blood drives · Be My Eyes",
     body: "A family's front door, a child's Saturday, a packing line. You watch the impact happen in front of you."
+  },
+  {
+    group: "volunteer",
+    icon: HandHeart,
+    title: "Neither — I want to help when I can",
+    subtitle: "General volunteer · no committee, no interview",
+    body: "Come to the events you can make and help on the day. No weekly commitment, and no place in the promotions a committee member is considered for. You are always welcome."
   }
 ];
 
@@ -60,13 +67,13 @@ export function ActPath({ onSelect, onBack }: ActPathProps) {
           <Eyebrow>Before the chapters · the lane</Eyebrow>
 
           <AnimatedHeading
-            text="Two kinds of work build a better life. Which one is yours?"
+            text="Two kinds of work build a better life — and a third way to be part of it. Which is yours?"
             className="mb-6 max-w-3xl font-serif text-3xl leading-[1.12] font-black tracking-tight text-brand-blue md:text-4xl"
           />
 
           <InkDivider icon={<Wrench className="h-5 w-5" strokeWidth={1.5} />} />
 
-          <motion.div variants={popStagger} initial="hidden" animate="show" className="grid gap-5 md:grid-cols-2">
+          <motion.div variants={popStagger} initial="hidden" animate="show" className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {lanes.map(({ group, icon: Icon, title, subtitle, body }) => (
               <motion.button
                 key={group}

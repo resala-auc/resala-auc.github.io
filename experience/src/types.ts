@@ -8,7 +8,11 @@ export type Act =
   | "slot"
   | "sealed";
 
-export type CommitteeGroup = "backstage" | "frontstage";
+/**
+ * The two lanes of committee work, plus the third answer: not a committee at
+ * all. A general volunteer picks "volunteer" and never sees a chapter grid.
+ */
+export type CommitteeGroup = "backstage" | "frontstage" | "volunteer";
 
 export type Identity = {
   fullName: string;
@@ -55,6 +59,8 @@ export type ApplicationPayload = {
   /** The sub-committee inside the chosen committee, and its stable id. */
   subCommittee: string;
   subCommitteeId: string;
+  /** No committee, no sub-committee, no interview — they help when they can. */
+  isGeneralVolunteer: boolean;
   /*
    * Stable ids alongside the display names. The names are what a human reads in
    * the sheet; these are what the dashboards match on, so a committee being
