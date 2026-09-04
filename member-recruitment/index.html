@@ -549,28 +549,37 @@ function renderDialog(a) {
   loadSlotChoices(a);
 }
 
-/* The admin picks from the committee's real board, with slots someone else
-   already holds marked rather than hidden — knowing a time is taken is more
-   useful than wondering where it went. */
+/*
+ * The times this applicant can actually be moved to, answered by the server
+ * rather than worked out here.
+ *
+ * It used to read the applicant-facing endpoint, which applies the five-day
+ * booking window — so an admin could only ever see the next five days of a
+ * three-week board, and a slot beyond that looked as though it did not exist.
+ * It then greyed out taken slots from a separately-loaded reservation list,
+ * which is a second opinion about availability and therefore a second thing to
+ * be wrong. Both portals now ask the same question of the same function.
+ */
 async function loadSlotChoices(a) {
   const sel = document.getElementById("dlg-slot");
   const btn = document.getElementById("dlg-reschedule");
   if (!sel) return;
   try {
-    const res = await fetch(`${ENDPOINT}?memberCommittee=${encodeURIComponent(a.committeeId)}`);
-    const body = await res.json();
+    const body = await api({
+      mode: "member-admin-slots",
+      email: state.admin.email,
+      committeeId: a.committeeId,
+      currentSlotId: a.interviewSlotId
+    });
     const slots = Array.isArray(body?.slots) ? body.slots : [];
-    const taken = new Set(
-      state.data.reservations
-        .filter((r) => norm(r.aucEmail) !== norm(a.aucEmail))
-        .map((r) => r.slotId)
-    );
-    sel.innerHTML = `<option value="">Choose a time…</option>` + slots
-      .map((slot) => `<option value="${esc(slot.id)}"${taken.has(slot.id) ? " disabled" : ""}>${esc(slot.label)}${taken.has(slot.id) ? " — taken" : ""}</option>`)
-      .join("");
-    if (btn) btn.disabled = false;
-  } catch {
-    sel.innerHTML = `<option value="">Could not load times</option>`;
+    sel.innerHTML = slots.length
+      ? `<option value="">Choose a time…</option>` + slots
+          .map((slot) => `<option value="${esc(slot.id)}"${slot.current ? " disabled" : ""}>${esc(slot.label)}${slot.current ? " — where they are now" : ""}</option>`)
+          .join("")
+      : `<option value="">No open times left on this board</option>`;
+    if (btn) btn.disabled = !slots.length;
+  } catch (err) {
+    sel.innerHTML = `<option value="">${esc(err.message)}</option>`;
   }
 }
 

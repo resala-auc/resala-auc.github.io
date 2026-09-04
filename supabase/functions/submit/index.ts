@@ -1302,6 +1302,12 @@ type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"
 type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
 type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
 type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
+type MemberAdminSlotsPayload = {
+  mode: "member-admin-slots";
+  email: string;
+  committeeId: string;
+  currentSlotId?: string;
+};
 type MemberAdminApprovePayload = { mode: "member-admin-approve"; email: string; rowIndexes: number[] };
 type MemberAdminReturnPayload = { mode: "member-admin-return"; email: string; rowIndexes: number[] };
 
@@ -1901,6 +1907,7 @@ type SubmissionPayload =
   | MemberAdminReturnPayload
   | MemberAdminMeetCheckPayload
   | MemberAdminResendPayload
+  | MemberAdminSlotsPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2750,6 +2757,20 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
     }
 
+    if (isMemberAdminSlotsPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const slotsToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(slotsToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        slots: await availableMemberSlots(
+          slotsToken,
+          String(payload.committeeId ?? "").trim(),
+          String(payload.currentSlotId ?? "").trim()
+        )
+      });
+    }
+
     if (isMemberResendPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const resendToken = await getGoogleAccessToken();
@@ -2993,6 +3014,10 @@ function isTeamPayload(
   payload: SubmissionPayload
 ): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
+}
+
+function isMemberAdminSlotsPayload(payload: SubmissionPayload): payload is MemberAdminSlotsPayload {
+  return (payload as MemberAdminSlotsPayload).mode === "member-admin-slots";
 }
 
 function isMemberResendPayload(payload: SubmissionPayload): payload is MemberAdminResendPayload {
@@ -3781,7 +3806,21 @@ function buildMemberSlotList(
   return slots;
 }
 
-async function getMemberInterviewSlots(token: string, committeeId: string): Promise<InterviewSlotOption[]> {
+/**
+ * The committee's board with each slot's live capacity counted from the
+ * reservation rows.
+ *
+ * `ignoreWindow` is for whoever is moving somebody else's interview. The
+ * five-day window is a rule about how far ahead an *applicant* may book
+ * themselves; applying it to a reschedule silently hid two thirds of a
+ * three-week board from the person doing the moving, so a free time on the
+ * 15th looked as though it did not exist.
+ */
+async function getMemberInterviewSlots(
+  token: string,
+  committeeId: string,
+  ignoreWindow = false
+): Promise<InterviewSlotOption[]> {
   await ensureSheetTab(token, MEMBER_SLOT_RESERVATION_SHEET_NAME);
   await ensureSheetHeaders(token, MEMBER_SLOT_RESERVATION_SHEET_NAME, MEMBER_RESERVATION_HEADERS);
 
@@ -3795,7 +3834,7 @@ async function getMemberInterviewSlots(token: string, committeeId: string): Prom
   }
 
   const now = Date.now();
-  return buildMemberSlotList(committeeId).map((slot) => {
+  return buildMemberSlotList(committeeId, new Date(), ignoreWindow).map((slot) => {
     const reservedCount = counts.get(slot.id) ?? 0;
     const remaining = Math.max(0, slot.capacity - reservedCount);
     const tooSoon = new Date(slot.startDateTime).getTime() - now < MEMBER_BOOKING_LEAD_MINUTES * 60_000;
@@ -5766,10 +5805,34 @@ async function loadMemberCommitteeSlots(
   currentSlotId: string,
   now: Date = new Date()
 ): Promise<Array<InterviewSlotOption & { current?: boolean }>> {
-  const committeeId = memberCommitteeIdFor(access.committee);
+  return availableMemberSlots(token, memberCommitteeIdFor(access.committee), currentSlotId, now);
+}
+
+/**
+ * The times somebody may actually be moved to, for whoever is doing the moving.
+ *
+ * One answer for both portals, because two answers is how a committee and an
+ * admin end up disagreeing about whether a slot is free. Capacity comes from
+ * the live reservation rows, so a slot released by a cancellation or another
+ * reschedule is offered here again on the very next load — there is no
+ * separate free/taken flag to fall out of step with the bookings.
+ *
+ * Full slots and past ones are dropped rather than shown greyed out: this is a
+ * list of choices, not an audit of the board. The one exception is the slot
+ * the applicant is already on, which is kept and marked so it cannot silently
+ * vanish from under them. The applicant's own five-day window is not applied —
+ * that exists to stop applicants booking themselves weeks out, and somebody
+ * moving an interview on their behalf is a deliberate act.
+ */
+async function availableMemberSlots(
+  token: string,
+  committeeId: string,
+  currentSlotId: string,
+  now: Date = new Date()
+): Promise<Array<InterviewSlotOption & { current?: boolean }>> {
   if (!committeeId) return [];
 
-  const slots = await getMemberInterviewSlots(token, committeeId);
+  const slots = await getMemberInterviewSlots(token, committeeId, true);
   const floor = now.getTime();
   return slots
     .filter((slot) => {

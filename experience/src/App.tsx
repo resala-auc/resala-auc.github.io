@@ -314,6 +314,7 @@ export default function App() {
             onChange={(patch) => setAnswers((current) => ({ ...current, ...patch }))}
             // A general volunteer books nothing, so the questions are the last
             // step and sending happens here rather than on the slot screen.
+            isLastStep={isVolunteer}
             onContinue={isVolunteer ? submit : () => setAct("slot")}
             onBack={() => setAct(isVolunteer ? "path" : "chapters")}
           />

@@ -16,6 +16,12 @@ type ActQuestionsProps = {
   onChange: (patch: Record<string, string>) => void;
   onContinue: () => void;
   onBack: () => void;
+  /**
+   * A general volunteer books no interview, so this screen is the last one and
+   * its button sends the application rather than moving on to a board that
+   * does not exist for them.
+   */
+  isLastStep?: boolean;
 };
 
 export function ActQuestions({
@@ -24,10 +30,14 @@ export function ActQuestions({
   answers,
   onChange,
   onContinue,
-  onBack
+  onBack,
+  isLastStep = false
 }: ActQuestionsProps) {
   const questions: ApplicationQuestion[] = committee.questions(role);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  /* Only when this screen sends the application: onContinue is a network call
+     for a general volunteer, and a second tap would file them twice. */
+  const [sending, setSending] = useState(false);
   const blocks = useRef(new Map<string, HTMLDivElement>());
 
   const submit = () => {
@@ -44,7 +54,12 @@ export function ActQuestions({
       blocks.current.get(first.id)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-    onContinue();
+    if (!isLastStep) {
+      onContinue();
+      return;
+    }
+    setSending(true);
+    void Promise.resolve(onContinue()).catch(() => setSending(false));
   };
 
   return (
@@ -116,10 +131,16 @@ export function ActQuestions({
               variants={rise}
               className="mt-12 flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:gap-6"
             >
-              <PrimaryButton onClick={submit}>
-                {SHOW_INTERVIEW_BOOKING ? "Choose your interview time" : "Last step"}
+              <PrimaryButton onClick={submit} disabled={sending}>
+                {isLastStep
+                  ? sending
+                    ? "Sending…"
+                    : "Send my application"
+                  : SHOW_INTERVIEW_BOOKING
+                    ? "Choose your interview time"
+                    : "Last step"}
               </PrimaryButton>
-              <BackLink onClick={onBack} label="Back to the chapters" />
+              <BackLink onClick={onBack} label={isLastStep ? "Back" : "Back to the chapters"} />
             </motion.div>
 
           </div>
