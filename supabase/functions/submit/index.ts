@@ -1200,6 +1200,7 @@ type CommitteeMemberReschedulePayload = { mode: "committee-member-reschedule"; e
 type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"; email: string; subCommittee: string };
 type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
 type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
+type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
 type MemberAdminApprovePayload = { mode: "member-admin-approve"; email: string; rowIndexes: number[] };
 type MemberAdminReturnPayload = { mode: "member-admin-return"; email: string; rowIndexes: number[] };
 
@@ -1795,6 +1796,7 @@ type SubmissionPayload =
   | MemberAdminApprovePayload
   | MemberAdminReturnPayload
   | MemberAdminMeetCheckPayload
+  | MemberAdminResendPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2637,6 +2639,13 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
     }
 
+    if (isMemberResendPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const resendToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(resendToken, payload.email);
+      return jsonResponse({ ok: true, ...(await resendMemberConfirmation(resendToken, payload.rowIndex)) });
+    }
+
     if (isMemberMeetCheckPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const meetToken = await getGoogleAccessToken();
@@ -2854,6 +2863,10 @@ function isTeamPayload(
   payload: SubmissionPayload
 ): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
+}
+
+function isMemberResendPayload(payload: SubmissionPayload): payload is MemberAdminResendPayload {
+  return (payload as MemberAdminResendPayload).mode === "member-admin-resend-confirmation";
 }
 
 function isMemberMeetCheckPayload(payload: SubmissionPayload): payload is MemberAdminMeetCheckPayload {
@@ -4453,6 +4466,100 @@ async function checkMeetAccess(token: string): Promise<{
   }
   meetSpacesUnavailable = false;
   return { available: false, meetingUri: "", accessType: "", detail };
+}
+
+/**
+ * Rebuilds what a failed booking never produced: the calendar invite, the Meet
+ * link, and the confirmation email.
+ *
+ * The submit path is deliberately non-fatal — an application is saved and its
+ * slot held even when Google is unreachable — which is what kept these
+ * applicants from being lost during the Gmail outage. This is the other half
+ * of that bargain: the way to finish the job afterwards, rather than a person
+ * recreating an invite by hand and hoping the applicant is told the same time.
+ *
+ * Their slot is not touched. It is already held, and re-picking it would risk
+ * losing it to somebody else in between.
+ */
+async function resendMemberConfirmation(
+  token: string,
+  rowIndex: number
+): Promise<{ fullName: string; slotLabel: string; meetLink: string; inviteCreated: boolean; emailSent: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const fullName = String(row[1] ?? "").trim();
+  const aucEmail = String(row[2] ?? "").trim();
+  const committeeId = String(row[9] ?? "").trim();
+  const slotId = String(row[16] ?? "").trim();
+
+  if (!aucEmail) throw new Error("That row has no email address.");
+  if (!slotId) throw new Error(`${fullName || "That applicant"} has no interview booked — there is nothing to send.`);
+
+  const slot = memberBoardLookup(new Date())(committeeId, slotId);
+  if (!slot) throw new Error(`Slot "${slotId}" is not on this committee's board.`);
+
+  const payload = {
+    mode: "member-submit" as const,
+    timestamp: new Date().toISOString(),
+    createdAt: String(row[18] ?? ""),
+    fullName,
+    aucEmail,
+    studentId: String(row[3] ?? ""),
+    major: String(row[4] ?? ""),
+    yearLevel: String(row[5] ?? ""),
+    phone: String(row[6] ?? ""),
+    whatsappConsent: true,
+    roleAppliedFor: String(row[8] ?? ""),
+    committeeId,
+    subCommittee: String(row[23] ?? ""),
+    subCommitteeId: String(row[24] ?? ""),
+    interviewSlot: slot.startDateTime,
+    interviewSlotId: slot.id,
+    interviewSlotLabel: slot.label
+  };
+
+  const recipients = await getMemberCommitteeRecipients(token, committeeId, aucEmail);
+
+  /*
+   * Reuse the invite if one somehow exists; the failure this repairs leaves
+   * none, and making a second would put two of the same interview on
+   * everybody's calendar.
+   */
+  let meetLink = String(row[19] ?? "").trim();
+  let calendarEventId = String(row[20] ?? "").trim();
+  let inviteCreated = false;
+  if (!calendarEventId) {
+    try {
+      const calendarToken = await getGmailAccessToken();
+      const event = await createCalendarEvent(calendarToken, memberCalendarPayload(payload), slot, recipients);
+      calendarEventId = event.calendarEventId;
+      meetLink = event.meetLink;
+      inviteCreated = true;
+      await writeMemberCells(token, rowIndex, "Meet Link", [meetLink, calendarEventId]);
+    } catch (error) {
+      // Still send the email: the time is real and held, and telling them when
+      // beats telling them nothing while somebody chases Google.
+      console.error(
+        `Could not rebuild the invite for ${aucEmail}: ${error instanceof Error ? error.message : error}`
+      );
+    }
+  }
+
+  const confirmation = await trySendMemberConfirmationEmail(payload, slot.label, meetLink, recipients);
+  if (confirmation.threadId || confirmation.messageId) {
+    await writeMemberCells(token, rowIndex, "Confirmation Thread Id", [
+      confirmation.threadId,
+      confirmation.messageId,
+      ""
+    ]);
+  }
+
+  if (!confirmation.sent) {
+    throw new Error(
+      `${fullName}'s invite ${inviteCreated ? "was created" : "could not be created"}, but the confirmation email would not send. Check the Gmail secrets.`
+    );
+  }
+
+  return { fullName, slotLabel: slot.label, meetLink, inviteCreated, emailSent: confirmation.sent };
 }
 
 /**

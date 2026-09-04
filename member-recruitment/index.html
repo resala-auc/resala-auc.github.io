@@ -912,6 +912,32 @@ document.getElementById("dlg-body").addEventListener("click", async (e) => {
   }
   const applicantOf = (btn) => state.data.applicants.find((x) => x.rowIndex === Number(btn.dataset.row));
 
+  const resendBtn = e.target.closest("#dlg-resend");
+  if (resendBtn) {
+    const a = applicantOf(resendBtn);
+    if (!a) return;
+    if (!(await confirmDialog(
+      `Send ${a.fullName} their interview invite and confirmation?\n\n` +
+      `They keep the time they already booked — ${a.interviewSlot}.\n\n` +
+      "This is a real email to the applicant, copied to their committee."
+    ))) return;
+    resendBtn.disabled = true;
+    try {
+      const r = await api({ mode: "member-admin-resend-confirmation", email: state.admin.email, rowIndex: a.rowIndex });
+      state.msg = {
+        type: "ok",
+        text: `${r.fullName} emailed for ${r.slotLabel}.` +
+          (r.inviteCreated ? " Calendar invite created." : " The invite could not be created — the email went anyway.")
+      };
+      await load(state.admin.email);
+    } catch (err) {
+      resendBtn.disabled = false;
+      state.msg = { type: "bad", text: err.message };
+      renderDialog(a);
+    }
+    return;
+  }
+
   const reBtn = e.target.closest("#dlg-reschedule");
   if (reBtn) {
     const a = applicantOf(reBtn);
