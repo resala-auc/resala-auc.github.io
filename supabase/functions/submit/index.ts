@@ -4602,24 +4602,39 @@ async function ensureTeamCommitteesSheet(token: string): Promise<void> {
   await ensureSheetHeaders(token, TEAM_COMMITTEES_SHEET_NAME, TEAM_COMMITTEES_HEADERS);
 }
 
+/**
+ * The committees on the board, one row per committee.
+ *
+ * Canonicalised and de-duplicated on the way out, not just on the way in: the
+ * sheet can already hold the same committee twice under its two names, written
+ * by an earlier version that did not know they were the same. Cleaning it only
+ * on write would leave the duplicate on screen until somebody happened to add
+ * or remove a team.
+ */
 async function readTeamCommittees(token: string): Promise<string[]> {
   await ensureTeamCommitteesSheet(token);
   const response = await sheetsFetch(token, "GET", sheetRange(TEAM_COMMITTEES_SHEET_NAME, "A2:B"));
   const rows = ((await response.json()).values ?? []) as string[][];
-  return rows.map((row) => String(row[0] ?? "").trim()).filter(Boolean);
+  return dedupeCommittees(rows.map((row) => String(row[0] ?? "").trim()).filter(Boolean));
+}
+
+/** One entry per committee, under its canonical spelling, order preserved. */
+function dedupeCommittees(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of names) {
+    const name = canonicalTeamName(raw);
+    const key = committeeKey(name);
+    if (!name || seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
 }
 
 async function writeTeamCommittees(token: string, committees: string[]): Promise<void> {
   await ensureTeamCommitteesSheet(token);
-  const seen = new Set<string>();
-  const cleaned = committees
-    .map((name) => canonicalTeamName(String(name ?? "").trim()))
-    .filter((name) => {
-      const key = committeeKey(name);
-      if (!name || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  const cleaned = dedupeCommittees(committees.map((name) => String(name ?? "").trim()));
 
   await sheetsFetch(token, "POST", `${sheetRange(TEAM_COMMITTEES_SHEET_NAME, "A2:B")}:clear`, {});
   if (cleaned.length) {
@@ -4735,15 +4750,11 @@ async function seedTeamFromAcceptedHeads(
 
   // Every committee anyone is on should exist as a committee in its own right.
   const known = await readTeamCommittees(token);
-  const merged = known.map((name: string) => canonicalTeamName(name));
-  const seen = new Set(merged.map((name: string) => committeeKey(name)));
   const fresh = await loadHierarchy(token);
-  for (const entry of [...fresh.entries, ...additions]) {
-    const name = canonicalTeamName(String(entry.department ?? "").trim());
-    if (!name || seen.has(committeeKey(name))) continue;
-    seen.add(committeeKey(name));
-    merged.push(name);
-  }
+  const merged = dedupeCommittees([
+    ...known,
+    ...[...fresh.entries, ...additions].map((entry) => String(entry.department ?? "").trim())
+  ]);
   await writeTeamCommittees(token, merged);
 
   return { added: additions.length, alreadyThere, committees: merged.length };
@@ -4804,13 +4815,10 @@ async function loadTeamBoard(token: string): Promise<{
     console.error(`Could not compare the roster to accepted heads: ${error instanceof Error ? error.message : error}`);
   }
 
-  const allCommittees = committees.map((name: string) => canonicalTeamName(name));
-  const seen = new Set(allCommittees.map((name: string) => committeeKey(name)));
-  for (const member of members) {
-    if (!member.department || seen.has(committeeKey(member.department))) continue;
-    seen.add(committeeKey(member.department));
-    allCommittees.push(member.department);
-  }
+  const allCommittees = dedupeCommittees([
+    ...committees,
+    ...members.map((member: { department: string }) => member.department)
+  ]);
 
   return { committees: allCommittees.sort((a, b) => a.localeCompare(b)), members, acceptedHeadsNotOnRoster };
 }
