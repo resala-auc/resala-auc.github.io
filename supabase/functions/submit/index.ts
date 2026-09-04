@@ -2269,7 +2269,7 @@ Deno.serve(async (request) => {
       }
 
       const token = await getGoogleAccessToken();
-      const result = await loadHierarchy(token);
+      const result = await loadHierarchy(token, true);
 
       return jsonResponse({ ok: true, ...result });
     }
@@ -4981,7 +4981,7 @@ async function getCommitteeRoster(
   token: string,
   department: string
 ): Promise<Array<{ email: string; name: string; positionType: string; interviewEmails: boolean }>> {
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const wanted = committeeKey(department);
   return entries
     .filter((entry) => committeeKey(entry.department) === wanted)
@@ -5005,7 +5005,7 @@ async function getCommitteeRoster(
 async function seedTeamFromAcceptedHeads(
   token: string
 ): Promise<{ added: number; alreadyThere: number; committees: number }> {
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const existing = new Set(
     entries.map((entry) => `${committeeKey(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
   );
@@ -5069,7 +5069,7 @@ async function seedTeamFromAcceptedHeads(
 
   // Every committee anyone is on should exist as a committee in its own right.
   const known = await readTeamCommittees(token);
-  const fresh = await loadHierarchy(token);
+  const fresh = await loadHierarchy(token, true);
   const merged = dedupeCommittees([
     ...known,
     ...[...fresh.entries, ...additions].map((entry) => String(entry.department ?? "").trim())
@@ -5086,7 +5086,7 @@ async function loadTeamBoard(token: string): Promise<{
   acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }>;
 }> {
   const [{ entries }, committees, adminEmails] = await Promise.all([
-    loadHierarchy(token),
+    loadHierarchy(token, true),
     readTeamCommittees(token),
     readRecruitmentAdminEmails(token).catch(() => new Set<string>())
   ]);
@@ -5166,7 +5166,7 @@ async function requireMemberCommitteeAccess(token: string, email: string): Promi
   const wanted = normalize(email);
   if (!wanted) throw new Error("Enter your AUC email.");
 
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const match = entries.find(
     (entry) =>
       normalize(entry.aucEmail ?? "") === wanted &&
@@ -5658,6 +5658,12 @@ export function buildMemberAcceptanceEmail(
 }
 
 /** Add or update one person. Identified by the email they are on the board under. */
+/*
+ * Read-modify-write of the whole roster, so the read must be fresh: the cache
+ * is per-isolate, and a stale copy here would rewrite the sheet without an
+ * edit somebody made in another isolate half a minute ago — losing it with no
+ * error anywhere.
+ */
 async function upsertTeamMember(
   token: string,
   member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; level?: TeamLevel; previousEmail?: string; previousDepartment?: string }
@@ -5672,7 +5678,7 @@ async function upsertTeamMember(
   if (!name) throw new Error("Give them a name.");
   if (!isValidAucEmail(aucEmail)) throw new Error("A team member needs an @aucegypt.edu address.");
 
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const targetEmail = normalize(member.previousEmail ?? aucEmail);
   const targetDepartment = committeeKey(member.previousDepartment ?? department);
 
@@ -5718,7 +5724,7 @@ async function removeTeamMember(
   const wanted = committeeKey(department);
   if (!email) throw new Error("Which person?");
 
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const keep = entries.filter(
     (entry) => !(normalize(entry.aucEmail ?? "") === email && committeeKey(entry.department) === wanted)
   );
@@ -7873,7 +7879,7 @@ async function requireCommitteeAccess(token: string, email: string): Promise<Com
   const wanted = normalize(email);
   if (!wanted) throw new Error("Enter your AUC email.");
 
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const match = entries.find(
     (entry) =>
       normalize(entry.aucEmail ?? "") === wanted &&
@@ -12044,11 +12050,19 @@ async function ensureHierarchySheet(token: string): Promise<void> {
   await ensureSheetHeaders(token, HIERARCHY_SHEET_NAME, HIERARCHY_HEADERS);
 }
 
-async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[] }> {
-  // buildApplicantCc resolves a panel per applicant, so a batch send would
-  // otherwise re-read this whole sheet once per person for an answer that does
-  // not change between them.
-  if (hierarchyCache && Date.now() - hierarchyCache.at < HIERARCHY_CACHE_MS) {
+async function loadHierarchy(token: string, fresh = false): Promise<{ entries: HierarchyEntry[] }> {
+  /*
+   * buildApplicantCc resolves a panel per applicant, so a batch send would
+   * otherwise re-read this whole sheet once per person for an answer that does
+   * not change between them.
+   *
+   * `fresh` skips it, and every access check passes it. The cache is
+   * per-isolate and a write only clears the one that made it, so a head added
+   * to the team board could be refused by another isolate for up to half a
+   * minute — which reads as "I added them and it did not work" rather than as
+   * a cache. A login is rare enough to pay for a read; a batch send is not.
+   */
+  if (!fresh && hierarchyCache && Date.now() - hierarchyCache.at < HIERARCHY_CACHE_MS) {
     return { entries: hierarchyCache.entries };
   }
 
