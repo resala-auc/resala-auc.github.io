@@ -1199,6 +1199,7 @@ type CommitteeMemberSlotsPayload = { mode: "committee-member-slots"; email: stri
 type CommitteeMemberReschedulePayload = { mode: "committee-member-reschedule"; email: string; rowIndex: number; slotId: string };
 type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"; email: string; subCommittee: string };
 type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
+type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
 type MemberAdminApprovePayload = { mode: "member-admin-approve"; email: string; rowIndexes: number[] };
 type MemberAdminReturnPayload = { mode: "member-admin-return"; email: string; rowIndexes: number[] };
 
@@ -1793,6 +1794,7 @@ type SubmissionPayload =
   | CommitteeMemberWithdrawFinalPayload
   | MemberAdminApprovePayload
   | MemberAdminReturnPayload
+  | MemberAdminMeetCheckPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2635,6 +2637,13 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
     }
 
+    if (isMemberMeetCheckPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const meetToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(meetToken, payload.email);
+      return jsonResponse({ ok: true, ...(await checkMeetAccess(await getGmailAccessToken())) });
+    }
+
     if (isMemberApprovalPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const approvalToken = await getGoogleAccessToken();
@@ -2845,6 +2854,10 @@ function isTeamPayload(
   payload: SubmissionPayload
 ): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
+}
+
+function isMemberMeetCheckPayload(payload: SubmissionPayload): payload is MemberAdminMeetCheckPayload {
+  return (payload as MemberAdminMeetCheckPayload).mode === "member-admin-meet-check";
 }
 
 function isMemberApprovalPayload(
@@ -4400,6 +4413,46 @@ async function sendMemberInterviewReminders(
   }
 
   return { apply, windowMinutes: MEMBER_REMINDER_MINUTES, due, alreadyReminded, problems };
+}
+
+/**
+ * Can this deployment actually create an open Meet space?
+ *
+ * Separate from checking the token by hand: what matters is whether the
+ * secret Supabase holds works from inside the function, which no local curl
+ * can answer. Creates one throwaway space and reports what came back — it
+ * books nothing, writes to no sheet, and emails nobody. The space is left
+ * unused, which costs nothing; the Meet API has no delete.
+ *
+ * Clears the "unavailable" flag first, so a check run after the token is
+ * fixed is not answered by a failure cached before it was.
+ */
+async function checkMeetAccess(token: string): Promise<{
+  available: boolean;
+  meetingUri: string;
+  accessType: string;
+  detail: string;
+}> {
+  meetSpacesUnavailable = false;
+  const space = await createOpenMeetSpace(token);
+  if (space) {
+    return { available: true, meetingUri: space.meetingUri, accessType: "OPEN", detail: "" };
+  }
+
+  // Ask again without the helper's error swallowing, so the report can say why.
+  let detail = "The Meet API refused, and gave no detail.";
+  try {
+    const response = await fetch(`${MEET_API}/spaces`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ config: { accessType: "OPEN", entryPointAccess: "ALL" } })
+    });
+    detail = `${response.status}: ${(await response.text()).slice(0, 400)}`;
+  } catch (error) {
+    detail = error instanceof Error ? error.message : String(error);
+  }
+  meetSpacesUnavailable = false;
+  return { available: false, meetingUri: "", accessType: "", detail };
 }
 
 /**

@@ -141,6 +141,7 @@
       <div class="bar-sub" id="bar-sub">—</div>
     </div>
     <div class="bar-spacer"></div>
+    <button id="check-meet">Check Meet access</button>
     <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
     <button id="refresh">Refresh</button>
@@ -789,6 +790,35 @@ document.getElementById("check-times").addEventListener("click", async () => {
  * so it is never sent on a single click. Already-reminded applicants are
  * skipped by the job itself, so pressing this twice cannot double-mail anyone.
  */
+/*
+ * Whether this deployment can make an open Meet space — the thing that lets an
+ * applicant with no AUC account walk into their interview instead of knocking.
+ * Books nothing, writes nothing, emails nobody; it creates one unused meeting
+ * link and reports what Google said.
+ */
+document.getElementById("check-meet").addEventListener("click", async () => {
+  const button = document.getElementById("check-meet");
+  button.disabled = true;
+  try {
+    const r = await api({ mode: "member-admin-meet-check", email: state.admin.email });
+    await noticeDialog(
+      r.available
+        ? "Open Meet spaces are working.\n\n" +
+          "Every interview booked from now on gets a meeting anyone can walk into — no knocking, no host — " +
+          "with the committee on it as co-hosts.\n\n" +
+          `Test link (nobody is in it): ${r.meetingUri}`
+        : "Open Meet spaces are NOT working, so interviews still use a meeting people may have to be let into.\n\n" +
+          `Google said:\n${r.detail}\n\n` +
+          "403 usually means the Meet API is not enabled on the project, or the refresh token is missing the " +
+          "meetings.space.created scope."
+    );
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.getElementById("send-reminders").addEventListener("click", async () => {
   const button = document.getElementById("send-reminders");
   button.disabled = true;
