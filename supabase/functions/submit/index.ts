@@ -950,7 +950,19 @@ const HIERARCHY_SHEET_NAME = "Board Hierarchy";
  * here, so it follows whoever holds the role.
  */
 const MONITOR_COMMITTEE = Deno.env.get("MONITOR_COMMITTEE") ?? "HR";
-const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email", "Phone"];
+/*
+ * Appended, never inserted: "Interview Emails" says whether this person is
+ * copied on the interview mail their committee sends. Rows written before it
+ * existed come back empty, which reads as Yes — the behaviour they already had.
+ */
+const HIERARCHY_HEADERS = ["Timestamp", "Department", "Position Type", "Name", "AUC Email", "Phone", "Interview Emails"];
+
+/*
+ * The committees themselves, so a team can exist on the board before anyone is
+ * put on it — a roster row cannot represent an empty committee.
+ */
+const TEAM_COMMITTEES_SHEET_NAME = "Board Committees";
+const TEAM_COMMITTEES_HEADERS = ["Committee", "Added At"];
 
 const BOARD_ONBOARDING_SHEET_NAME = "Board Onboarding";
 const BOARD_ONBOARDING_HEADERS = [
@@ -1101,6 +1113,25 @@ type MemberAdminCancelInterviewPayload = {
   rowIndex: number;
 };
 
+type TeamLoadPayload = { mode: "team-load"; email: string };
+type TeamSeedPayload = { mode: "team-seed"; email: string };
+type TeamUpsertMemberPayload = {
+  mode: "team-upsert-member";
+  email: string;
+  member: {
+    department: string;
+    positionType: string;
+    name: string;
+    aucEmail: string;
+    phone?: string;
+    interviewEmails?: boolean;
+    previousEmail?: string;
+    previousDepartment?: string;
+  };
+};
+type TeamRemoveMemberPayload = { mode: "team-remove-member"; email: string; aucEmail: string; department: string };
+type TeamSaveCommitteesPayload = { mode: "team-save-committees"; email: string; committees: string[] };
+
 type MemberSendRemindersPayload = {
   mode: "member-send-reminders";
   /** A scheduler proves itself with the shared secret; a person, by being an admin. */
@@ -1247,6 +1278,8 @@ type HierarchyEntry = {
   name: string;
   aucEmail?: string;
   phone?: string;
+  /** Copied on the interview emails their committee sends. Defaults to true. */
+  interviewEmails?: boolean;
 };
 
 type AdminSaveHierarchyPayload = {
@@ -1652,6 +1685,11 @@ type SubmissionPayload =
   | MemberAdminGeneralVolunteerPayload
   | MemberAdminFixInterviewTimesPayload
   | MemberSendRemindersPayload
+  | TeamLoadPayload
+  | TeamSeedPayload
+  | TeamUpsertMemberPayload
+  | TeamRemoveMemberPayload
+  | TeamSaveCommitteesPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2428,6 +2466,29 @@ Deno.serve(async (request) => {
       });
     }
 
+    if (isTeamPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const teamToken = await getGoogleAccessToken();
+      const teamAdmin = await requireRecruitmentAdmin(teamToken, payload.email);
+
+      if (payload.mode === "team-load") {
+        return jsonResponse({ ok: true, admin: teamAdmin, ...(await loadTeamBoard(teamToken)) });
+      }
+      if (payload.mode === "team-seed") {
+        return jsonResponse({ ok: true, ...(await seedTeamFromAcceptedHeads(teamToken)) });
+      }
+      if (payload.mode === "team-upsert-member") {
+        await upsertTeamMember(teamToken, payload.member);
+        return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
+      }
+      if (payload.mode === "team-remove-member") {
+        const result = await removeTeamMember(teamToken, payload.aucEmail, payload.department);
+        return jsonResponse({ ok: true, ...result, ...(await loadTeamBoard(teamToken)) });
+      }
+      await writeTeamCommittees(teamToken, payload.committees ?? []);
+      return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
+    }
+
     if (isMemberSendRemindersPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
@@ -2596,6 +2657,14 @@ function isMemberAdminSetStatusPayload(payload: SubmissionPayload): payload is M
 
 function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is MemberAdminReschedulePayload {
   return (payload as MemberAdminReschedulePayload).mode === "member-admin-reschedule";
+}
+
+const TEAM_MODES = new Set(["team-load", "team-seed", "team-upsert-member", "team-remove-member", "team-save-committees"]);
+
+function isTeamPayload(
+  payload: SubmissionPayload
+): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
+  return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
 }
 
 function isMemberSendRemindersPayload(payload: SubmissionPayload): payload is MemberSendRemindersPayload {
@@ -4389,44 +4458,388 @@ async function getMemberCommitteeRecipients(
     people.push(person);
   };
 
-  for (const director of await getCommitteePanel(token, hierarchyName)) add(director);
-
-  try {
-    for (const head of await getAcceptedHeadsForCommittee(token, hierarchyName)) add(head);
-  } catch (error) {
-    console.error(
-      `Could not load accepted heads for ${hierarchyName}: ${error instanceof Error ? error.message : error}`
-    );
+  /*
+   * Straight off the team board — directors and heads alike, in roster order,
+   * minus anyone switched off the interview emails. It used to be the
+   * directors from here plus whoever the recruitment sheet still called an
+   * accepted head, which meant a head who resigned kept being copied on every
+   * applicant's mail and there was no way to stop it.
+   */
+  for (const person of await getCommitteeRoster(token, hierarchyName).catch(() => [])) {
+    if (person.interviewEmails) add(person);
   }
 
-  for (const monitor of await getCommitteePanel(token, MONITOR_COMMITTEE).catch(() => [])) add(monitor);
+  for (const monitor of await getCommitteeRoster(token, MONITOR_COMMITTEE).catch(() => [])) {
+    if (monitor.interviewEmails) add(monitor);
+  }
+
+  /*
+   * Until the team board has been set up, heads still come from the
+   * recruitment sheet the way they always did.
+   *
+   * Without this there is a window between deploying the board and somebody
+   * first opening it where no head is copied on anything, because the roster
+   * holds only directors and nothing has pulled the heads across yet. The
+   * fallback ends the moment the board is used once — an empty Board
+   * Committees tab is what "never set up" means — and after that the roster is
+   * the only answer, which is the whole point of it.
+   */
+  try {
+    if (!(await readTeamCommittees(token)).length) {
+      const response = await sheetsFetch(
+        token,
+        "GET",
+        sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+      );
+      const wanted = committeeKey(hierarchyName);
+      for (const row of ((await response.json()).values ?? []) as string[][]) {
+        if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Yes") continue;
+        if (committeeKey(row[ACCEPTED_COMMITTEE_COLUMN] ?? "") !== wanted) continue;
+        if (!isValidAucEmail(row[2])) continue;
+        add({
+          email: String(row[2]).trim(),
+          name: String(row[1] ?? "").trim(),
+          positionType: String(row[ACCEPTED_ROLE_COLUMN] ?? "Head").trim() || "Head"
+        });
+      }
+    }
+  } catch (error) {
+    console.error(`Head fallback failed for ${hierarchyName}: ${error instanceof Error ? error.message : error}`);
+  }
 
   return people;
 }
 
-/** The heads this cycle placed on a committee — the people a new member actually joins. */
-async function getAcceptedHeadsForCommittee(
+/*
+ * ---------------------------------------------------------------------------
+ * The team board.
+ *
+ * "Board Hierarchy" is the roster of record for everyone on the team, heads
+ * included. It used to hold only directors, and who counted as a head was read
+ * off the recruitment sheet — whoever had Accepted = Yes. That could not
+ * represent the two things that actually happen to a team: somebody resigns,
+ * and somebody is brought in who never applied. Neither is expressible as an
+ * edit to a past application.
+ *
+ * So the roster is the truth, and everything that needs to know who is on a
+ * committee reads it: the interview Cc, the committee dashboard's login, the
+ * interviewer assignment. Take a head off here and they stop being copied and
+ * stop being able to sign in; add one and they start.
+ * ---------------------------------------------------------------------------
+ */
+
+async function ensureTeamCommitteesSheet(token: string): Promise<void> {
+  await ensureSheetTab(token, TEAM_COMMITTEES_SHEET_NAME);
+  await ensureSheetHeaders(token, TEAM_COMMITTEES_SHEET_NAME, TEAM_COMMITTEES_HEADERS);
+}
+
+async function readTeamCommittees(token: string): Promise<string[]> {
+  await ensureTeamCommitteesSheet(token);
+  const response = await sheetsFetch(token, "GET", sheetRange(TEAM_COMMITTEES_SHEET_NAME, "A2:B"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  return rows.map((row) => String(row[0] ?? "").trim()).filter(Boolean);
+}
+
+async function writeTeamCommittees(token: string, committees: string[]): Promise<void> {
+  await ensureTeamCommitteesSheet(token);
+  const seen = new Set<string>();
+  const cleaned = committees
+    .map((name) => String(name ?? "").trim())
+    .filter((name) => {
+      const key = normalizeRole(name);
+      if (!name || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  await sheetsFetch(token, "POST", `${sheetRange(TEAM_COMMITTEES_SHEET_NAME, "A2:B")}:clear`, {});
+  if (cleaned.length) {
+    const at = new Date().toISOString();
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(TEAM_COMMITTEES_SHEET_NAME, "A:B")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: cleaned.map((name) => [name, at]) }
+    );
+  }
+}
+
+/** Everyone on a committee, in roster order, whatever their position. */
+async function getCommitteeRoster(
   token: string,
-  hierarchyName: string
-): Promise<Array<{ email: string; name: string; positionType: string }>> {
+  department: string
+): Promise<Array<{ email: string; name: string; positionType: string; interviewEmails: boolean }>> {
+  const { entries } = await loadHierarchy(token);
+  const wanted = normalizeRole(department);
+  return entries
+    .filter((entry) => normalizeRole(entry.department) === wanted)
+    .filter((entry) => isValidAucEmail(entry.aucEmail))
+    .map((entry) => ({
+      email: String(entry.aucEmail).trim(),
+      name: String(entry.name ?? "").trim(),
+      positionType: String(entry.positionType ?? "").trim(),
+      interviewEmails: entry.interviewEmails !== false
+    }));
+}
+
+/**
+ * Copies the heads this cycle placed into the roster, once.
+ *
+ * Idempotent by email within a committee, so it can be run again after more
+ * heads are accepted without duplicating anyone, and it never overwrites a
+ * roster row a human has since edited — the roster wins, because the roster is
+ * where resignations are recorded and the recruitment sheet is not.
+ */
+async function seedTeamFromAcceptedHeads(
+  token: string
+): Promise<{ added: number; alreadyThere: number; committees: number }> {
+  const { entries } = await loadHierarchy(token);
+  const existing = new Set(
+    entries.map((entry) => `${normalizeRole(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
+  );
+
   const response = await sheetsFetch(
     token,
     "GET",
     sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
   );
   const rows = ((await response.json()).values ?? []) as string[][];
-  const wanted = committeeKey(hierarchyName);
 
-  return rows
-    .filter((row) => String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes")
-    .filter((row) => committeeKey(row[ACCEPTED_COMMITTEE_COLUMN] ?? "") === wanted)
-    .filter((row) => isValidAucEmail(row[2]))
-    .map((row) => ({
-      email: String(row[2]).trim(),
+  const additions: HierarchyEntry[] = [];
+  let alreadyThere = 0;
+  for (const row of rows) {
+    if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Yes") continue;
+    const email = String(row[2] ?? "").trim();
+    if (!isValidAucEmail(email)) continue;
+    const department = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+    if (!department) continue;
+
+    const key = `${normalizeRole(department)}::${normalize(email)}`;
+    if (existing.has(key)) {
+      alreadyThere++;
+      continue;
+    }
+    existing.add(key);
+    additions.push({
+      department,
+      positionType: String(row[ACCEPTED_ROLE_COLUMN] ?? "Head").trim() || "Head",
       name: String(row[1] ?? "").trim(),
-      positionType: String(row[ACCEPTED_ROLE_COLUMN] ?? "Head").trim() || "Head"
-    }));
+      aucEmail: email,
+      phone: String(row[6] ?? "").trim(),
+      interviewEmails: true
+    });
+  }
+
+  if (additions.length) {
+    invalidateHierarchyCache();
+    const at = new Date().toISOString();
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(HIERARCHY_SHEET_NAME, "A:G")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      {
+        values: additions.map((entry) => [
+          at,
+          entry.department,
+          entry.positionType,
+          entry.name,
+          entry.aucEmail,
+          entry.phone ?? "",
+          "Yes"
+        ])
+      }
+    );
+    invalidateHierarchyCache();
+  }
+
+  // Every committee anyone is on should exist as a committee in its own right.
+  const known = await readTeamCommittees(token);
+  const merged = [...known];
+  const seen = new Set(known.map((name: string) => normalizeRole(name)));
+  const fresh = await loadHierarchy(token);
+  for (const entry of [...fresh.entries, ...additions]) {
+    const name = String(entry.department ?? "").trim();
+    if (!name || seen.has(normalizeRole(name))) continue;
+    seen.add(normalizeRole(name));
+    merged.push(name);
+  }
+  if (merged.length !== known.length) await writeTeamCommittees(token, merged);
+
+  return { added: additions.length, alreadyThere, committees: merged.length };
 }
+
+/** The whole board, for the team dashboard. */
+async function loadTeamBoard(token: string): Promise<{
+  committees: string[];
+  members: Array<{ department: string; positionType: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
+  acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }>;
+}> {
+  const [{ entries }, committees, adminEmails] = await Promise.all([
+    loadHierarchy(token),
+    readTeamCommittees(token),
+    readRecruitmentAdminEmails(token).catch(() => new Set<string>())
+  ]);
+
+  const members = entries.map((entry: HierarchyEntry) => ({
+    department: String(entry.department ?? "").trim(),
+    positionType: String(entry.positionType ?? "").trim(),
+    name: String(entry.name ?? "").trim(),
+    aucEmail: String(entry.aucEmail ?? "").trim(),
+    phone: String(entry.phone ?? "").trim(),
+    interviewEmails: entry.interviewEmails !== false,
+    isAdmin: adminEmails.has(normalize(entry.aucEmail ?? ""))
+  }));
+
+  // Anyone the recruitment sheet still calls a head who is not on the roster —
+  // either never seeded, or deliberately taken off. Shown so the difference is
+  // visible rather than silent.
+  const onRoster = new Set(
+    members.map((m: { department: string; aucEmail: string }) => `${normalizeRole(m.department)}::${normalize(m.aucEmail)}`)
+  );
+  const acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }> = [];
+  try {
+    const response = await sheetsFetch(
+      token,
+      "GET",
+      sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+    );
+    for (const row of ((await response.json()).values ?? []) as string[][]) {
+      if (String(row[ACCEPTED_COLUMN] ?? "").trim() !== "Yes") continue;
+      const email = String(row[2] ?? "").trim();
+      const department = String(row[ACCEPTED_COMMITTEE_COLUMN] ?? "").trim();
+      if (!isValidAucEmail(email) || !department) continue;
+      if (onRoster.has(`${normalizeRole(department)}::${normalize(email)}`)) continue;
+      acceptedHeadsNotOnRoster.push({
+        department,
+        name: String(row[1] ?? "").trim(),
+        aucEmail: email,
+        positionType: String(row[ACCEPTED_ROLE_COLUMN] ?? "Head").trim() || "Head"
+      });
+    }
+  } catch (error) {
+    console.error(`Could not compare the roster to accepted heads: ${error instanceof Error ? error.message : error}`);
+  }
+
+  const allCommittees = [...committees];
+  const seen = new Set(committees.map((name: string) => normalizeRole(name)));
+  for (const member of members) {
+    if (!member.department || seen.has(normalizeRole(member.department))) continue;
+    seen.add(normalizeRole(member.department));
+    allCommittees.push(member.department);
+  }
+
+  return { committees: allCommittees.sort((a, b) => a.localeCompare(b)), members, acceptedHeadsNotOnRoster };
+}
+
+/** Add or update one person. Identified by the email they are on the board under. */
+async function upsertTeamMember(
+  token: string,
+  member: { department: string; positionType: string; name: string; aucEmail: string; phone?: string; interviewEmails?: boolean; previousEmail?: string; previousDepartment?: string }
+): Promise<{ saved: true }> {
+  const department = String(member.department ?? "").trim();
+  const positionType = String(member.positionType ?? "").trim();
+  const name = String(member.name ?? "").trim();
+  const aucEmail = String(member.aucEmail ?? "").trim();
+
+  if (!department) throw new Error("Choose a committee.");
+  if (!positionType) throw new Error("Give them a position.");
+  if (!name) throw new Error("Give them a name.");
+  if (!isValidAucEmail(aucEmail)) throw new Error("A team member needs an @aucegypt.edu address.");
+
+  const { entries } = await loadHierarchy(token);
+  const targetEmail = normalize(member.previousEmail ?? aucEmail);
+  const targetDepartment = normalizeRole(member.previousDepartment ?? department);
+
+  const next: HierarchyEntry[] = [];
+  let replaced = false;
+  for (const entry of entries) {
+    const isTarget =
+      normalize(entry.aucEmail ?? "") === targetEmail && normalizeRole(entry.department) === targetDepartment;
+    if (isTarget && !replaced) {
+      replaced = true;
+      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false });
+      continue;
+    }
+    // The same person twice on the same committee is a duplicate, not a move.
+    if (normalize(entry.aucEmail ?? "") === normalize(aucEmail) && normalizeRole(entry.department) === normalizeRole(department)) {
+      continue;
+    }
+    next.push(entry);
+  }
+  if (!replaced) {
+    next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false });
+  }
+
+  await saveHierarchy(token, { mode: "admin-save-hierarchy", entries: next });
+  return { saved: true };
+}
+
+/**
+ * Take somebody off the board, and off everything the board gave them.
+ *
+ * Removing the roster row is what stops the interview Cc and, for a director,
+ * the committee dashboard login — both read the roster live. Recruitment admin
+ * is a separate grant on its own sheet, so it is revoked here explicitly;
+ * leaving it would let someone who has resigned keep full access to every
+ * applicant's answers.
+ */
+async function removeTeamMember(
+  token: string,
+  aucEmail: string,
+  department: string
+): Promise<{ removed: number; adminRevoked: boolean; stillOnOtherCommittees: number }> {
+  const email = normalize(aucEmail);
+  const wanted = normalizeRole(department);
+  if (!email) throw new Error("Which person?");
+
+  const { entries } = await loadHierarchy(token);
+  const keep = entries.filter(
+    (entry) => !(normalize(entry.aucEmail ?? "") === email && normalizeRole(entry.department) === wanted)
+  );
+  const removed = entries.length - keep.length;
+  if (!removed) throw new Error("That person is not on this committee.");
+
+  await saveHierarchy(token, { mode: "admin-save-hierarchy", entries: keep });
+
+  const stillOnOtherCommittees = keep.filter((entry) => normalize(entry.aucEmail ?? "") === email).length;
+
+  /*
+   * Admin access is only revoked once they are off the board entirely. Somebody
+   * moving between committees keeps the access they had; somebody who has left
+   * does not.
+   */
+  let adminRevoked = false;
+  if (!stillOnOtherCommittees) {
+    adminRevoked = await revokeRecruitmentAdmin(token, aucEmail).catch((error) => {
+      console.error(`Could not revoke admin access for ${aucEmail}: ${error instanceof Error ? error.message : error}`);
+      return false;
+    });
+  }
+
+  return { removed, adminRevoked, stillOnOtherCommittees };
+}
+
+/** Drops one row from the Recruitment Admins tab. Silent if they were never on it. */
+async function revokeRecruitmentAdmin(token: string, aucEmail: string): Promise<boolean> {
+  const wanted = normalize(aucEmail);
+  if (!wanted) return false;
+
+  await ensureSheetTab(token, RECRUITMENT_ADMIN_SHEET_NAME);
+  await ensureSheetHeaders(token, RECRUITMENT_ADMIN_SHEET_NAME, RECRUITMENT_ADMIN_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(RECRUITMENT_ADMIN_SHEET_NAME, "A2:D"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const doomed: number[] = [];
+  rows.forEach((row, index) => {
+    if (normalize(row[1] ?? "") === wanted) doomed.push(index + 2);
+  });
+  if (!doomed.length) return false;
+
+  const sheetIds = await getSpreadsheetSheetIds(token);
+  await batchUpdateSpreadsheet(token, buildDeleteRowRequests(sheetIds.get(RECRUITMENT_ADMIN_SHEET_NAME), doomed));
+  return true;
+}
+
 
 /**
  * The interview as a calendar file the applicant can open anywhere.
@@ -6549,6 +6962,15 @@ async function requireCommitteeAccess(token: string, email: string): Promise<Com
  * Verifies the caller runs THIS recruitment cycle. Separate from the general
  * admin secret on purpose: other admins exist who should not see applications.
  */
+/** Every email holding recruitment-admin access, normalized. */
+async function readRecruitmentAdminEmails(token: string): Promise<Set<string>> {
+  await ensureSheetTab(token, RECRUITMENT_ADMIN_SHEET_NAME);
+  await ensureSheetHeaders(token, RECRUITMENT_ADMIN_SHEET_NAME, RECRUITMENT_ADMIN_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(RECRUITMENT_ADMIN_SHEET_NAME, "A2:D"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  return new Set(rows.map((row) => normalize(row[1] ?? "")).filter(Boolean));
+}
+
 async function requireRecruitmentAdmin(token: string, email: string): Promise<{ name: string; email: string }> {
   const wanted = normalize(email);
   if (!wanted) throw new Error("Enter your AUC email.");
@@ -10709,7 +11131,10 @@ async function loadHierarchy(token: string): Promise<{ entries: HierarchyEntry[]
       positionType: String(row[2] ?? ""),
       name: String(row[3] ?? ""),
       aucEmail: String(row[4] ?? ""),
-      phone: String(row[5] ?? "")
+      phone: String(row[5] ?? ""),
+      // Empty means Yes: every row written before this column existed was
+      // already being copied, and a blank cell must not quietly drop someone.
+      interviewEmails: normalize(row[6]) !== "no"
     }));
 
   hierarchyCache = { at: Date.now(), entries };
@@ -10724,19 +11149,30 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
       positionType: String(entry.positionType ?? "").trim(),
       name: String(entry.name ?? "").trim(),
       aucEmail: String(entry.aucEmail ?? "").trim(),
-      phone: String(entry.phone ?? "").trim()
+      phone: String(entry.phone ?? "").trim(),
+      // The old hierarchy editor does not send this field; undefined has to
+      // mean "leave them on the emails", not "take them off".
+      interviewEmails: entry.interviewEmails !== false
     }))
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
   // Anything cached from before this write is now wrong.
   invalidateHierarchyCache();
-  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:F")}:clear`, {});
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:G")}:clear`, {});
 
   if (cleaned.length) {
     const timestamp = new Date().toISOString();
-    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:F")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
-      values: cleaned.map((entry) => [timestamp, entry.department, entry.positionType, entry.name, entry.aucEmail, entry.phone])
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:G")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      values: cleaned.map((entry) => [
+        timestamp,
+        entry.department,
+        entry.positionType,
+        entry.name,
+        entry.aucEmail,
+        entry.phone,
+        entry.interviewEmails ? "Yes" : "No"
+      ])
     });
   }
 

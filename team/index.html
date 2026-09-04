@@ -1,0 +1,655 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Board — Resala AUC</title>
+<link rel="icon" href="../favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue: #0c2c80; --sky: #a7d4f2; --gold: #eac262;
+    --ivory: #fdf9f3; --ink: #1b1f23;
+    --line: #e4dccd; --muted: #6b7280; --soft: #f7f4ee;
+    --good: #1a7f4b; --warn: #9a6b00; --bad: #a3231b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ivory); color: var(--ink);
+         font: 15px/1.6 "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; }
+  .hidden { display: none !important; }
+  a { color: var(--blue); }
+
+  .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  .login-card { width: 100%; max-width: 400px; background: #fff; border: 1px solid var(--line);
+                border-radius: 18px; padding: 34px 30px; text-align: center; }
+  .login-card img { width: 68px; height: 68px; margin: 0 auto 16px; display: block; }
+  .login-card h1 { margin: 0 0 6px; font-size: 21px; color: var(--blue); }
+  .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
+  label { display: block; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: .8px; color: var(--muted); margin-bottom: 6px; }
+  input[type=email], input[type=text], input[type=tel], select {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--soft); color: var(--ink); }
+  input:focus, select:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .btn { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 700; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+  .btn-gold { background: var(--gold); color: var(--ink); }
+  .btn-ghost { background: #fff; color: var(--blue); border: 1px solid var(--line); font-weight: 600; }
+  .btn-danger { background: #fff; color: var(--bad); border: 1px solid #f0cdcb; font-weight: 600; }
+  .btn-sm { padding: 6px 11px; font-size: 13px; border-radius: 8px; }
+  .btn-block { width: 100%; margin-top: 18px; }
+  .error { margin-top: 14px; padding: 10px 12px; border-radius: 9px; background: #fdecec; color: #8c1c1c;
+           font-size: 13px; text-align: left; }
+
+  header.bar { background: var(--blue); color: #fff; padding: 14px 20px; display: flex;
+               align-items: center; gap: 14px; flex-wrap: wrap; }
+  header.bar img { width: 38px; height: 38px; }
+  .bar-title { font-weight: 700; font-size: 17px; }
+  .bar-sub { color: var(--sky); font-size: 12.5px; }
+  .bar-spacer { flex: 1; }
+  header.bar button { background: rgba(255,255,255,.12); color: #fff; border: 1px solid rgba(255,255,255,.3);
+                      border-radius: 8px; padding: 7px 13px; font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px 20px 70px; }
+
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 13px; padding: 12px 18px; min-width: 132px; }
+  .stat .v { font-size: 24px; font-weight: 700; color: var(--blue); line-height: 1.2; }
+  .stat .k { font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); font-weight: 700; }
+
+  .notice { background: #fff8e8; border: 1px solid #f0dcae; border-left: 5px solid var(--gold);
+            border-radius: 13px; padding: 15px 18px; margin-bottom: 20px; }
+  .notice h3 { margin: 0 0 5px; font-size: 15px; color: var(--blue); }
+  .notice p { margin: 0 0 12px; font-size: 14px; color: #6b5a2e; }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+  .toolbar input[type=text] { max-width: 260px; }
+
+  .team { background: #fff; border: 1px solid var(--line); border-radius: 15px; margin-bottom: 16px; overflow: hidden; }
+  .team-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line);
+               background: var(--soft); flex-wrap: wrap; }
+  .team-head h2 { margin: 0; font-size: 16.5px; color: var(--blue); }
+  .team-head .count { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .team-head .spacer { flex: 1; }
+
+  .wrap-x { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 720px; }
+  th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted);
+       font-weight: 700; padding: 9px 18px; border-bottom: 1px solid var(--line); }
+  td { padding: 11px 18px; border-bottom: 1px solid #f2ede2; vertical-align: top; font-size: 14.5px; }
+  tr:last-child td { border-bottom: 0; }
+  .note { font-size: 12.5px; color: var(--muted); }
+  .empty { padding: 18px; color: var(--muted); font-size: 14px; }
+
+  .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+  .pill.on { background: #e6f4ec; color: var(--good); }
+  .pill.off { background: #fdecec; color: var(--bad); }
+  .pill.admin { background: #eaf1fb; color: var(--blue); }
+  .row-actions { display: flex; gap: 7px; justify-content: flex-end; }
+
+  dialog { border: 0; border-radius: 16px; padding: 0; max-width: 520px; width: calc(100% - 32px);
+           box-shadow: 0 24px 60px rgba(12,44,128,.22); }
+  dialog::backdrop { background: rgba(12,44,128,.35); }
+  .dlg { padding: 24px 26px; }
+  .dlg h2 { margin: 0 0 4px; font-size: 19px; color: var(--blue); }
+  .dlg .sub { color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
+  .field { margin-bottom: 14px; }
+  .check { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 16px; }
+  .check input { margin-top: 4px; }
+  .check span { font-size: 14px; }
+  .dlg-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+  .msg { margin-top: 12px; font-size: 13.5px; min-height: 20px; }
+  .msg.ok { color: var(--good); }
+  .msg.bad { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-card">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
+    <h1>Team Board</h1>
+    <p>Who is on the team, and what they get access to.</p>
+    <label for="email">AUC email</label>
+    <input type="email" id="email" autocomplete="email" placeholder="you@aucegypt.edu">
+    <button class="btn btn-block" id="login-btn">Open the board</button>
+    <div class="error hidden" id="login-error"></div>
+  </div>
+</div>
+
+<div class="hidden" id="app">
+  <header class="bar">
+    <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
+    <div>
+      <div class="bar-title">Team Board</div>
+      <div class="bar-sub" id="bar-sub">—</div>
+    </div>
+    <div class="bar-spacer"></div>
+    <button id="refresh">Refresh</button>
+    <button id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <div class="stats" id="stats"></div>
+    <div id="seed-notice"></div>
+
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search a name, email or position">
+      <button class="btn btn-gold" id="add-member">Add someone</button>
+      <button class="btn btn-ghost" id="add-team">Add a team</button>
+    </div>
+
+    <div id="teams"></div>
+  </main>
+</div>
+
+<dialog id="member-dialog">
+  <form class="dlg" id="member-form" method="dialog">
+    <h2 id="member-title">Add someone</h2>
+    <div class="sub" id="member-sub">They are copied on their committee's interview emails from the moment you save.</div>
+
+    <div class="field">
+      <label for="m-name">Full name</label>
+      <input type="text" id="m-name" required>
+    </div>
+    <div class="field">
+      <label for="m-email">AUC email</label>
+      <input type="email" id="m-email" required placeholder="them@aucegypt.edu">
+    </div>
+    <div class="field">
+      <label for="m-team">Committee</label>
+      <select id="m-team" required></select>
+    </div>
+    <div class="field">
+      <label for="m-position">Position</label>
+      <input type="text" id="m-position" required list="position-list" placeholder="Head, Director, Vice-Director…">
+      <datalist id="position-list"></datalist>
+    </div>
+    <div class="field">
+      <label for="m-phone">Phone <span style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></label>
+      <input type="tel" id="m-phone">
+    </div>
+
+    <label class="check" for="m-cc">
+      <input type="checkbox" id="m-cc" checked>
+      <span>Copy them on this committee's interview emails.</span>
+    </label>
+
+    <div class="msg" id="member-msg"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="member-cancel">Cancel</button>
+      <button type="submit" class="btn btn-gold" id="member-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirm-dialog" style="max-width:460px;">
+  <div class="dlg">
+    <p id="confirm-message" style="margin:0 0 20px;font-size:14.5px;line-height:1.6;white-space:pre-wrap;"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="prompt-dialog" style="max-width:440px;">
+  <form class="dlg" id="prompt-form" method="dialog">
+    <h2 id="prompt-title">Add a team</h2>
+    <div class="field">
+      <label for="prompt-input" id="prompt-label">Team name</label>
+      <input type="text" id="prompt-input" required>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="prompt-cancel">Cancel</button>
+      <button type="submit" class="btn btn-gold">Add</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="report-dialog" style="max-width:560px;">
+  <div class="dlg">
+    <p id="report-message" style="margin:0 0 20px;font-size:14px;line-height:1.6;white-space:pre-wrap;"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-gold" id="report-close">Close</button>
+    </div>
+  </div>
+</dialog>
+
+<script type="module">
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+
+/* Positions that already exist on the board are offered first; these are the
+   ones a new committee is likely to need before anybody holds them. */
+const COMMON_POSITIONS = ["Director", "Vice-Director", "Head", "Co-Head"];
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+
+let state = { admin: null, committees: [], members: [], unseeded: [], search: "", editing: null };
+
+async function api(payload) {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  });
+  let body;
+  try {
+    body = await res.json();
+  } catch {
+    throw new Error(`The server answered ${res.status} with no detail.`);
+  }
+  if (!res.ok || body.ok === false) throw new Error(body.error || `The server answered ${res.status} with no detail.`);
+  return body;
+}
+
+function confirmDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("confirm-dialog");
+    document.getElementById("confirm-message").textContent = message;
+    const okBtn = document.getElementById("confirm-ok");
+    const cancelBtn = document.getElementById("confirm-cancel");
+    const finish = (result) => {
+      dlg.close();
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onOk = () => finish(true);
+    const onCancel = () => finish(false);
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+    if (!dlg.open) dlg.showModal();
+  });
+}
+
+/* A prompt of our own rather than window.prompt: the native one is styled by
+   the browser, cannot be dismissed the same way as the rest of this page, and
+   blocks everything behind it. */
+function promptDialog(title, label) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("prompt-dialog");
+    const form = document.getElementById("prompt-form");
+    const input = document.getElementById("prompt-input");
+    document.getElementById("prompt-title").textContent = title;
+    document.getElementById("prompt-label").textContent = label;
+    input.value = "";
+    const finish = (value) => {
+      dlg.close();
+      form.removeEventListener("submit", onSubmit);
+      cancel.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(value);
+    };
+    const onSubmit = (event) => { event.preventDefault(); finish(input.value.trim()); };
+    const onCancel = () => finish(null);
+    const cancel = document.getElementById("prompt-cancel");
+    form.addEventListener("submit", onSubmit);
+    cancel.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+    if (!dlg.open) dlg.showModal();
+    input.focus();
+  });
+}
+
+function noticeDialog(message) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("report-dialog");
+    document.getElementById("report-message").textContent = message;
+    const closeBtn = document.getElementById("report-close");
+    const finish = () => {
+      dlg.close();
+      closeBtn.removeEventListener("click", finish);
+      dlg.removeEventListener("cancel", finish);
+      resolve();
+    };
+    closeBtn.addEventListener("click", finish);
+    dlg.addEventListener("cancel", finish);
+    if (!dlg.open) dlg.showModal();
+  });
+}
+
+function absorb(body) {
+  if (body.admin) state.admin = body.admin;
+  if (body.committees) state.committees = body.committees;
+  if (body.members) state.members = body.members;
+  if (body.acceptedHeadsNotOnRoster) state.unseeded = body.acceptedHeadsNotOnRoster;
+}
+
+async function load(email) {
+  absorb(await api({ mode: "team-load", email }));
+  document.getElementById("login").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  document.getElementById("bar-sub").textContent = state.admin?.email ?? "";
+  render();
+}
+
+function positions() {
+  const seen = new Map();
+  for (const p of COMMON_POSITIONS) seen.set(norm(p), p);
+  for (const m of state.members) if (m.positionType) seen.set(norm(m.positionType), m.positionType);
+  return [...seen.values()];
+}
+
+function renderStats() {
+  const onEmails = state.members.filter((m) => m.interviewEmails).length;
+  const admins = state.members.filter((m) => m.isAdmin).length;
+  const cards = [
+    ["People on the board", state.members.length],
+    ["Teams", state.committees.length],
+    ["On interview emails", onEmails],
+    ["With dashboard access", admins]
+  ];
+  document.getElementById("stats").innerHTML = cards
+    .map(([k, v]) => `<div class="stat"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`)
+    .join("");
+}
+
+/* Anyone the recruitment sheet still calls an accepted head but who is not on
+   the board. On a first run that is the whole cohort waiting to be pulled in;
+   afterwards it is the people who were deliberately taken off, which is worth
+   being able to see rather than wonder about. */
+function renderSeedNotice() {
+  const el = document.getElementById("seed-notice");
+  if (!state.unseeded.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <div class="notice">
+      <h3>${state.unseeded.length} accepted head${state.unseeded.length === 1 ? " is" : "s are"} not on the board</h3>
+      <p>They were placed by the heads recruitment but have never been added here — or you removed them.
+         Pulling them in copies each onto their committee at the position they were accepted for. It changes nobody
+         already on the board.</p>
+      <button class="btn btn-gold btn-sm" id="seed-btn">Pull them onto the board</button>
+      <button class="btn btn-ghost btn-sm" id="seed-list">See who</button>
+    </div>`;
+  document.getElementById("seed-btn").addEventListener("click", seedFromAccepted);
+  document.getElementById("seed-list").addEventListener("click", () =>
+    noticeDialog(state.unseeded.map((h) => `${h.name} — ${h.positionType}, ${h.department}\n  ${h.aucEmail}`).join("\n\n"))
+  );
+}
+
+function matches(member) {
+  const q = norm(state.search);
+  if (!q) return true;
+  return [member.name, member.aucEmail, member.positionType, member.department].some((v) => norm(v).includes(q));
+}
+
+function renderTeams() {
+  const el = document.getElementById("teams");
+  if (!state.committees.length) {
+    el.innerHTML = `<div class="team"><div class="empty">No teams yet. Add one to get started.</div></div>`;
+    return;
+  }
+
+  el.innerHTML = state.committees.map((committee) => {
+    const people = state.members.filter((m) => norm(m.department) === norm(committee)).filter(matches);
+    const total = state.members.filter((m) => norm(m.department) === norm(committee)).length;
+    const rows = people.length
+      ? people.map((m) => `
+          <tr>
+            <td><b>${esc(m.name)}</b><div class="note">${esc(m.aucEmail)}</div></td>
+            <td>${esc(m.positionType)}${m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""}</td>
+            <td>
+              <span class="pill ${m.interviewEmails ? "on" : "off"}">${m.interviewEmails ? "On emails" : "Off emails"}</span>
+              ${m.isAdmin ? `<div style="margin-top:5px;"><span class="pill admin">Dashboard access</span></div>` : ""}
+            </td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-ghost btn-sm" data-edit="${esc(m.aucEmail)}" data-team="${esc(m.department)}">Edit</button>
+                <button class="btn btn-danger btn-sm" data-remove="${esc(m.aucEmail)}" data-team="${esc(m.department)}">Remove</button>
+              </div>
+            </td>
+          </tr>`).join("")
+      : `<tr><td colspan="4" class="empty">${total ? "Nobody here matches that search." : "Nobody on this team yet."}</td></tr>`;
+
+    return `
+      <div class="team">
+        <div class="team-head">
+          <h2>${esc(committee)}</h2>
+          <span class="count">${total} ${total === 1 ? "person" : "people"}</span>
+          <div class="spacer"></div>
+          <button class="btn btn-ghost btn-sm" data-add-to="${esc(committee)}">Add to this team</button>
+          <button class="btn btn-danger btn-sm" data-drop-team="${esc(committee)}">Remove team</button>
+        </div>
+        <div class="wrap-x">
+          <table>
+            <thead><tr><th>Name</th><th>Position</th><th>Access</th><th></th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function render() {
+  renderStats();
+  renderSeedNotice();
+  renderTeams();
+}
+
+// ---- member dialog --------------------------------------------------------
+
+function openMemberDialog(member, presetTeam) {
+  state.editing = member ?? null;
+  const dlg = document.getElementById("member-dialog");
+  document.getElementById("member-title").textContent = member ? "Edit someone" : "Add someone";
+  document.getElementById("member-sub").textContent = member
+    ? "Changes take effect on the next email sent — nothing already delivered changes."
+    : "They are copied on their committee's interview emails from the moment you save.";
+  document.getElementById("member-msg").textContent = "";
+  document.getElementById("member-msg").className = "msg";
+
+  document.getElementById("m-team").innerHTML = state.committees
+    .map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  document.getElementById("position-list").innerHTML = positions()
+    .map((p) => `<option value="${esc(p)}"></option>`).join("");
+
+  document.getElementById("m-name").value = member?.name ?? "";
+  document.getElementById("m-email").value = member?.aucEmail ?? "";
+  document.getElementById("m-team").value = member?.department ?? presetTeam ?? state.committees[0] ?? "";
+  document.getElementById("m-position").value = member?.positionType ?? "";
+  document.getElementById("m-phone").value = member?.phone ?? "";
+  document.getElementById("m-cc").checked = member ? member.interviewEmails !== false : true;
+
+  if (!dlg.open) dlg.showModal();
+}
+
+document.getElementById("member-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const msg = document.getElementById("member-msg");
+  const save = document.getElementById("member-save");
+  save.disabled = true;
+  msg.className = "msg";
+  msg.textContent = "Saving…";
+  try {
+    absorb(await api({
+      mode: "team-upsert-member",
+      email: state.admin.email,
+      member: {
+        name: document.getElementById("m-name").value.trim(),
+        aucEmail: document.getElementById("m-email").value.trim(),
+        department: document.getElementById("m-team").value,
+        positionType: document.getElementById("m-position").value.trim(),
+        phone: document.getElementById("m-phone").value.trim(),
+        interviewEmails: document.getElementById("m-cc").checked,
+        previousEmail: state.editing?.aucEmail,
+        previousDepartment: state.editing?.department
+      }
+    }));
+    document.getElementById("member-dialog").close();
+    render();
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  } finally {
+    save.disabled = false;
+  }
+});
+
+document.getElementById("member-cancel").addEventListener("click", () =>
+  document.getElementById("member-dialog").close());
+
+// ---- board actions --------------------------------------------------------
+
+document.getElementById("teams").addEventListener("click", async (event) => {
+  const editEmail = event.target.closest("[data-edit]")?.dataset.edit;
+  if (editEmail) {
+    const team = event.target.closest("[data-edit]").dataset.team;
+    const member = state.members.find((m) => norm(m.aucEmail) === norm(editEmail) && norm(m.department) === norm(team));
+    if (member) openMemberDialog(member);
+    return;
+  }
+
+  const addTo = event.target.closest("[data-add-to]")?.dataset.addTo;
+  if (addTo) { openMemberDialog(null, addTo); return; }
+
+  const removeEmail = event.target.closest("[data-remove]")?.dataset.remove;
+  if (removeEmail) {
+    const team = event.target.closest("[data-remove]").dataset.team;
+    const member = state.members.find((m) => norm(m.aucEmail) === norm(removeEmail) && norm(m.department) === norm(team));
+    if (!member) return;
+    const elsewhere = state.members.filter((m) => norm(m.aucEmail) === norm(removeEmail)).length - 1;
+    const lines = [
+      `Remove ${member.name} from ${team}?`,
+      "",
+      "They stop being copied on that committee's interview emails straight away."
+    ];
+    if (member.isAdmin && elsewhere === 0) {
+      lines.push("Their dashboard access is revoked too, because this is the last team they are on.");
+    } else if (elsewhere > 0) {
+      lines.push(`They stay on ${elsewhere} other team${elsewhere === 1 ? "" : "s"}, so their access is left alone.`);
+    }
+    lines.push("", "Nobody is emailed about this.");
+    if (!(await confirmDialog(lines.join("\n")))) return;
+
+    try {
+      const result = await api({ mode: "team-remove-member", email: state.admin.email, aucEmail: member.aucEmail, department: team });
+      absorb(result);
+      render();
+      await noticeDialog(
+        `${member.name} is off ${team}.` +
+          (result.adminRevoked ? "\n\nDashboard access revoked." : "") +
+          (result.stillOnOtherCommittees
+            ? `\n\nStill on ${result.stillOnOtherCommittees} other team${result.stillOnOtherCommittees === 1 ? "" : "s"}.`
+            : "")
+      );
+    } catch (error) {
+      await noticeDialog(error.message);
+    }
+    return;
+  }
+
+  const dropTeam = event.target.closest("[data-drop-team]")?.dataset.dropTeam;
+  if (dropTeam) {
+    const people = state.members.filter((m) => norm(m.department) === norm(dropTeam));
+    if (people.length) {
+      await noticeDialog(
+        `${dropTeam} still has ${people.length} ${people.length === 1 ? "person" : "people"} on it.\n\n` +
+        "Remove them first — dropping a team with people on it would leave them on the board with nowhere to be."
+      );
+      return;
+    }
+    if (!(await confirmDialog(`Remove the ${dropTeam} team? It has nobody on it.`))) return;
+    try {
+      absorb(await api({
+        mode: "team-save-committees",
+        email: state.admin.email,
+        committees: state.committees.filter((c) => norm(c) !== norm(dropTeam))
+      }));
+      render();
+    } catch (error) {
+      await noticeDialog(error.message);
+    }
+  }
+});
+
+document.getElementById("add-member").addEventListener("click", () => {
+  if (!state.committees.length) { noticeDialog("Add a team first — somebody has to be on something."); return; }
+  openMemberDialog(null);
+});
+
+document.getElementById("add-team").addEventListener("click", async () => {
+  const trimmed = await promptDialog("Add a team", "Team name");
+  if (!trimmed) return;
+  if (state.committees.some((c) => norm(c) === norm(trimmed))) {
+    await noticeDialog(`${trimmed} is already on the board.`);
+    return;
+  }
+  try {
+    absorb(await api({
+      mode: "team-save-committees",
+      email: state.admin.email,
+      committees: [...state.committees, trimmed]
+    }));
+    render();
+  } catch (error) {
+    await noticeDialog(error.message);
+  }
+});
+
+async function seedFromAccepted() {
+  const button = document.getElementById("seed-btn");
+  if (button) button.disabled = true;
+  try {
+    const result = await api({ mode: "team-seed", email: state.admin.email });
+    absorb(await api({ mode: "team-load", email: state.admin.email }));
+    render();
+    await noticeDialog(
+      `${result.added} added to the board. ${result.alreadyThere} were already on it and were left exactly as they are.`
+    );
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+document.getElementById("search").addEventListener("input", (event) => {
+  state.search = event.target.value;
+  renderTeams();
+});
+
+document.getElementById("refresh").addEventListener("click", async () => {
+  try { absorb(await api({ mode: "team-load", email: state.admin.email })); render(); }
+  catch (error) { await noticeDialog(error.message); }
+});
+
+document.getElementById("logout").addEventListener("click", () => {
+  state = { admin: null, committees: [], members: [], unseeded: [], search: "", editing: null };
+  localStorage.removeItem("resala-team-email");
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("login").classList.remove("hidden");
+});
+
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const errorEl = document.getElementById("login-error");
+  errorEl.classList.add("hidden");
+  if (!email) return;
+  try {
+    await load(email);
+    localStorage.setItem("resala-team-email", email);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.classList.remove("hidden");
+  }
+});
+
+document.getElementById("email").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") document.getElementById("login-btn").click();
+});
+
+const remembered = localStorage.getItem("resala-team-email");
+if (remembered) {
+  document.getElementById("email").value = remembered;
+  load(remembered).catch(() => {});
+}
+</script>
+</body>
+</html>
