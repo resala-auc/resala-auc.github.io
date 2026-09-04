@@ -22,6 +22,12 @@ export type ApplicationQuestion = {
   helper?: string;
   placeholder: string;
   required: boolean;
+  /**
+   * Shortest answer accepted, in characters. Defaults to 20 — enough to stop a
+   * one-word answer to a question that deserves thought. Set it low where a
+   * short answer is the honest one.
+   */
+  minLength?: number;
 };
 
 export type InterviewTask = {
@@ -711,7 +717,9 @@ export const generalVolunteer: Committee = {
       prompt: "Roughly when are you usually free — weekdays, weekends, evenings?",
       helper: "So we only send you things you could actually make.",
       placeholder: "No need to be exact.",
-      required: true
+      required: true,
+      // "Weekends" is a complete answer to this. Asking for a paragraph is not.
+      minLength: 3
     }
   ],
   alsoAsked: () => [],

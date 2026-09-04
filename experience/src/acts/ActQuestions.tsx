@@ -38,13 +38,27 @@ export function ActQuestions({
   /* Only when this screen sends the application: onContinue is a network call
      for a general volunteer, and a second tap would file them twice. */
   const [sending, setSending] = useState(false);
+  /* Swallowing this is why a failed send looked like a button that does
+     nothing: it went back to normal and said not one word about why. */
+  const [sendError, setSendError] = useState<string | null>(null);
   const blocks = useRef(new Map<string, HTMLDivElement>());
 
   const submit = () => {
     const found: Record<string, string> = {};
     for (const question of questions) {
-      if (question.required && (answers[question.id] ?? "").trim().length < 20) {
-        found[question.id] = "This one needs a real answer, at least a couple of sentences.";
+      /*
+       * Most questions want a real answer. A few genuinely do not — "when are
+       * you usually free" is honestly answered with "weekends", and demanding
+       * a paragraph for it blocks the form over nothing.
+       */
+      const minimum = question.minLength ?? 20;
+      if (question.required && (answers[question.id] ?? "").trim().length < minimum) {
+        found[question.id] =
+          minimum > 20
+            ? "This one needs a fuller answer."
+            : minimum <= 3
+              ? "This one is still empty."
+              : "This one needs a real answer, at least a couple of sentences.";
       }
     }
     setErrors(found);
@@ -59,7 +73,11 @@ export function ActQuestions({
       return;
     }
     setSending(true);
-    void Promise.resolve(onContinue()).catch(() => setSending(false));
+    setSendError(null);
+    void Promise.resolve(onContinue()).catch((error: unknown) => {
+      setSendError(error instanceof Error ? error.message : "Something went wrong. Please try again.");
+      setSending(false);
+    });
   };
 
   return (
@@ -126,6 +144,17 @@ export function ActQuestions({
                 </div>
               ))}
             </div>
+
+            {sendError ? (
+              <motion.p
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                role="alert"
+                className="mt-8 text-sm font-medium text-brand-blue"
+              >
+                {sendError}
+              </motion.p>
+            ) : null}
 
             <motion.div
               variants={rise}
