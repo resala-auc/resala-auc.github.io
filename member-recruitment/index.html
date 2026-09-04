@@ -640,6 +640,7 @@ function renderApprovals() {
   el.innerHTML = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([key, people]) => {
     const [committee, sub] = key.split("\u0000");
     const pending = people.filter((a) => !a.approvedAt);
+    const unsent = people.filter((a) => a.approvedAt && !a.acceptanceSentAt);
     const emailed = people.filter((a) => a.acceptanceSentAt).length;
     return `
     <div class="committee-group">
@@ -668,7 +669,12 @@ function renderApprovals() {
               ${pending.length
                 ? `<button class="btn btn-gold btn-sm" data-approve="${esc(key)}">Approve ${pending.length} and email them</button>
                    <button class="btn btn-ghost btn-sm" data-return="${esc(key)}">Send back</button>`
-                : `<span class="note">Nothing here is waiting on you.</span>`}
+                : unsent.length
+                  /* Approved, but the email did not go — the case the send is
+                     designed to survive. Without this it had no way back. */
+                  ? `<button class="btn btn-gold btn-sm" data-approve="${esc(key)}">Send the ${unsent.length} acceptance email${unsent.length === 1 ? "" : "s"}</button>
+                     <span class="note">Approved already — this only sends what did not go out.</span>`
+                  : `<span class="note">Nothing here is waiting on you.</span>`}
             </td>
           </tr>
         </tbody>
@@ -684,7 +690,10 @@ document.getElementById("view-approvals").addEventListener("click", async (event
   if (!key) return;
 
   const people = (state.data?.applicants ?? []).filter(
-    (a) => a.submittedAt && !a.approvedAt && `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}` === key
+    (a) =>
+      a.submittedAt &&
+      !a.acceptanceSentAt &&
+      `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}` === key
   );
   if (!people.length) return;
   const [committee, sub] = key.split("\u0000");
@@ -694,7 +703,7 @@ document.getElementById("view-approvals").addEventListener("click", async (event
     if (!(await confirmDialog(
       `Accept ${people.length} ${people.length === 1 ? "person" : "people"} into ${committee} · ${sub}?\n\n` +
       names + (people.length > 15 ? `\n  …and ${people.length - 15} more` : "") +
-      "\n\nEach one is emailed that they are in, as a reply on their own confirmation thread. This is the message they will treat as final."
+      "\n\nEach one is emailed that they are in, as a reply on their own confirmation thread — the message they will treat as final — and joins the team board as a member of their sub-committee."
     ))) return;
 
     try {
@@ -704,6 +713,7 @@ document.getElementById("view-approvals").addEventListener("click", async (event
       renderAll();
       await noticeDialog(
         `${r.emailed} accepted and emailed.` +
+        (r.addedToTeam ? `\n${r.addedToTeam} added to the team board as members of their sub-committee.` : "") +
         (r.failures?.length
           ? `\n\n${r.failures.length} did not go out:\n` + r.failures.map((f) => `  ${f.fullName} — ${f.reason}`).join("\n")
           : "")

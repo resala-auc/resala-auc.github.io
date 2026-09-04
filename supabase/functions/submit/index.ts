@@ -4750,6 +4750,56 @@ async function resendMemberConfirmation(
 }
 
 /**
+ * Puts newly accepted applicants on the team board, as members of the
+ * sub-committee they were placed in.
+ *
+ * Acceptance and joining the team were two separate acts, so somebody could be
+ * emailed "you're in" and then not exist anywhere the committee could see
+ * them. This closes that: approving a list is what makes them members.
+ *
+ * Appended in one write rather than through upsertTeamMember, which rewrites
+ * the entire roster — doing that once per person would be slow and would race
+ * with itself across a list of thirty. Anyone already on that committee is
+ * skipped, so re-running it adds nobody twice.
+ *
+ * They go on with interview emails switched off. A committee's members should
+ * not be copied on every applicant's interview mail, and a cohort of them
+ * would bury the people who should.
+ */
+async function addAcceptedMembersToRoster(
+  token: string,
+  people: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }>
+): Promise<number> {
+  if (!people.length) return 0;
+
+  const { entries } = await loadHierarchy(token, true);
+  const already = new Set(
+    entries.map((entry) => `${committeeKey(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
+  );
+
+  const rows: string[][] = [];
+  const at = new Date().toISOString();
+  for (const person of people) {
+    const department = canonicalTeamName(person.department);
+    const key = `${committeeKey(department)}::${normalize(person.aucEmail)}`;
+    if (!department || !isValidAucEmail(person.aucEmail) || already.has(key)) continue;
+    already.add(key);
+    rows.push([at, department, "Member", person.name, person.aucEmail, person.phone, "No", "member", person.subCommittee]);
+  }
+  if (!rows.length) return 0;
+
+  invalidateHierarchyCache();
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: rows }
+  );
+  invalidateHierarchyCache();
+  return rows.length;
+}
+
+/**
  * Approves a committee's submitted list and tells those applicants.
  *
  * The one place an acceptance email is sent, and it sends one per applicant
@@ -4766,12 +4816,18 @@ async function approveMemberFinalList(
   token: string,
   adminEmail: string,
   rowIndexes: number[]
-): Promise<{ approved: number; emailed: number; failures: Array<{ rowIndex: number; fullName: string; reason: string }> }> {
+): Promise<{
+  approved: number;
+  emailed: number;
+  addedToTeam: number;
+  failures: Array<{ rowIndex: number; fullName: string; reason: string }>;
+}> {
   const wanted = [...new Set((rowIndexes ?? []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n >= 2))];
   if (!wanted.length) throw new Error("Nobody was selected.");
 
   const at = new Date().toISOString();
   const failures: Array<{ rowIndex: number; fullName: string; reason: string }> = [];
+  const joining: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }> = [];
   let approved = 0;
   let emailed = 0;
 
@@ -4794,6 +4850,16 @@ async function approveMemberFinalList(
       approved++;
     }
 
+    // Where they will actually sit: what the committee placed them in, or
+    // failing that what they chose when they applied.
+    joining.push({
+      department: String(row[8] ?? "").trim(),
+      subCommittee: String(row[33] ?? "").trim() || String(row[23] ?? "").trim(),
+      name: fullName,
+      aucEmail,
+      phone: String(row[6] ?? "").trim()
+    });
+
     const template = buildMemberAcceptanceEmail(fullName, String(row[8] ?? "").trim(), String(row[23] ?? "").trim());
     const sent = await sendMemberReminderEmail(
       aucEmail,
@@ -4809,7 +4875,20 @@ async function approveMemberFinalList(
     }
   }
 
-  return { approved, emailed, failures };
+  /*
+   * Last, and never allowed to undo the acceptance. If the board write fails
+   * these people are still accepted and still told so — which is true, and a
+   * missing roster row is something a person can add. The reverse is not.
+   */
+  let addedToTeam = 0;
+  try {
+    addedToTeam = await addAcceptedMembersToRoster(token, joining);
+  } catch (error) {
+    console.error(`Could not add accepted members to the team board: ${error instanceof Error ? error.message : error}`);
+    failures.push({ rowIndex: 0, fullName: "The team board", reason: "They are accepted, but were not added to the board." });
+  }
+
+  return { approved, emailed, addedToTeam, failures };
 }
 
 /** Hands a submitted list back to the committee, unapproved, with nobody emailed. */
@@ -5106,8 +5185,14 @@ async function getMemberCommitteeRecipients(
    * accepted head, which meant a head who resigned kept being copied on every
    * applicant's mail and there was no way to stop it.
    */
+  /*
+   * The committee's directors and heads. Not its members: from the moment an
+   * accepted applicant joins the board, a committee of thirty members would
+   * put thirty people on every applicant's mail and bury the handful who are
+   * actually running the interview.
+   */
   for (const person of await getCommitteeRoster(token, hierarchyName).catch(() => [])) {
-    if (person.interviewEmails) add(person);
+    if (person.interviewEmails && person.level !== "member") add(person);
   }
 
   /*
