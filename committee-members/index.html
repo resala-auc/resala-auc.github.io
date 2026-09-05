@@ -426,13 +426,26 @@ function renderDialog(a) {
     ${a.meetLink ? `<h3>Meeting</h3><a href="${esc(a.meetLink)}" target="_blank" rel="noopener">Join the interview</a>` : ""}
 
     <h3>Interview time</h3>
-    <p class="note" style="margin:0 0 8px;">
-      ${a.interviewSlot ? `Currently ${esc(a.interviewSlot)}.` : "Not booked."}
-      Moving it frees the old time for somebody else and emails them the new one.
+    <p class="note" style="margin:0 0 10px;">
+      ${a.interviewSlot
+        ? `Currently ${esc(a.interviewSlot)}. Moving it frees the old time for somebody else and emails them the new one.`
+        : "They have no interview booked — they applied before the form offered times. Booking one now emails them the full confirmation."}
+      ${a.confirmationThreadId ? "" : `<br><b>They have never been sent a confirmation.</b>`}
     </p>
-    <button type="button" class="btn btn-ghost btn-sm" id="load-slots">${
-      state.slots ? "Refresh the times" : "Show the open times"
-    }</button>
+    <div class="dlg-actions" style="justify-content:flex-start;margin:0 0 4px;">
+      <button type="button" class="btn ${a.interviewSlot ? "btn-ghost" : "btn-gold"} btn-sm" id="load-slots">${
+        state.slots
+          ? "Refresh the times"
+          : a.interviewSlot
+            ? "Show the open times"
+            : "Book an interview"
+      }</button>
+      ${a.interviewSlot && !a.confirmationThreadId
+        ? `<button type="button" class="btn btn-gold btn-sm" id="send-confirmation">Send their confirmation</button>`
+        : a.interviewSlot
+          ? `<button type="button" class="btn btn-ghost btn-sm" id="send-confirmation">Send the confirmation again</button>`
+          : ""}
+    </div>
     ${state.slots ? renderSlots(a) : ""}
 
     <h3>Their answers</h3>
@@ -556,7 +569,7 @@ function renderSlots(a) {
     </div>
     <div class="dlg-actions" style="margin-top:12px;">
       <button type="button" class="btn btn-sm" id="do-reschedule" ${chosen && chosen !== a.interviewSlotId ? "" : "disabled"}>
-        Move the interview
+        ${a.interviewSlotId ? "Move the interview" : "Book this time"}
       </button>
     </div>`;
 }
@@ -649,6 +662,39 @@ document.getElementById("dlg-body").addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.id === "send-confirmation") {
+    const never = !state.open.confirmationThreadId;
+    if (!(await confirmDialog(
+      `Send ${state.open.fullName} their interview confirmation?\n\n` +
+      (never
+        ? "They have never been sent one. This creates the calendar invite if it is missing and emails them their time."
+        : "They have had one already. This sends it again, with the same time — use it if they say it never arrived.") +
+      "\n\nA real email to the applicant, copied to your committee."
+    ))) return;
+
+    const button = event.target;
+    button.disabled = true;
+    try {
+      const r = await api({
+        mode: "committee-member-send-confirmation",
+        email: state.access.email,
+        rowIndex: state.open.rowIndex
+      });
+      absorb(r);
+      render();
+      const fresh = state.applicants.find((x) => x.rowIndex === state.open.rowIndex);
+      if (fresh) { state.open = fresh; renderDialog(fresh); }
+      document.getElementById("dlg-msg").className = "msg ok";
+      document.getElementById("dlg-msg").textContent =
+        `Sent for ${r.slotLabel}.` + (r.inviteCreated ? " The calendar invite was created." : "");
+    } catch (error) {
+      button.disabled = false;
+      document.getElementById("dlg-msg").className = "msg bad";
+      document.getElementById("dlg-msg").textContent = error.message;
+    }
+    return;
+  }
+
   if (event.target.id === "load-slots") {
     const button = event.target;
     button.disabled = true;
@@ -682,10 +728,15 @@ document.getElementById("dlg-body").addEventListener("click", async (event) => {
   if (event.target.id === "do-reschedule") {
     const slot = state.slots.find((x) => x.id === state.chosenSlot);
     if (!slot) return;
+    const firstTime = !state.open.interviewSlotId;
     if (!(await confirmDialog(
-      `Move ${state.open.fullName}'s interview to ${slot.label}?\n\n` +
-      "Their old time goes back on the board for somebody else, the old invite is withdrawn, " +
-      "and they are emailed the new time."
+      firstTime
+        ? `Book ${state.open.fullName} in at ${slot.label}?\n\n` +
+          "This creates the calendar invite and emails them the full confirmation — their time, the meeting link, " +
+          "and how to join. Copied to your committee."
+        : `Move ${state.open.fullName}'s interview to ${slot.label}?\n\n` +
+          "Their old time goes back on the board for somebody else, the old invite is withdrawn, " +
+          "and they are emailed the new time."
     ))) return;
 
     const button = event.target;
@@ -702,7 +753,9 @@ document.getElementById("dlg-body").addEventListener("click", async (event) => {
       state.slots = null;
       if (fresh) { state.open = fresh; state.chosenSlot = fresh.interviewSlotId || null; renderDialog(fresh); }
       document.getElementById("dlg-msg").className = "msg ok";
-      document.getElementById("dlg-msg").textContent = `Moved to ${slot.label}.`;
+      document.getElementById("dlg-msg").textContent = firstTime
+        ? `Booked for ${slot.label}, and their confirmation is on its way.`
+        : `Moved to ${slot.label}.`;
     } catch (error) {
       button.disabled = false;
       document.getElementById("dlg-msg").className = "msg bad";

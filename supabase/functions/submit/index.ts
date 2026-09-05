@@ -1298,6 +1298,11 @@ type CommitteeMemberAssignSubPayload = {
 };
 type CommitteeMemberSlotsPayload = { mode: "committee-member-slots"; email: string; currentSlotId?: string };
 type CommitteeMemberReschedulePayload = { mode: "committee-member-reschedule"; email: string; rowIndex: number; slotId: string };
+type CommitteeMemberSendConfirmationPayload = {
+  mode: "committee-member-send-confirmation";
+  email: string;
+  rowIndex: number;
+};
 type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"; email: string; subCommittee: string };
 type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
 type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
@@ -1901,6 +1906,7 @@ type SubmissionPayload =
   | CommitteeMemberSlotsPayload
   | CommitteeMemberAssignSubPayload
   | CommitteeMemberReschedulePayload
+  | CommitteeMemberSendConfirmationPayload
   | CommitteeMemberSubmitFinalPayload
   | CommitteeMemberWithdrawFinalPayload
   | MemberAdminApprovePayload
@@ -2724,6 +2730,8 @@ Deno.serve(async (request) => {
           payload.rowIndex,
           payload.slotId
         );
+      } else if (payload.mode === "committee-member-send-confirmation") {
+        portalResult = await sendMemberConfirmationAsCommittee(portalToken, portalAccess, payload.rowIndex);
       } else if (payload.mode === "committee-member-submit-final") {
         portalResult = await submitMemberFinalList(portalToken, portalAccess, payload.subCommittee);
       } else if (payload.mode === "committee-member-withdraw-final") {
@@ -2990,6 +2998,7 @@ const COMMITTEE_MEMBER_MODES = new Set([
   "committee-member-slots",
   "committee-member-assign-sub",
   "committee-member-reschedule",
+  "committee-member-send-confirmation",
   "committee-member-submit-final",
   "committee-member-withdraw-final"
 ]);
@@ -3003,6 +3012,7 @@ function isCommitteeMemberPayload(
   | CommitteeMemberSlotsPayload
   | CommitteeMemberAssignSubPayload
   | CommitteeMemberReschedulePayload
+  | CommitteeMemberSendConfirmationPayload
   | CommitteeMemberSubmitFinalPayload
   | CommitteeMemberWithdrawFinalPayload {
   return COMMITTEE_MEMBER_MODES.has(String((payload as { mode?: string }).mode ?? ""));
@@ -4359,16 +4369,35 @@ async function rescheduleMemberInterview(
   await writeMemberCells(token, rowIndex, "Interview Slot", [slot.label, slot.id]);
   await writeMemberCells(token, rowIndex, "Meet Link", [meetLink, calendarEventId, adminEmail, new Date().toISOString()]);
 
-  const emailSent = await trySendMemberNoticeEmail(applicantEmail, fullName, {
-    heading: "Your Interview Has Moved",
-    committee: String(row[8] ?? ""),
-    lead: previousSlotId
-      ? "Your interview has been moved to a new time."
-      : "Your interview has been scheduled.",
-    slotLabel: slot.label,
-    meetLink,
-    closing: "If this time does not work, reply to this email and we will find another."
-  });
+  /*
+   * Somebody being booked for the first time has never had a confirmation —
+   * these are the applicants who applied before the slot picker existed. They
+   * need the whole thing: which account to join from, the camera, the
+   * five-minute rule, the calendar file. The short "your interview has moved"
+   * notice assumes a confirmation they never received.
+   *
+   * Somebody actually being moved has that email already and needs only the
+   * new time.
+   */
+  const emailSent = previousSlotId
+    ? await trySendMemberNoticeEmail(applicantEmail, fullName, {
+        heading: "Your Interview Has Moved",
+        committee: String(row[8] ?? ""),
+        lead: "Your interview has been moved to a new time.",
+        slotLabel: slot.label,
+        meetLink,
+        closing: "If this time does not work, reply to this email and we will find another."
+      })
+    : await resendMemberConfirmation(token, rowIndex)
+        .then(() => true)
+        .catch((error) => {
+          console.error(
+            `Booked ${applicantEmail} but could not send their confirmation: ${
+              error instanceof Error ? error.message : error
+            }`
+          );
+          return false;
+        });
 
   return { slotLabel: slot.label, meetLink, emailSent };
 }
@@ -5750,6 +5779,7 @@ async function loadMemberCommitteePortal(
          * later and better-informed decision — and it is the only answer at all
          * for anyone who applied before the flow asked.
          */
+        confirmationThreadId: String(row[25] ?? "").trim(),
         subCommittee:
           String(row[9] ?? "").trim() === GENERAL_VOLUNTEER_COMMITTEE_ID
             ? "General volunteers"
@@ -6015,6 +6045,23 @@ async function assignMemberSubCommittee(
 
   await writeMemberCells(token, rowIndex, "Assigned Sub-committee", [match]);
   return { subCommittee: match };
+}
+
+/**
+ * Sends this committee's applicant the confirmation they never got.
+ *
+ * Same repair an admin has, scoped: the committee can only do it to their own.
+ * These are the applicants who applied before the slot picker existed, and the
+ * ones a Gmail outage caught — a held time with nobody told about it.
+ */
+async function sendMemberConfirmationAsCommittee(
+  token: string,
+  access: MemberCommitteeAccess,
+  rowIndex: number
+): Promise<{ fullName: string; slotLabel: string; meetLink: string; inviteCreated: boolean; emailSent: boolean }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  assertApplicantIsOurs(row, access);
+  return resendMemberConfirmation(token, rowIndex);
 }
 
 /**
