@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="x-apple-disable-message-reformatting">
+    <!-- Declaring both schemes stops Apple Mail and Outlook running their own blind
+         inversion, which is what turns royal-blue-on-white into near-black on
+         near-black. The dark palette below is a deliberate design instead. -->
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>8000. 1000. 100. 60.</title>
+    <!--[if mso]>
+    <style>
+      .num { font-family: Arial Black, Arial, sans-serif !important; }
+      .body-text { font-family: Arial, sans-serif !important; }
+    </style>
+    <![endif]-->
+    <style>
+      :root { color-scheme: light dark; supported-color-schemes: light dark; }
+
+      /* The pyramid is the whole design, so the taper has to survive a phone —
+         the steps shrink proportionally rather than all collapsing to one size.
+         Outlook ignores this block and keeps the desktop sizes, which is fine. */
+      @media only screen and (max-width: 480px) {
+        .num-1 { font-size: 58px !important; }
+        .num-2 { font-size: 46px !important; }
+        .num-3 { font-size: 36px !important; }
+        .num-4 { font-size: 27px !important; }
+        .pad { padding-left: 22px !important; padding-right: 22px !important; }
+        .lead { font-size: 19px !important; }
+      }
+
+      /* Dark mode. Royal Blue is a *light-ground* colour: on a dark card it falls
+         to roughly 1.5:1 and vanishes, so every blue mark moves to Sky Blue.
+         Sunshine Yellow with Charcoal text already passes on either ground, so the
+         CTA is left untouched and stays the same object in both themes. */
+      @media (prefers-color-scheme: dark) {
+        .wrap     { background: #0d111c !important; }
+        .card     { background: #161c2b !important; border-color: #2a3348 !important; }
+        .masthead { background: #101833 !important; }
+        .footer   { background: #101833 !important; }
+        .greet,
+        .turn-a,
+        .ask-b,
+        .close-b,
+        .sign-b   { color: #f4efe6 !important; }
+        .num,
+        .turn-b,
+        .ask-h,
+        .close-a,
+        .eyebrow,
+        .foot-a   { color: #a7d4f2 !important; }
+        .p,
+        .ask-p,
+        .sign-a   { color: #c3cbd9 !important; }
+        .fine,
+        .foot-b   { color: #93a0b4 !important; }
+        .askbox   { background: #1c2439 !important; border-left-color: #a7d4f2 !important; }
+      }
+
+      /* Outlook.com and the Gmail app repaint colours instead of honouring the
+         query above, and tag whatever they touched with these attributes. They are
+         the only hook available for putting the contrast back. */
+      [data-ogsc] .greet,
+      [data-ogsc] .turn-a,
+      [data-ogsc] .ask-b,
+      [data-ogsc] .close-b,
+      [data-ogsc] .sign-b   { color: #f4efe6 !important; }
+      [data-ogsc] .num,
+      [data-ogsc] .turn-b,
+      [data-ogsc] .ask-h,
+      [data-ogsc] .close-a,
+      [data-ogsc] .eyebrow,
+      [data-ogsc] .foot-a   { color: #a7d4f2 !important; }
+      [data-ogsc] .p,
+      [data-ogsc] .ask-p,
+      [data-ogsc] .sign-a   { color: #c3cbd9 !important; }
+      [data-ogsc] .fine,
+      [data-ogsc] .foot-b   { color: #93a0b4 !important; }
+      [data-ogsb] .card     { background: #161c2b !important; }
+      [data-ogsb] .askbox   { background: #1c2439 !important; }
+      /* The CTA must never be repainted: charcoal on yellow is the one pair that
+         holds on any ground, and an inverted version costs us the only button. */
+      [data-ogsb] .cta      { background: #eac262 !important; }
+      [data-ogsc] .cta-text { color: #1b1f23 !important; }
+    </style>
+  </head>
+  <body class="wrap" style="margin:0;padding:0;background:#fdf9f3;color:#1b1f23;font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+    <!-- Preheader: the answer to the subject line, before anyone opens it. -->
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">You can watch it happen. Or you can be part of it. Resala AUC is recruiting Members.</div>
+
+    <table role="presentation" class="wrap" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#fdf9f3;margin:0;padding:18px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" class="card" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background:#ffffff;border:1px solid #ece2d2;border-radius:20px;overflow:hidden;">
+
+            <!-- Masthead -->
+            <tr>
+              <td class="masthead" align="center" style="background:#0c2c80;padding:20px 28px 16px;">
+                <img src="https://resala-auc.github.io/join/resala-logo.png" alt="Resala AUC" width="72" style="display:block;width:72px;max-width:72px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto 9px;">
+                <div class="eyebrow" style="font-size:11px;line-height:1.4;letter-spacing:2.4px;text-transform:uppercase;color:#a7d4f2;font-weight:bold;">Member Recruitment &middot; 2026</div>
+              </td>
+            </tr>
+
+            <!-- Salutation -->
+            <tr>
+              <td class="pad" style="padding:24px 40px 0;">
+                <p class="body-text greet" style="margin:0;font-size:17px;line-height:1.6;color:#1b1f23;">Dear [Name],</p>
+              </td>
+            </tr>
+
+            <!-- Inverted pyramid: centred, each number a step smaller than the one
+                 above, tapering to a point on a yellow base line. Centred means the
+                 eye finishes in the middle of the card, right above the turn — so
+                 the whole block reads as one shape instead of four stray figures. -->
+            <tr>
+              <td class="pad" align="center" style="padding:18px 40px 0;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;">
+                  <tr>
+                    <td align="center" style="padding:0;">
+                      <div class="num num-1" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:76px;line-height:1.05;font-weight:900;color:#0c2c80;letter-spacing:-3px;">8000</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:0;">
+                      <div class="num num-2" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:60px;line-height:1.1;font-weight:900;color:#0c2c80;letter-spacing:-2px;">1000</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:0;">
+                      <div class="num num-3" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:46px;line-height:1.15;font-weight:900;color:#0c2c80;letter-spacing:-1px;">100</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:0 0 10px;">
+                      <div class="num num-4" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:34px;line-height:1.2;font-weight:900;color:#0c2c80;">60</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="padding:0;">
+                      <div style="width:44px;height:4px;background:#eac262;font-size:0;line-height:0;">&nbsp;</div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- The turn. Centred so it sits under the point of the pyramid. -->
+            <tr>
+              <td class="pad" align="center" style="padding:20px 40px 0;">
+                <p class="body-text lead turn-a" style="margin:0 0 6px;font-size:22px;line-height:1.45;font-weight:bold;color:#1b1f23;">You can watch Resala make a difference.</p>
+                <p class="body-text lead turn-b" style="margin:0;font-size:22px;line-height:1.45;font-weight:bold;color:#0c2c80;">Or you can be part of it.</p>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="pad" style="padding:22px 40px 0;">
+                <p class="body-text p" style="margin:0 0 14px;font-size:17px;line-height:1.7;color:#3f4650;">These are the numbers of Resala this year. Every one of them is a person &mdash; a family that opened their door, a child who learned something on a Saturday, a volunteer who turned up when it would have been easier not to.</p>
+                <p class="body-text p" style="margin:0 0 6px;font-size:17px;line-height:1.7;color:#3f4650;">The only question left:</p>
+                <p class="body-text turn-a" style="margin:0 0 20px;font-size:20px;line-height:1.5;font-weight:bold;color:#1b1f23;">Which side of them do you want to be on?</p>
+              </td>
+            </tr>
+
+            <!-- The ask -->
+            <tr>
+              <td class="pad" style="padding:0 40px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td class="askbox" style="background:#fdf9f3;border-left:5px solid #0c2c80;border-radius:4px;padding:17px 20px;">
+                      <p class="body-text ask-h" style="margin:0 0 9px;font-size:18px;line-height:1.55;font-weight:bold;color:#0c2c80;">Resala AUC is officially recruiting Members.</p>
+                      <p class="body-text ask-p" style="margin:0 0 9px;font-size:16px;line-height:1.65;color:#3f4650;">Whether you are drawn to people, events, media, logistics, fundraising or inclusion, this is your chance to show up, learn, and leave your mark. No experience needed &mdash; just turn up.</p>
+                      <p class="body-text ask-b" style="margin:0;font-size:16px;line-height:1.7;color:#1b1f23;font-weight:bold;">Eight committees are taking members. One of them is yours.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- CTA. Identical in both themes, on purpose. -->
+            <tr>
+              <td class="pad" align="center" style="padding:24px 40px 4px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto;">
+                  <tr>
+                    <td class="cta" align="center" style="background:#eac262;border-radius:12px;">
+                      <a class="cta-text" href="https://resala-auc.github.io/join/" style="display:inline-block;padding:15px 36px;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;letter-spacing:.3px;color:#1b1f23;text-decoration:none;">Apply as a Member</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td class="pad" align="center" style="padding:12px 40px 0;">
+                <p class="body-text fine" style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">Open to all AUC students &middot; Closes 20&nbsp;September</p>
+              </td>
+            </tr>
+
+            <!-- Close -->
+            <tr>
+              <td class="pad" style="padding:26px 40px 0;">
+                <p class="body-text close-a" style="margin:0 0 2px;font-size:19px;line-height:1.5;font-weight:bold;color:#0c2c80;">The numbers are waiting.</p>
+                <p class="body-text close-b" style="margin:0 0 18px;font-size:19px;line-height:1.5;color:#1b1f23;">Now it is your turn to help us make them mean something.</p>
+                <p class="body-text sign-a" style="margin:0 0 2px;font-size:16px;line-height:1.6;color:#3f4650;">Best regards,</p>
+                <p class="body-text sign-b" style="margin:0 0 26px;font-size:16px;line-height:1.6;font-weight:bold;color:#1b1f23;">Resala AUC</p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td class="footer" align="center" style="background:#0c2c80;padding:16px 28px;">
+                <p class="foot-a" style="margin:0 0 4px;font-size:15px;line-height:1.5;color:#ffffff;font-weight:bold;">beyond Ana Maly</p>
+                <p class="foot-b" style="margin:0;font-size:12px;line-height:1.6;letter-spacing:1.2px;text-transform:uppercase;color:#a7d4f2;">Build the First Step &middot; @resalaauc</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
