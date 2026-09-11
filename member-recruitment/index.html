@@ -154,6 +154,7 @@
     <div class="views" role="tablist" id="views">
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="approvals">Approvals</button>
+      <button class="tab" data-view="past">Previous cycles</button>
       <button class="tab" data-view="slots">Slots</button>
     </div>
 
@@ -189,6 +190,7 @@
     </div>
 
     <div id="view-approvals" class="hidden"></div>
+    <div id="view-past" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
 </div>
@@ -780,6 +782,125 @@ document.getElementById("view-approvals").addEventListener("click", async (event
   } catch (error) { await noticeDialog(error.message); }
 });
 
+/*
+ * Applicants from the cycles before this one, under the committee they applied
+ * to. Loaded on demand rather than with the dashboard: it reads three more
+ * sheets and nobody needs it on the way to anything else.
+ */
+async function loadPast() {
+  const el = document.getElementById("view-past");
+  el.innerHTML = `<div class="committee-group"><div class="empty">Reading the previous cycles…</div></div>`;
+  try {
+    state.past = await api({ mode: "member-admin-past-applicants", email: state.admin.email });
+    renderPast();
+  } catch (error) {
+    el.innerHTML = `<div class="committee-group"><div class="empty">${esc(error.message)}</div></div>`;
+  }
+}
+
+function renderPast() {
+  const el = document.getElementById("view-past");
+  const people = state.past?.applicants ?? [];
+  if (!people.length) {
+    el.innerHTML = `<div class="committee-group"><div class="empty">Nobody from an earlier cycle is still waiting. Anyone placed at the time, already on the team, or applying this cycle is left out — as is anyone recorded as a no-show.</div></div>`;
+    return;
+  }
+
+  const byCommittee = new Map();
+  for (const a of people) {
+    if (!byCommittee.has(a.committee)) byCommittee.set(a.committee, []);
+    byCommittee.get(a.committee).push(a);
+  }
+
+  el.innerHTML = `<div class="banner">These people applied to be heads or directors and were not placed. They wrote
+    answers, sat an interview, and were scored by the committee they applied to. Accepting one here takes them
+    straight onto the team as a member and emails them — there is no second interview.</div>` +
+    [...byCommittee.entries()].map(([committee, list]) => {
+      const subs = state.past?.subCommitteesByCommittee?.[committee] ?? [];
+      return `
+      <div class="committee-group">
+        <h2>${esc(committee)} <span class="c">${list.length} from earlier cycles</span></h2>
+        <div class="wrap-x"><table>
+          <thead><tr><th>Applicant</th><th>Score</th><th>What the interviewers wrote</th><th>Take them on</th></tr></thead>
+          <tbody>
+            ${list.map((a) => `
+              <tr>
+                <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div>
+                    <div class="note">applied for ${esc(a.appliedFor) || "a head role"} · ${esc(a.cycle)}</div>
+                    ${a.status ? `<div class="note">${esc(a.status)}</div>` : ""}</td>
+                <td>${a.averageScore === null
+                      ? `<span class="note">Not scored</span>`
+                      : `<b style="font-size:16px;">${a.averageScore.toFixed(1)}</b>
+                         <div class="note">${a.scores.length} ${a.scores.length === 1 ? "interviewer" : "interviewers"}</div>`}</td>
+                <td>${a.scores.filter((sc) => sc.notes).length
+                      ? a.scores.filter((sc) => sc.notes).map((sc) =>
+                          `<div style="margin-bottom:6px;"><b class="note">${esc(sc.interviewer)}${sc.total ? ` · ${esc(sc.total)}` : ""}</b>
+                           <div>${esc(sc.notes)}</div></div>`).join("")
+                      : `<span class="note">No notes written</span>`}
+                  ${a.answers.length
+                      ? `<button class="btn btn-ghost btn-sm" style="margin-top:4px;" data-past-answers="${esc(a.aucEmail)}">Read their answers</button>`
+                      : ""}</td>
+                <td style="min-width:210px;">
+                  ${subs.length
+                    ? `<select data-past-sub="${esc(a.aucEmail)}">
+                         <option value="">Which sub-committee?</option>
+                         ${subs.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}
+                       </select>
+                       <div style="margin-top:6px;"><button class="btn btn-gold btn-sm"
+                         data-past-accept="${esc(a.aucEmail)}">Accept as a member</button></div>`
+                    : `<span class="note">No sub-committees on file for ${esc(committee)}</span>`}
+                </td>
+              </tr>`).join("")}
+          </tbody>
+        </table></div>
+      </div>`;
+    }).join("");
+}
+
+document.getElementById("view-past").addEventListener("click", async (event) => {
+  const readEmail = event.target.closest("[data-past-answers]")?.dataset.pastAnswers;
+  if (readEmail) {
+    const a = (state.past?.applicants ?? []).find((x) => norm(x.aucEmail) === norm(readEmail));
+    if (a) await noticeDialog(a.answers.map((qa) => `${qa.question}\n${qa.answer}`).join("\n\n"));
+    return;
+  }
+
+  const acceptEmail = event.target.closest("[data-past-accept]")?.dataset.pastAccept;
+  if (!acceptEmail) return;
+  const a = (state.past?.applicants ?? []).find((x) => norm(x.aucEmail) === norm(acceptEmail));
+  if (!a) return;
+
+  const sub = document.querySelector(`[data-past-sub="${CSS.escape(a.aucEmail)}"]`)?.value ?? "";
+  if (!sub) { await noticeDialog(`Choose a sub-committee for ${a.fullName} first.`); return; }
+
+  if (!(await confirmDialog(
+    `Take ${a.fullName} onto ${a.committee} as a member of ${sub}?\n\n` +
+    "They join the team board and are emailed that they are in. There is no second interview, and no committee " +
+    "step — you are the one deciding this."
+  ))) return;
+
+  const button = event.target.closest("[data-past-accept]");
+  button.disabled = true;
+  try {
+    const r = await api({
+      mode: "member-admin-accept-past",
+      email: state.admin.email,
+      aucEmail: a.aucEmail,
+      committee: a.committee,
+      subCommittee: sub
+    });
+    state.past = r;
+    renderPast();
+    await noticeDialog(
+      `${r.fullName} is on ${r.committee} as a member of ${r.subCommittee}.` +
+      (r.emailSent ? "" : "\n\nThe acceptance email would not send — tell them yourself, and check the Gmail secrets.")
+    );
+  } catch (error) {
+    button.disabled = false;
+    await noticeDialog(error.message);
+  }
+});
+
 function renderAll() {
   renderStats();
   renderApprovals();
@@ -969,6 +1090,8 @@ document.getElementById("views").addEventListener("click", (e) => {
   for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t === btn));
   document.getElementById("view-applicants").classList.toggle("hidden", state.view !== "applicants");
   document.getElementById("view-approvals").classList.toggle("hidden", state.view !== "approvals");
+  document.getElementById("view-past").classList.toggle("hidden", state.view !== "past");
+  if (state.view === "past" && !state.past) loadPast();
   document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
 });
 

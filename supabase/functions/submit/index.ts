@@ -1307,6 +1307,14 @@ type CommitteeMemberSubmitFinalPayload = { mode: "committee-member-submit-final"
 type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-final"; email: string; subCommittee: string };
 type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
 type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
+type MemberAdminPastPayload = { mode: "member-admin-past-applicants"; email: string };
+type MemberAdminAcceptPastPayload = {
+  mode: "member-admin-accept-past";
+  email: string;
+  aucEmail: string;
+  committee: string;
+  subCommittee: string;
+};
 type MemberAdminSlotsPayload = {
   mode: "member-admin-slots";
   email: string;
@@ -1914,6 +1922,8 @@ type SubmissionPayload =
   | MemberAdminMeetCheckPayload
   | MemberAdminResendPayload
   | MemberAdminSlotsPayload
+  | MemberAdminPastPayload
+  | MemberAdminAcceptPastPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2765,6 +2775,18 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
     }
 
+    if (isPastApplicantsPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const pastToken = await getGoogleAccessToken();
+      const pastAdmin = await requireRecruitmentAdmin(pastToken, payload.email);
+
+      if (payload.mode === "member-admin-accept-past") {
+        const accepted = await acceptPastApplicant(pastToken, pastAdmin.email, payload);
+        return jsonResponse({ ok: true, ...accepted, ...(await loadPastApplicants(pastToken)) });
+      }
+      return jsonResponse({ ok: true, ...(await loadPastApplicants(pastToken)) });
+    }
+
     if (isMemberAdminSlotsPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const slotsToken = await getGoogleAccessToken();
@@ -3024,6 +3046,13 @@ function isTeamPayload(
   payload: SubmissionPayload
 ): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
+}
+
+function isPastApplicantsPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminPastPayload | MemberAdminAcceptPastPayload {
+  const mode = String((payload as { mode?: string }).mode ?? "");
+  return mode === "member-admin-past-applicants" || mode === "member-admin-accept-past";
 }
 
 function isMemberAdminSlotsPayload(payload: SubmissionPayload): payload is MemberAdminSlotsPayload {
@@ -4862,6 +4891,223 @@ async function addAcceptedMembersToRoster(
   );
   invalidateHierarchyCache();
   return rows.length;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Applicants from the cycles before this one.
+ *
+ * People who applied to be a head or a director and were not placed are not
+ * strangers: they wrote answers, sat an interview, and were scored by the
+ * committee they applied to. That work was sitting in a sheet nobody opens
+ * again. They are shown here, under the committee they applied to first, with
+ * what their interviewers actually wrote — so somebody good who was turned
+ * down for one role can be taken on for another.
+ *
+ * Recruitment portal only. A committee sees its own live applicants; deciding
+ * to reopen a past cycle is not a committee's call.
+ * ---------------------------------------------------------------------------
+ */
+
+type PastApplicant = {
+  aucEmail: string;
+  fullName: string;
+  phone: string;
+  major: string;
+  yearLevel: string;
+  committee: string;
+  appliedFor: string;
+  status: string;
+  interviewStatus: string;
+  cycle: string;
+  answers: Array<{ question: string; answer: string }>;
+  scores: Array<{ interviewer: string; committee: string; role: string; total: string; notes: string }>;
+  averageScore: number | null;
+};
+
+/**
+ * Everyone from an earlier cycle still worth a second look.
+ *
+ * Left out: anyone placed at the time, anyone already on the team board or in
+ * this cycle's member applications — they are not a second chance, they are a
+ * duplicate — and anyone recorded as a no-show, because not turning up is the
+ * one thing a score cannot speak to.
+ *
+ * First preference only. Somebody who named two committees belongs to the one
+ * they put first; showing them under both would have two committees quietly
+ * competing for the same person again.
+ */
+async function loadPastApplicants(token: string): Promise<{
+  cycles: string[];
+  applicants: PastApplicant[];
+  subCommitteesByCommittee: Record<string, string[]>;
+}> {
+  await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+
+  const width = columnLetter(HEADS_APPLICATION_HEADERS.length);
+  const [headsResponse, reservationResponse, memberResponse, scores, hierarchy] = await Promise.all([
+    sheetsFetch(token, "GET", sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${width}`)),
+    sheetsFetch(token, "GET", sheetRange(RESERVATION_SHEET_NAME, "A2:N")).catch(() => null),
+    sheetsFetch(
+      token,
+      "GET",
+      sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+    ).catch(() => null),
+    readHeadsScores(token).catch(() => [] as HeadsScoreRow[]),
+    loadHierarchy(token, true).catch(() => ({ entries: [] as HierarchyEntry[] }))
+  ]);
+
+  const rows = ((await headsResponse.json()).values ?? []) as string[][];
+
+  /*
+   * The reservation row is where an interview's outcome is actually recorded;
+   * the copy on the application row is taken at submission and goes stale.
+   */
+  const interviewStatusByEmail = new Map<string, string>();
+  if (reservationResponse) {
+    for (const row of ((await reservationResponse.json()).values ?? []) as string[][]) {
+      const email = normalize(row[4] ?? "");
+      const status = String(row[8] ?? "").trim();
+      if (email && status) interviewStatusByEmail.set(email, status);
+    }
+  }
+
+  const alreadyHere = new Set<string>();
+  for (const entry of hierarchy.entries) {
+    const email = normalize(entry.aucEmail ?? "");
+    if (email) alreadyHere.add(email);
+  }
+  if (memberResponse) {
+    for (const row of ((await memberResponse.json()).values ?? []) as string[][]) {
+      const email = normalize(row[2] ?? "");
+      if (email) alreadyHere.add(email);
+    }
+  }
+
+  const scoresByEmail = new Map<string, HeadsScoreRow[]>();
+  for (const score of scores) {
+    const key = normalize(score.applicantEmail);
+    if (!key) continue;
+    if (!scoresByEmail.has(key)) scoresByEmail.set(key, []);
+    scoresByEmail.get(key)!.push(score);
+  }
+
+  const applicants: PastApplicant[] = [];
+  for (const row of rows) {
+    const aucEmail = String(row[2] ?? "").trim();
+    if (!isValidAucEmail(aucEmail)) continue;
+    if (String(row[37] ?? "").trim() === "Yes") continue;              // placed at the time
+    if (alreadyHere.has(normalize(aucEmail))) continue;                // already with us
+
+    const interviewStatus =
+      interviewStatusByEmail.get(normalize(aucEmail)) ?? String(row[17] ?? "").trim();
+    if (normalize(interviewStatus) === "no show") continue;            // did not turn up
+
+    const committee = canonicalTeamName(String(row[7] ?? "").trim());
+    if (!committee) continue;
+
+    const answers: Array<{ question: string; answer: string }> = [];
+    for (let i = 0; i < HEADS_APPLICATION_QUESTION_SLOTS; i++) {
+      const question = String(row[20 + i * 2] ?? "").trim();
+      const answer = String(row[21 + i * 2] ?? "").trim();
+      if (answer) answers.push({ question, answer });
+    }
+
+    const mine = scoresByEmail.get(normalize(aucEmail)) ?? [];
+    const totals = mine.map((score) => Number(score.total)).filter((n) => Number.isFinite(n) && n > 0);
+
+    applicants.push({
+      aucEmail,
+      fullName: String(row[1] ?? "").trim(),
+      phone: String(row[6] ?? "").trim(),
+      major: String(row[4] ?? "").trim(),
+      yearLevel: String(row[5] ?? "").trim(),
+      committee,
+      appliedFor: String(row[9] ?? "").trim(),
+      status: String(row[18] ?? "").trim(),
+      interviewStatus,
+      cycle: "Heads 2026",
+      answers,
+      scores: mine.map((score) => ({
+        interviewer: score.interviewerName || score.interviewerEmail,
+        committee: score.committee,
+        role: score.headRole,
+        total: score.total,
+        notes: score.notes
+      })),
+      averageScore: totals.length ? totals.reduce((sum, n) => sum + n, 0) / totals.length : null
+    });
+  }
+
+  // Best first inside a committee, unscored last — the same order the live
+  // portal ranks in, so the two read the same way.
+  applicants.sort((a, b) => {
+    if (committeeKey(a.committee) !== committeeKey(b.committee)) return a.committee.localeCompare(b.committee);
+    if ((a.averageScore === null) !== (b.averageScore === null)) return a.averageScore === null ? 1 : -1;
+    if (a.averageScore !== null && b.averageScore !== null && a.averageScore !== b.averageScore) {
+      return b.averageScore - a.averageScore;
+    }
+    return a.fullName.localeCompare(b.fullName);
+  });
+
+  const subCommitteesByCommittee: Record<string, string[]> = {};
+  for (const committee of new Set(applicants.map((applicant) => applicant.committee))) {
+    subCommitteesByCommittee[committee] = subCommitteesFor(committee);
+  }
+
+  return { cycles: ["Heads 2026"], applicants, subCommitteesByCommittee };
+}
+
+/**
+ * Takes somebody from an earlier cycle onto a committee, as a member.
+ *
+ * No interview and no committee step: they sat one already, and their scores
+ * and their interviewers' notes are on the screen this was pressed from. They
+ * join the team board and are emailed that they are in — the same acceptance
+ * every other member gets, because from their side it is the same thing.
+ */
+async function acceptPastApplicant(
+  token: string,
+  adminEmail: string,
+  payload: { aucEmail: string; committee: string; subCommittee: string }
+): Promise<{ fullName: string; committee: string; subCommittee: string; emailSent: boolean }> {
+  const aucEmail = String(payload.aucEmail ?? "").trim();
+  const committee = canonicalTeamName(String(payload.committee ?? "").trim());
+  const subCommittee = String(payload.subCommittee ?? "").trim();
+
+  if (!isValidAucEmail(aucEmail)) throw new Error("That applicant has no AUC address.");
+  if (!committee) throw new Error("Which committee?");
+
+  const available = subCommitteesFor(committee);
+  const matchedSub = available.find((name) => normalize(name) === normalize(subCommittee));
+  if (!matchedSub) {
+    throw new Error(
+      available.length
+        ? `Choose one of ${committee}'s sub-committees for them.`
+        : `${committee} has no sub-committees on file.`
+    );
+  }
+
+  const { applicants } = await loadPastApplicants(token);
+  const person = applicants.find((candidate) => normalize(candidate.aucEmail) === normalize(aucEmail));
+  if (!person) throw new Error("That applicant is no longer on the previous-cycles list.");
+
+  const added = await addAcceptedMembersToRoster(token, [
+    { department: committee, subCommittee: matchedSub, name: person.fullName, aucEmail, phone: person.phone }
+  ]);
+  if (!added) throw new Error(`${person.fullName} is already on the team board.`);
+
+  /*
+   * A fresh message rather than a reply: the thread their old application went
+   * out on belongs to a cycle they were turned down in, and landing an
+   * acceptance at the bottom of it would read as an afterthought.
+   */
+  const template = buildMemberAcceptanceEmail(person.fullName, committee, matchedSub);
+  const emailSent = await sendMemberReminderEmail(aucEmail, "", template, { threadId: "", messageId: "" });
+
+  console.log(`${adminEmail} accepted ${aucEmail} from a previous cycle into ${committee} / ${matchedSub}`);
+  return { fullName: person.fullName, committee, subCommittee: matchedSub, emailSent };
 }
 
 /**
