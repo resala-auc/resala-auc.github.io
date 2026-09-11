@@ -347,7 +347,11 @@ async function api(payload) {
 async function load(email) {
   const body = await api({ mode: "member-admin-load", email });
   state.admin = body.admin;
-  state.data = { applicants: body.applicants ?? [], reservations: body.reservations ?? [] };
+  state.data = {
+    applicants: body.applicants ?? [],
+    reservations: body.reservations ?? [],
+    scoreMax: body.scoreMax ?? 20
+  };
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
   document.getElementById("bar-sub").textContent = state.admin?.email ?? "";
@@ -630,15 +634,24 @@ function renderApprovals() {
     return;
   }
 
+  /*
+   * Grouped by committee and sub-committee, but the group is addressed by its
+   * position in this list rather than by a key written into the DOM. The key
+   * used to be the two names joined by a NUL: the HTML parser replaces a NUL
+   * in an attribute with U+FFFD, so what came back out of dataset never
+   * equalled what went in, the filter matched nobody, and both buttons did
+   * nothing at all. An index cannot be mangled on the way through.
+   */
   const groups = new Map();
   for (const a of rows) {
-    const key = `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}`;
+    const key = `${a.committee || "—"} · ${a.subCommittee || "Not placed yet"}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(a);
   }
+  state.approvalGroups = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y));
 
-  el.innerHTML = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([key, people]) => {
-    const [committee, sub] = key.split("\u0000");
+  const outOf = (state.data?.scoreMax ?? 20);
+  el.innerHTML = state.approvalGroups.map(([label, people], groupIndex) => {
     const pending = people.filter((a) => !a.approvedAt);
     const unsent = people.filter((a) => a.approvedAt && !a.acceptanceSentAt);
     const emailed = people.filter((a) => a.acceptanceSentAt).length;
@@ -646,33 +659,47 @@ function renderApprovals() {
     <div class="committee-group">
       <div class="wrap-x"><table>
         <thead><tr>
-          <th colspan="4">${esc(committee)} · ${esc(sub)} — ${people.length} submitted${
-            emailed ? `, ${emailed} emailed` : ""
-          }</th>
+          <th colspan="4">${esc(label)} — ${people.length} submitted${emailed ? `, ${emailed} emailed` : ""}</th>
         </tr></thead>
         <tbody>
           ${people.map((a) => `
             <tr>
-              <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div></td>
-              <td>${esc(a.status)}</td>
-              <td>${
-                a.acceptanceSentAt
+              <td><b>${esc(a.fullName)}</b><div class="note">${esc(a.aucEmail)}</div>
+                  <div class="note">sent up by ${esc(a.submittedBy)}</div></td>
+              <td>
+                ${a.averageScore === null || a.averageScore === undefined
+                  ? `<span class="note">Not scored</span>`
+                  : `<b style="font-size:16px;">${a.averageScore.toFixed(1)}</b><span class="note"> / ${outOf}</span>
+                     <div class="note">${a.scoreCount} ${a.scoreCount === 1 ? "interviewer" : "interviewers"}</div>`}
+              </td>
+              <td>
+                ${(a.scores ?? []).filter((sc) => sc.notes).length
+                  ? (a.scores ?? []).filter((sc) => sc.notes).map((sc) =>
+                      `<div style="margin-bottom:6px;"><b class="note">${esc(sc.scorerName)} · ${sc.total}/${outOf}</b>
+                       <div>${esc(sc.notes)}</div></div>`).join("")
+                  : `<span class="note">No notes written</span>`}
+              </td>
+              <td style="white-space:nowrap;">
+                ${a.acceptanceSentAt
                   ? `<span class="pill done">Accepted &amp; emailed</span>`
                   : a.approvedAt
                     ? `<span class="pill part">Approved, not emailed</span>`
-                    : `<span class="pill open">Waiting on you</span>`
-              }<div class="note">sent up by ${esc(a.submittedBy)}</div></td>
-              <td></td>
+                    : `<span class="pill open">Waiting on you</span>`}
+                ${a.acceptanceSentAt
+                  ? ""
+                  : `<div style="margin-top:6px;"><button class="btn btn-ghost btn-sm"
+                       data-return-one="${esc(a.rowIndex)}">Send back</button></div>`}
+              </td>
             </tr>`).join("")}
           <tr>
             <td colspan="4">
               ${pending.length
-                ? `<button class="btn btn-gold btn-sm" data-approve="${esc(key)}">Approve ${pending.length} and email them</button>
-                   <button class="btn btn-ghost btn-sm" data-return="${esc(key)}">Send back</button>`
+                ? `<button class="btn btn-gold btn-sm" data-approve="${groupIndex}">Approve ${pending.length} and email them</button>
+                   <button class="btn btn-ghost btn-sm" data-return="${groupIndex}">Send the whole list back</button>`
                 : unsent.length
                   /* Approved, but the email did not go — the case the send is
                      designed to survive. Without this it had no way back. */
-                  ? `<button class="btn btn-gold btn-sm" data-approve="${esc(key)}">Send the ${unsent.length} acceptance email${unsent.length === 1 ? "" : "s"}</button>
+                  ? `<button class="btn btn-gold btn-sm" data-approve="${groupIndex}">Send the ${unsent.length} acceptance email${unsent.length === 1 ? "" : "s"}</button>
                      <span class="note">Approved already — this only sends what did not go out.</span>`
                   : `<span class="note">Nothing here is waiting on you.</span>`}
             </td>
@@ -684,24 +711,43 @@ function renderApprovals() {
 }
 
 document.getElementById("view-approvals").addEventListener("click", async (event) => {
-  const approveKey = event.target.closest("[data-approve]")?.dataset.approve;
-  const returnKey = event.target.closest("[data-return]")?.dataset.return;
-  const key = approveKey ?? returnKey;
-  if (!key) return;
+  /* One applicant handed back on their own, so a single doubtful decision does
+     not cost the committee the whole list. */
+  const oneRow = event.target.closest("[data-return-one]")?.dataset.returnOne;
+  if (oneRow) {
+    const a = (state.data?.applicants ?? []).find((x) => String(x.rowIndex) === String(oneRow));
+    if (!a) return;
+    if (!(await confirmDialog(
+      `Send ${a.fullName} back to ${a.committee}?\n\n` +
+      "They leave your approvals list and return to the committee, who can change their decision and " +
+      "submit them again. Nobody is emailed."
+    ))) return;
+    try {
+      await api({ mode: "member-admin-return", email: state.admin.email, rowIndexes: [a.rowIndex] });
+      await load(state.admin.email);
+      state.view = "approvals";
+      renderAll();
+    } catch (error) { await noticeDialog(error.message); }
+    return;
+  }
 
-  const people = (state.data?.applicants ?? []).filter(
-    (a) =>
-      a.submittedAt &&
-      !a.acceptanceSentAt &&
-      `${a.committee || "—"}\u0000${a.subCommittee || "Not given"}` === key
-  );
+  const approveIndex = event.target.closest("[data-approve]")?.dataset.approve;
+  const returnIndex = event.target.closest("[data-return]")?.dataset.return;
+  const groupIndex = approveIndex ?? returnIndex;
+  if (groupIndex === undefined) return;
+
+  const group = (state.approvalGroups ?? [])[Number(groupIndex)];
+  if (!group) return;
+  const [label, all] = group;
+  const people = all.filter((a) => a.submittedAt && !a.acceptanceSentAt);
   if (!people.length) return;
-  const [committee, sub] = key.split("\u0000");
+  const approveKey = approveIndex !== undefined;
+  const committee = label;
 
   if (approveKey) {
     const names = people.slice(0, 15).map((a) => `  ${a.fullName}`).join("\n");
     if (!(await confirmDialog(
-      `Accept ${people.length} ${people.length === 1 ? "person" : "people"} into ${committee} · ${sub}?\n\n` +
+      `Accept ${people.length} ${people.length === 1 ? "person" : "people"} into ${committee}?\n\n` +
       names + (people.length > 15 ? `\n  …and ${people.length - 15} more` : "") +
       "\n\nEach one is emailed that they are in, as a reply on their own confirmation thread — the message they will treat as final — and joins the team board as a member of their sub-committee."
     ))) return;
@@ -722,7 +768,10 @@ document.getElementById("view-approvals").addEventListener("click", async (event
     return;
   }
 
-  if (!(await confirmDialog(`Send ${committee} · ${sub} back to the committee? Nobody is emailed.`))) return;
+  if (!(await confirmDialog(
+    `Send the whole ${committee} list back?\n\n` +
+    `All ${people.length} return to the committee to be reconsidered. Nobody is emailed.`
+  ))) return;
   try {
     await api({ mode: "member-admin-return", email: state.admin.email, rowIndexes: people.map((a) => a.rowIndex) });
     await load(state.admin.email);

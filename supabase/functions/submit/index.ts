@@ -3969,8 +3969,10 @@ const MEMBER_COMMITTEE_IDS = [
 ];
 
 async function loadMemberAdmin(token: string): Promise<{
-  applicants: Array<Record<string, string | number>>;
+  applicants: Array<Record<string, unknown>>;
   reservations: Array<Record<string, string>>;
+  /** What a score is out of, so the dashboard never hardcodes the rubric's size. */
+  scoreMax: number;
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
   await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
@@ -3981,6 +3983,17 @@ async function loadMemberAdmin(token: string): Promise<{
     sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
   );
   const appRows: string[][] = (await appResponse.json()).values ?? [];
+
+  /*
+   * The committee's scores, so an admin approving a list can see what the
+   * people who sat the interview actually thought. Approving on a name alone
+   * is signing something you have not read. Never allowed to fail the load —
+   * the dashboard is more useful without scores than not at all.
+   */
+  const adminScores = await readMemberScores(token).catch((error) => {
+    console.error(`Could not read member scores: ${error instanceof Error ? error.message : error}`);
+    return [] as Awaited<ReturnType<typeof readMemberScores>>;
+  });
   const applicants = appRows.map((row, index) => ({
     rowIndex: index + 2,
     timestamp: row[0] ?? "",
@@ -4005,7 +4018,15 @@ async function loadMemberAdmin(token: string): Promise<{
     meetLink: row[19] ?? "",
     calendarEventId: row[20] ?? "",
     // Columns 21/22 are Decision By / Decision At.
-    subCommittee: row[23] ?? "",
+    /*
+     * Where they will actually sit. The committee places the applicants who
+     * never chose — the ones who applied before the form asked — into column
+     * 33, and reading only column 23 filed every one of them under "Not
+     * given" here, including after a director had placed them.
+     */
+    subCommittee: String(row[33] ?? "").trim() || String(row[23] ?? "").trim(),
+    chosenSubCommittee: row[23] ?? "",
+    assignedSubCommittee: row[33] ?? "",
     subCommitteeId: row[24] ?? "",
     /*
      * Gmail assigns a thread id only to a message it accepted, so this being
@@ -4015,6 +4036,21 @@ async function loadMemberAdmin(token: string): Promise<{
      */
     confirmationThreadId: row[25] ?? "",
     reminderSentAt: row[27] ?? "",
+    ...(() => {
+      const mine = adminScores.filter(
+        (score) => normalize(score.applicantEmail) === normalize(String(row[2] ?? ""))
+      );
+      return {
+        scoreCount: mine.length,
+        averageScore: mine.length ? mine.reduce((sum, score) => sum + score.total, 0) / mine.length : null,
+        scores: mine.map((score) => ({
+          scorerName: score.scorerName || score.scorerEmail,
+          total: score.total,
+          notes: score.notes,
+          recommendation: score.recommendation
+        }))
+      };
+    })(),
     submittedAt: row[28] ?? "",
     submittedBy: row[29] ?? "",
     approvedAt: row[30] ?? "",
@@ -4043,7 +4079,7 @@ async function loadMemberAdmin(token: string): Promise<{
     console.error(`Member reservations load failed: ${error instanceof Error ? error.message : "unknown error"}`);
   }
 
-  return { applicants, reservations };
+  return { applicants, reservations, scoreMax: MEMBER_SCORE_CRITERIA.length * MEMBER_SCORE_MAX };
 }
 
 /** The same card the confirmation uses, with whatever this notice needs in it. */
