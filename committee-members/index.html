@@ -64,6 +64,11 @@
   .toolbar input[type=text] { max-width: 250px; }
   .toolbar select { max-width: 230px; }
 
+  .banner { background: #fdf4e0; border: 1px solid #e3b96a; border-radius: 12px; padding: 14px 18px;
+            font-size: 13.5px; color: #6b4c00; margin-bottom: 18px; line-height: 1.6; }
+  .banner b { color: #4a3400; }
+  .banner .mismatch-row { padding: 4px 0; }
+
   .sub { background: #fff; border: 1px solid var(--line); border-radius: 15px; margin-bottom: 16px; overflow: hidden; }
   .sub-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px;
               border-bottom: 1px solid var(--line); background: var(--soft); flex-wrap: wrap; }
@@ -180,6 +185,7 @@
       </select>
     </div>
 
+    <div id="mismatch-banner"></div>
     <div id="groups"></div>
   </main>
 </div>
@@ -264,6 +270,9 @@ function absorb(body) {
   state.subCommittees = body.subCommittees ?? state.subCommittees;
   state.allSubs = body.allSubCommittees ?? state.allSubs;
   state.questions = body.questions ?? state.questions;
+  // Only set when the list is thin — undefined otherwise, which is what
+  // keeps the banner silent once there is nothing left to explain.
+  state.otherCommitteeValues = body.otherCommitteeValuesInSheet;
 }
 
 async function load(email) {
@@ -397,8 +406,40 @@ function renderGroups() {
     </div>`).join("");
 }
 
+/*
+ * Sent by the server only when this committee's own applicant count is
+ * thin — the case that needs explaining. Turns "why is nobody here" from a
+ * question that needs the raw sheet open into something answered on screen:
+ * the exact Committee text every other row carries, so a spelling the code
+ * does not recognise (an "Initiative" typed for "Initiatives", say) is
+ * visible by comparison instead of silently producing zero.
+ */
+function renderMismatch() {
+  const el = document.getElementById("mismatch-banner");
+  const others = state.otherCommitteeValues;
+  if (!others || !others.length) { el.innerHTML = ""; return; }
+
+  el.innerHTML = `
+    <div class="banner">
+      <div>Only <b>${state.applicants.length}</b> applicant${state.applicants.length === 1 ? "" : "s"} matched
+        <b>${esc(state.access.committee)}</b>${
+          state.access.rawDepartment && norm(state.access.rawDepartment) !== norm(state.access.committee)
+            ? ` (your team board entry reads <b>${esc(state.access.rawDepartment)}</b>)`
+            : ""
+        } — here is every other Committee value actually in the sheet, in case one of these is really yours:</div>
+      ${others.map((v) => `
+        <div class="mismatch-row">
+          <b>"${esc(v.committee)}"</b>${v.committeeId ? ` <span class="note">(id "${esc(v.committeeId)}")</span>` : ""}
+          — ${v.count} applicant${v.count === 1 ? "" : "s"}
+        </div>`).join("")}
+      <div style="margin-top:8px;">If one of these should be yours, that is a spelling mismatch on the team board or in
+        the sheet, not something you can fix from here — ask whoever runs the team board to check it.</div>
+    </div>`;
+}
+
 function render() {
   renderStats();
+  renderMismatch();
   renderGroups();
 }
 

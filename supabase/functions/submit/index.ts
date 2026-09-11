@@ -5895,7 +5895,15 @@ async function loadTeamBoard(token: string): Promise<{
  * ---------------------------------------------------------------------------
  */
 
-type MemberCommitteeAccess = { email: string; name: string; committee: string; level: TeamLevel; positionType: string };
+type MemberCommitteeAccess = {
+  email: string;
+  name: string;
+  committee: string;
+  /** The department text exactly as stored on the roster, before canonicalising. */
+  rawDepartment: string;
+  level: TeamLevel;
+  positionType: string;
+};
 
 /**
  * Verifies the caller runs, or works on, this committee.
@@ -5923,6 +5931,12 @@ async function requireMemberCommitteeAccess(token: string, email: string): Promi
     email: String(match.aucEmail ?? "").trim(),
     name: String(match.name ?? "").trim(),
     committee: canonicalTeamName(match.department),
+    // The literal, unedited text in their own roster row — kept alongside the
+    // canonical name so a typo made by hand in the sheet (say "Initiative"
+    // for "Initiatives") is visible by comparison rather than invisible,
+    // since canonicalTeamName silently falls back to the raw string for
+    // anything it does not recognise.
+    rawDepartment: String(match.department ?? "").trim(),
     level: match.level ?? teamLevel("", match.positionType),
     positionType: String(match.positionType ?? "").trim()
   };
@@ -6002,6 +6016,17 @@ async function loadMemberCommitteePortal(
   /** This committee's questions, in the order the answers are stored. */
   questions: string[];
   applicants: Array<Record<string, unknown>>;
+  /**
+   * Every distinct Committee value in the sheet that did NOT resolve to this
+   * committee, with a count of how many rows carry it. Present so that "why
+   * is nobody here" has an answer on screen instead of only in a spreadsheet:
+   * a typo like "Initiative" for "Initiatives", or a committee stored under a
+   * spelling canonicalTeamName does not recognise, shows up by comparison
+   * against access.committee and access.rawDepartment rather than staying
+   * invisible. Capped, and only worth computing when this committee's own
+   * list looks thin — with hundreds of rows this becomes a real second pass.
+   */
+  otherCommitteeValuesInSheet?: Array<{ committee: string; committeeId: string; count: number }>;
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
   await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
@@ -6017,7 +6042,7 @@ async function loadMemberCommitteePortal(
   const rows = ((await applicationsResponse.json()).values ?? []) as string[][];
   const wanted = committeeKey(access.committee);
 
-  const applicants = rows
+  const matched = rows
     .map((row, index) => ({ row, rowIndex: index + 2 }))
     .filter(({ row }) => {
       /*
@@ -6033,8 +6058,33 @@ async function loadMemberCommitteePortal(
       const byName = committeeKey(row[8] ?? "");
       const byId = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[String(row[9] ?? "").trim()] ?? "");
       return byName === wanted || (Boolean(byId) && byId === wanted);
-    })
-    .map(({ row, rowIndex }) => {
+    });
+
+  /*
+   * Only worked out when this committee's own list is thin — the case that
+   * actually needs explaining. A director with forty real applicants does not
+   * need every stray value in the sheet listed back at them.
+   */
+  let otherCommitteeValuesInSheet: Array<{ committee: string; committeeId: string; count: number }> | undefined;
+  if (matched.length < 3) {
+    const counts = new Map<string, { committee: string; committeeId: string; count: number }>();
+    for (const row of rows) {
+      if (String(row[9] ?? "").trim() === GENERAL_VOLUNTEER_COMMITTEE_ID) continue;
+      const committee = String(row[8] ?? "").trim();
+      const committeeId = String(row[9] ?? "").trim();
+      if (!committee && !committeeId) continue;
+      if (committeeKey(committee) === wanted) continue;
+      const byId = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId] ?? "");
+      if (byId && byId === wanted) continue;
+      const key = `${committee}${committeeId}`;
+      const existing = counts.get(key);
+      if (existing) existing.count++;
+      else counts.set(key, { committee, committeeId, count: 1 });
+    }
+    otherCommitteeValuesInSheet = [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 15);
+  }
+
+  const applicants = matched.map(({ row, rowIndex }) => {
       const aucEmail = String(row[2] ?? "").trim();
       const mine = scores.filter((score) => normalize(score.applicantEmail) === normalize(aucEmail));
       const average = mine.length ? mine.reduce((sum, score) => sum + score.total, 0) / mine.length : null;
@@ -6115,7 +6165,8 @@ async function loadMemberCommitteePortal(
     subCommittees,
     allSubCommittees: MEMBER_SUB_COMMITTEES[memberCommitteeIdFor(access.committee)] ?? [],
     questions: MEMBER_QUESTIONS[memberCommitteeIdFor(access.committee)] ?? [],
-    applicants
+    applicants,
+    otherCommitteeValuesInSheet
   };
 }
 
@@ -14144,11 +14195,23 @@ async function getCommitteePanel(
 ): Promise<Array<{ email: string; name: string; positionType: string }>> {
   try {
     const { entries } = await loadHierarchy(token);
-    const wanted = normalizeRole(roleAppliedFor);
+    /*
+     * committeeKey, not a plain normalizeRole match: the heads cycle wrote
+     * "Tech Director"/"Initiatives Director"/"Children Day Director" as the
+     * literal department text, but /team/ writes the canonical member-cycle
+     * name ("Tech Team"/"Initiatives"/"Children's Day") the moment anyone
+     * edits that row — which happens the first time a committee's roster is
+     * touched after this session's work, not on a fixed date. A plain string
+     * match recognised only whichever spelling the caller happened to pass,
+     * so a director's row in the other spelling silently vanished from the
+     * panel. committeeKey folds both forms to the same key, the way every
+     * other committee-identity comparison in this file already does.
+     */
+    const wanted = committeeKey(roleAppliedFor);
 
     return entries
       .filter((entry) => {
-        if (normalizeRole(entry.department) !== wanted) return false;
+        if (committeeKey(entry.department) !== wanted) return false;
         const position = normalize(entry.positionType);
         return position.includes("director");
       })
