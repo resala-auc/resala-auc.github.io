@@ -2898,20 +2898,41 @@ Deno.serve(async (request) => {
         : await getMemberCommitteeRecipients(memberToken, payload.committeeId, payload.aucEmail);
 
       let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
-      let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
+      let memberSelectedSlot: InterviewSlotOption | null = null;
       // No interview to hold a slot for, whatever a stale tab might send.
       if (payload.interviewSlotId && !payload.isGeneralVolunteer) {
-        const reserved = await reserveMemberInterviewSlot(memberToken, payload, memberRecipients);
-        memberSlotLabel = reserved.slot.label;
-        memberBooking = { meetLink: reserved.meetLink, calendarEventId: reserved.calendarEventId };
+        // Validation only — no calendar invite, no write, nothing to lose the
+        // application to yet. Throws here still means "pick another slot,"
+        // exactly as before, and nothing has been recorded either way.
+        memberSelectedSlot = await validateMemberInterviewSlot(memberToken, payload.committeeId, payload.interviewSlotId);
+        memberSlotLabel = memberSelectedSlot.label;
       }
 
+      /*
+       * The applicant's own record, written before a single email goes out.
+       * A calendar invite is a real message Google sends the instant the
+       * event is created — it cannot be recalled if a later step fails — so
+       * nothing that sends one is allowed to run before this row exists.
+       */
       const memberRowIndex = await appendMemberApplication(
         memberToken,
         payload,
         payload.isGeneralVolunteer ? "" : memberSlotLabel,
-        memberBooking
+        null
       );
+
+      let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
+      if (memberSelectedSlot) {
+        memberBooking = await bookMemberInterview(memberToken, payload, memberSelectedSlot, memberRecipients);
+        if (memberBooking && memberRowIndex) {
+          await writeMemberCells(memberToken, memberRowIndex, "Meet Link", [
+            memberBooking.meetLink,
+            memberBooking.calendarEventId
+          ]).catch((error) =>
+            console.error(`Could not store the booking for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
+          );
+        }
+      }
 
       /*
        * A general volunteer is told they are in, not that an interview is
@@ -3894,13 +3915,19 @@ async function getMemberInterviewSlots(
   });
 }
 
-async function reserveMemberInterviewSlot(
+/**
+ * The business-rule half of booking, with no side effects: is this slot real,
+ * open, and still bookable. Split out so the applicant's row can be written —
+ * durably, before any email goes out — the moment a slot is known valid,
+ * instead of after a calendar invite has already been created for it.
+ */
+async function validateMemberInterviewSlot(
   token: string,
-  payload: MemberApplicationPayload,
-  recipients: Array<{ email: string; name: string; positionType: string }>
-): Promise<{ slot: InterviewSlotOption; meetLink: string; calendarEventId: string }> {
-  const slots = await getMemberInterviewSlots(token, payload.committeeId);
-  const selected = slots.find((slot) => slot.id === payload.interviewSlotId);
+  committeeId: string,
+  interviewSlotId: string
+): Promise<InterviewSlotOption> {
+  const slots = await getMemberInterviewSlots(token, committeeId);
+  const selected = slots.find((slot) => slot.id === interviewSlotId);
 
   if (!selected) {
     throw new Error("Selected interview slot is not available.");
@@ -3920,48 +3947,71 @@ async function reserveMemberInterviewSlot(
     );
   }
 
-  /*
-   * The interview link is made here, not by hand later: one Google Meet on the
-   * Resala calendar, with the applicant, the committee's directors and its
-   * heads all invited, so the time in the sheet and the invite in their
-   * calendars can never disagree.
-   *
-   * Deliberately not fatal. Google can fail for reasons that have nothing to
-   * do with this applicant — a revoked refresh token, a Calendar rate limit
-   * during a rush, Meet creation blocked by a Workspace policy — and some of
-   * those stay broken until a person notices. Losing every application for
-   * the hours that takes is far worse than booking one without a link: the
-   * slot is still held, the row is still written, and the dashboard lists
-   * them as needing an invite sent by hand.
-   */
-  let calendarEventId = "";
-  let meetLink = "";
+  return selected;
+}
+
+/*
+ * The interview link is made here, not by hand later: one Google Meet on the
+ * Resala calendar, with the applicant, the committee's directors and its
+ * heads all invited, so the time in the sheet and the invite in their
+ * calendars can never disagree.
+ *
+ * Deliberately not fatal, and deliberately called only after the applicant's
+ * own row already exists (see isMemberSubmitPayload) — every step below,
+ * including recording the reservation itself, sends a real Google Calendar
+ * invite as a side effect the instant createCalendarEvent succeeds, and that
+ * cannot be undone if a later step then fails. It used to run before the row
+ * was written: a Sheets rate limit on the reservation-tracking write alone —
+ * exactly the kind of thing a burst of simultaneous applicants triggers — was
+ * enough to throw after the invite had already gone out, losing the
+ * application entirely while the applicant held a real "confirmation" in
+ * their inbox. Now the row is already durable by the time this runs, so any
+ * failure here just leaves it exactly where the dashboard already expects an
+ * unbooked one to sit: needing an invite sent by hand.
+ */
+async function bookMemberInterview(
+  token: string,
+  payload: MemberApplicationPayload,
+  selected: InterviewSlotOption,
+  recipients: Array<{ email: string; name: string; positionType: string }>
+): Promise<{ meetLink: string; calendarEventId: string } | null> {
   try {
-    const calendarToken = await getGmailAccessToken();
-    const event = await createCalendarEvent(
-      calendarToken,
-      memberCalendarPayload(payload),
-      selected,
-      recipients
+    let calendarEventId = "";
+    let meetLink = "";
+    try {
+      const calendarToken = await getGmailAccessToken();
+      const event = await createCalendarEvent(
+        calendarToken,
+        memberCalendarPayload(payload),
+        selected,
+        recipients
+      );
+      calendarEventId = event.calendarEventId;
+      meetLink = event.meetLink;
+    } catch (error) {
+      console.error(
+        `Member calendar invite failed for ${payload.aucEmail} (${selected.id}) — booking kept without a link: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`
+      );
+    }
+
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: [[payload.timestamp, selected.id, selected.label, payload.fullName, payload.aucEmail]] }
     );
-    calendarEventId = event.calendarEventId;
-    meetLink = event.meetLink;
+
+    return { meetLink, calendarEventId };
   } catch (error) {
     console.error(
-      `Member calendar invite failed for ${payload.aucEmail} (${selected.id}) — booking kept without a link: ${
+      `Member interview booking failed for ${payload.aucEmail} (${selected.id}) — application row already saved, needs a manual invite: ${
         error instanceof Error ? error.message : "unknown error"
       }`
     );
+    return null;
   }
-
-  await sheetsFetch(
-    token,
-    "POST",
-    `${sheetRange(MEMBER_SLOT_RESERVATION_SHEET_NAME, "A:E")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { values: [[payload.timestamp, selected.id, selected.label, payload.fullName, payload.aucEmail]] }
-  );
-
-  return { slot: selected, meetLink, calendarEventId };
 }
 
 /**
