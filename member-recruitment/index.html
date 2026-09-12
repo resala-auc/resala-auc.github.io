@@ -139,6 +139,7 @@
     <div>
       <div class="bar-title">Member Recruitment</div>
       <div class="bar-sub" id="bar-sub">—</div>
+      <div class="bar-sub" id="stray-status"></div>
     </div>
     <div class="bar-spacer"></div>
     <button id="check-meet">Check Meet access</button>
@@ -388,6 +389,7 @@ async function load(email) {
   document.getElementById("bar-sub").textContent = state.admin?.email ?? "";
   sessionStorage.setItem("member-recruitment-admin-email", email);
   renderAll();
+  document.getElementById("stray-status").textContent = "Checking for lost applications…";
   autoRecoverStrayApplications(email);
 }
 
@@ -1091,15 +1093,20 @@ document.getElementById("deep-audit").addEventListener("click", async () => {
  * A submission from a browser still running the /join build from before it
  * was repointed at members lands in the old Applications tab with a real
  * confirmation email already sent — nothing about it looks like a failure,
- * so nobody would think to go looking for it. Silent when there is nothing
- * to do; a one-time notice names who it recovered when there is, since a
- * write to real applicant data should never happen invisibly even when it
- * needs no one's permission to run.
+ * so nobody would think to go looking for it. Always leaves a visible
+ * result in the header — "checked, nothing lost" is a fact worth showing,
+ * not just the absence of a popup — and a one-time notice names who it
+ * recovered when there is one, since a write to real applicant data should
+ * never happen invisibly even when it needs no one's permission to run.
  */
 async function autoRecoverStrayApplications(email) {
+  const statusEl = document.getElementById("stray-status");
   try {
     const { rows } = await api({ mode: "member-admin-find-stray", email });
-    if (!rows.length) return;
+    if (!rows.length) {
+      statusEl.textContent = `✓ Checked for lost applications — none found (${new Date().toLocaleTimeString()})`;
+      return;
+    }
 
     const result = await api({
       mode: "member-admin-recover-stray",
@@ -1117,6 +1124,8 @@ async function autoRecoverStrayApplications(email) {
       renderAll();
     }
 
+    statusEl.textContent = `⚠ Recovered ${result.recovered.length} lost application${result.recovered.length === 1 ? "" : "s"} (${new Date().toLocaleTimeString()})`;
+
     const names = rows.map((r) => `${r.fullName} · ${r.aucEmail} · ${r.matchedCommitteeName}`);
     await noticeDialog(
       `${result.recovered.length} application${result.recovered.length === 1 ? "" : "s"} found in the old Applications ` +
@@ -1129,6 +1138,7 @@ async function autoRecoverStrayApplications(email) {
           : "")
     );
   } catch (error) {
+    statusEl.textContent = "⚠ Could not check for lost applications — see console.";
     console.error("Automatic stray-application recovery failed:", error);
   }
 }
