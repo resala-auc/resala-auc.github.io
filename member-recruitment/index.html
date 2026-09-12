@@ -144,6 +144,7 @@
     <button id="check-meet">Check Meet access</button>
     <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
+    <button id="deep-audit">Deep audit</button>
     <button id="refresh">Refresh</button>
     <button id="logout">Sign out</button>
   </header>
@@ -989,6 +990,66 @@ document.getElementById("check-times").addEventListener("click", async () => {
         (stuck ? `\n\n${stuck} still need${stuck === 1 ? "s" : ""} a person to look at ${stuck === 1 ? "it" : "them"}.` : "")
     );
     await load(state.admin.email);
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/*
+ * A full read of the Member Recruitment sheet — every row, every committee,
+ * not just the ones a filtered view happens to show. Built for "the portal
+ * shows fewer applicants than the committee believes exist": it answers with
+ * a real count per committee, every row whose Committee value the code could
+ * not place anywhere (with a sample name so it can be found in the sheet),
+ * and duplicate AUC emails or Student IDs — the other honest reason a
+ * committee sees more confirmation emails than the portal shows applicants:
+ * the same person submitted more than once, and each submission is a real,
+ * separate row and a real, separate email.
+ */
+document.getElementById("deep-audit").addEventListener("click", async () => {
+  const button = document.getElementById("deep-audit");
+  button.disabled = true;
+  try {
+    const r = await api({ mode: "member-admin-audit", email: state.admin.email });
+    const lines = [`${r.totalRows} total rows in Member Recruitment.`, ""];
+
+    lines.push("By committee (matched / confirmed / never confirmed):");
+    for (const c of r.byCommittee) {
+      lines.push(`  ${c.displayName} — ${c.matchedRows} matched, ${c.confirmedSent} confirmed, ${c.neverConfirmed} never confirmed`);
+    }
+    lines.push("", `General volunteers: ${r.generalVolunteers}`, `Rows with no committee at all: ${r.blankCommittee}`);
+
+    if (r.unmatched.length) {
+      lines.push("", "Rows whose Committee value could not be placed on any of the 8 committees:");
+      for (const u of r.unmatched.slice(0, 20)) {
+        lines.push(`  "${u.committee}" / id "${u.committeeId}" — ${u.count} row${u.count === 1 ? "" : "s"}` +
+          (u.sampleNames.length ? ` (e.g. ${u.sampleNames.join(", ")})` : ""));
+      }
+      if (r.unmatched.length > 20) lines.push(`  …and ${r.unmatched.length - 20} more values.`);
+    } else {
+      lines.push("", "Every row's Committee value matched one of the 8 committees. Nothing is sitting unplaced.");
+    }
+
+    if (r.duplicateEmails.length) {
+      lines.push("", "The same AUC/personal email submitted more than once — each is a separate row and a separate confirmation email:");
+      for (const d of r.duplicateEmails.slice(0, 15)) {
+        lines.push(`  ${d.aucEmail} — ${d.count} times, rows ${d.rowIndexes.join(", ")}`);
+      }
+      if (r.duplicateEmails.length > 15) lines.push(`  …and ${r.duplicateEmails.length - 15} more.`);
+    }
+    if (r.duplicateStudentIds.length) {
+      lines.push("", "The same Student ID submitted more than once:");
+      for (const d of r.duplicateStudentIds.slice(0, 15)) {
+        lines.push(`  ${d.studentId} — ${d.count} times, rows ${d.rowIndexes.join(", ")}`);
+      }
+    }
+    if (!r.duplicateEmails.length && !r.duplicateStudentIds.length) {
+      lines.push("", "No duplicate emails or Student IDs anywhere in the sheet.");
+    }
+
+    await noticeDialog(lines.join("\n"));
   } catch (error) {
     await noticeDialog(error.message);
   } finally {

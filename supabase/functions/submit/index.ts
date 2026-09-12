@@ -1308,6 +1308,7 @@ type CommitteeMemberWithdrawFinalPayload = { mode: "committee-member-withdraw-fi
 type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: string };
 type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
 type MemberAdminPastPayload = { mode: "member-admin-past-applicants"; email: string };
+type MemberAdminAuditPayload = { mode: "member-admin-audit"; email: string };
 type MemberAdminAcceptPastPayload = {
   mode: "member-admin-accept-past";
   email: string;
@@ -1924,6 +1925,7 @@ type SubmissionPayload =
   | MemberAdminSlotsPayload
   | MemberAdminPastPayload
   | MemberAdminAcceptPastPayload
+  | MemberAdminAuditPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2787,6 +2789,13 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await loadPastApplicants(pastToken)) });
     }
 
+    if (isMemberAuditPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const auditToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(auditToken, payload.email);
+      return jsonResponse({ ok: true, ...(await auditMemberApplications(auditToken)) });
+    }
+
     if (isMemberAdminSlotsPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const slotsToken = await getGoogleAccessToken();
@@ -3057,6 +3066,10 @@ function isPastApplicantsPayload(
 
 function isMemberAdminSlotsPayload(payload: SubmissionPayload): payload is MemberAdminSlotsPayload {
   return (payload as MemberAdminSlotsPayload).mode === "member-admin-slots";
+}
+
+function isMemberAuditPayload(payload: SubmissionPayload): payload is MemberAdminAuditPayload {
+  return (payload as MemberAdminAuditPayload).mode === "member-admin-audit";
 }
 
 function isMemberResendPayload(payload: SubmissionPayload): payload is MemberAdminResendPayload {
@@ -4924,6 +4937,125 @@ type PastApplicant = {
   scores: Array<{ interviewer: string; committee: string; role: string; total: string; notes: string }>;
   averageScore: number | null;
 };
+
+/**
+ * A full accounting of the Member Recruitment sheet — not filtered to one
+ * committee, and not stopping at the first thing that looks wrong.
+ *
+ * Built for the exact complaint that motivates it: a committee sees more
+ * confirmation emails land in their inbox than the portal shows them, and
+ * nobody on either side can tell whether that means rows are missing, rows
+ * are miscategorised, or the emails are being double-counted. Every number
+ * here is read straight off the sheet, so the answer is a fact rather than
+ * another guess about what the code does.
+ */
+async function auditMemberApplications(token: string): Promise<{
+  totalRows: number;
+  byCommittee: Array<{
+    committeeId: string;
+    displayName: string;
+    matchedRows: number;
+    confirmedSent: number;
+    neverConfirmed: number;
+  }>;
+  unmatched: Array<{ committee: string; committeeId: string; count: number; sampleNames: string[] }>;
+  duplicateEmails: Array<{ aucEmail: string; count: number; rowIndexes: number[] }>;
+  duplicateStudentIds: Array<{ studentId: string; count: number; rowIndexes: number[] }>;
+  generalVolunteers: number;
+  blankCommittee: number;
+}> {
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const byCommittee = Object.entries(MEMBER_COMMITTEE_HIERARCHY_NAMES).map(([committeeId, hierarchyName]) => ({
+    committeeId,
+    displayName: displayCommitteeName(hierarchyName),
+    key: committeeKey(hierarchyName),
+    matchedRows: 0,
+    confirmedSent: 0,
+    neverConfirmed: 0
+  }));
+
+  const unmatchedCounts = new Map<string, { committee: string; committeeId: string; count: number; sampleNames: string[] }>();
+  const emailRows = new Map<string, number[]>();
+  const studentIdRows = new Map<string, number[]>();
+  let generalVolunteers = 0;
+  let blankCommittee = 0;
+
+  rows.forEach((row, index) => {
+    const rowIndex = index + 2;
+    const committee = String(row[8] ?? "").trim();
+    const committeeId = String(row[9] ?? "").trim();
+    const fullName = String(row[1] ?? "").trim();
+    const aucEmail = String(row[2] ?? "").trim();
+    const studentId = String(row[3] ?? "").trim();
+    const hasConfirmation = Boolean(String(row[25] ?? "").trim());
+
+    if (aucEmail) {
+      const key = normalize(aucEmail);
+      if (!emailRows.has(key)) emailRows.set(key, []);
+      emailRows.get(key)!.push(rowIndex);
+    }
+    if (studentId) {
+      const key = normalize(studentId);
+      if (!studentIdRows.has(key)) studentIdRows.set(key, []);
+      studentIdRows.get(key)!.push(rowIndex);
+    }
+
+    if (committeeId === GENERAL_VOLUNTEER_COMMITTEE_ID) {
+      generalVolunteers++;
+      return;
+    }
+    if (!committee && !committeeId) {
+      blankCommittee++;
+      return;
+    }
+
+    const byName = committeeKey(committee);
+    const byId = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId] ?? "");
+    const match = byCommittee.find((c) => c.key === byName || (byId && c.key === byId));
+
+    if (match) {
+      match.matchedRows++;
+      if (hasConfirmation) match.confirmedSent++;
+      else match.neverConfirmed++;
+      return;
+    }
+
+    const key = `${committee}${committeeId}`;
+    const existing = unmatchedCounts.get(key);
+    if (existing) {
+      existing.count++;
+      if (existing.sampleNames.length < 3 && fullName) existing.sampleNames.push(fullName);
+    } else {
+      unmatchedCounts.set(key, { committee, committeeId, count: 1, sampleNames: fullName ? [fullName] : [] });
+    }
+  });
+
+  const duplicateEmails = [...emailRows.entries()]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([aucEmail, rowIndexes]) => ({ aucEmail, count: rowIndexes.length, rowIndexes }));
+  const duplicateStudentIds = [...studentIdRows.entries()]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([studentId, rowIndexes]) => ({ studentId, count: rowIndexes.length, rowIndexes }));
+
+  return {
+    totalRows: rows.length,
+    byCommittee: byCommittee.map(({ key, ...rest }) => rest),
+    unmatched: [...unmatchedCounts.values()].sort((a, b) => b.count - a.count),
+    duplicateEmails,
+    duplicateStudentIds,
+    generalVolunteers,
+    blankCommittee
+  };
+}
 
 /**
  * Everyone from an earlier cycle still worth a second look.
