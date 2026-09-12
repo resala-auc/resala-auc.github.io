@@ -17,6 +17,14 @@ export type CommitteeGroup = "backstage" | "frontstage" | "volunteer";
 export type Identity = {
   fullName: string;
   aucEmail: string;
+  /**
+   * Typed a second time, on this screen only, to catch a typo the format
+   * check cannot: "aya@gmial.com" is a perfectly valid-looking email that is
+   * not the one Aya actually meant to type. Never sent to the server — App.tsx
+   * builds the submission payload from named fields, and this is not one of
+   * them.
+   */
+  confirmEmail: string;
   studentId: string;
   major: string;
   yearLevel: string;

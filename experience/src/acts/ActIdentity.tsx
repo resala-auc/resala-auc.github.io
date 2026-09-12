@@ -81,6 +81,17 @@ export function ActIdentity({ identity, onChange, onContinue, onBack }: ActIdent
                   {...field("aucEmail")}
                 />
                 <TextField
+                  id="confirmEmail"
+                  label="Type your email again"
+                  type="email"
+                  inputMode="email"
+                  placeholder="you@aucegypt.edu"
+                  autoComplete="off"
+                  helper="This is how we catch a typo before it costs you your confirmation email."
+                  onPaste={(event) => event.preventDefault()}
+                  {...field("confirmEmail")}
+                />
+                <TextField
                   id="studentId"
                   label="Student ID"
                   inputMode="numeric"

@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { ChevronDown } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ClipboardEvent, ReactNode } from "react";
 import { TOUCH_SPRING, rise } from "../lib/motion";
 
 const shell =
@@ -43,6 +43,8 @@ type TextFieldProps = BaseProps & {
   placeholder?: string;
   autoComplete?: string;
   inputMode?: "text" | "tel" | "email" | "numeric";
+  /** Only set on a "type it again" confirmation field, to block pasting the same typo twice. */
+  onPaste?: (event: ClipboardEvent<HTMLInputElement>) => void;
 };
 
 export function TextField({
@@ -55,7 +57,8 @@ export function TextField({
   type = "text",
   placeholder,
   autoComplete,
-  inputMode
+  inputMode,
+  onPaste
 }: TextFieldProps) {
   return (
     <Frame id={id} label={label} helper={helper} error={error}>
@@ -70,6 +73,7 @@ export function TextField({
         inputMode={inputMode}
         aria-invalid={Boolean(error)}
         onChange={(event) => onChange(event.target.value)}
+        onPaste={onPaste}
         className={`${shell} ${error ? "border-brand-error" : "border-brand-line"}`}
       />
     </Frame>

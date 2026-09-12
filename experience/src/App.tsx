@@ -26,6 +26,7 @@ const STORAGE_KEY = "resala-join-draft";
 const emptyIdentity: Identity = {
   fullName: "",
   aucEmail: "",
+  confirmEmail: "",
   studentId: "",
   major: "",
   yearLevel: "",

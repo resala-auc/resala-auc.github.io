@@ -19,6 +19,14 @@ export function validateIdentity(identity: Identity): Errors<Identity> {
   }
   if (!EMAIL.test(identity.aucEmail.trim())) {
     errors.aucEmail = "Enter an email we can reach you on — AUC or personal.";
+  } else if (identity.confirmEmail.trim().toLowerCase() !== identity.aucEmail.trim().toLowerCase()) {
+    /*
+     * A well-formed email can still be the wrong one — "aya@gmial.com" passes
+     * the format check and is still a typo nobody catches until the
+     * confirmation never arrives. Retyping it is what catches that, not a
+     * stricter regex.
+     */
+    errors.confirmEmail = "This does not match the email above. Check it and try again.";
   }
   if (!identity.studentId.trim()) {
     errors.studentId = "Your student ID is required.";
