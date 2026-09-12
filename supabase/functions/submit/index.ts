@@ -1309,6 +1309,7 @@ type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: str
 type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
 type MemberAdminPastPayload = { mode: "member-admin-past-applicants"; email: string };
 type MemberAdminAuditPayload = { mode: "member-admin-audit"; email: string };
+type MemberAdminFixDriftPayload = { mode: "member-admin-fix-drift"; email: string; apply?: boolean };
 type MemberAdminFindStrayPayload = { mode: "member-admin-find-stray"; email: string };
 type MemberAdminRecoverStrayPayload = { mode: "member-admin-recover-stray"; email: string; rowIndexes: number[] };
 type MemberAdminAcceptPastPayload = {
@@ -1928,6 +1929,7 @@ type SubmissionPayload =
   | MemberAdminPastPayload
   | MemberAdminAcceptPastPayload
   | MemberAdminAuditPayload
+  | MemberAdminFixDriftPayload
   | MemberAdminFindStrayPayload
   | MemberAdminRecoverStrayPayload
   | AdminResetPayload
@@ -2800,6 +2802,16 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await auditMemberApplications(auditToken)) });
     }
 
+    if (isMemberFixDriftPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const driftToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(driftToken, payload.email);
+      return jsonResponse({
+        ok: true,
+        ...(await fixDriftedMemberRows(driftToken, payload.apply === true))
+      });
+    }
+
     if (isMemberFindStrayPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const strayToken = await getGoogleAccessToken();
@@ -3048,6 +3060,10 @@ function isMemberAdminSlotsPayload(payload: SubmissionPayload): payload is Membe
 
 function isMemberAuditPayload(payload: SubmissionPayload): payload is MemberAdminAuditPayload {
   return (payload as MemberAdminAuditPayload).mode === "member-admin-audit";
+}
+
+function isMemberFixDriftPayload(payload: SubmissionPayload): payload is MemberAdminFixDriftPayload {
+  return (payload as MemberAdminFixDriftPayload).mode === "member-admin-fix-drift";
 }
 
 function isMemberFindStrayPayload(payload: SubmissionPayload): payload is MemberAdminFindStrayPayload {
@@ -3752,6 +3768,75 @@ function memberAnswerAt(payload: MemberApplicationPayload, index: number, fallba
   return entry ? String(entry.answer ?? "") : String(fallback ?? "");
 }
 
+function columnIndexFromLetter(letter: string): number {
+  let result = 0;
+  for (const character of letter) result = result * 26 + (character.charCodeAt(0) - 64);
+  return result;
+}
+
+/*
+ * Sheets decides where an append lands by detecting a "table" inside the range
+ * it is handed. Given an open range like A:AH it can anchor that table on a
+ * block of cells sitting to the right of the real data, and every later append
+ * then follows the drifted block. That is precisely how four days of member
+ * applications came to be written 29 columns too far right: each one had a row,
+ * a real confirmation email, and no committee anybody could read, so they
+ * showed up in no dashboard at all. Anchoring on the header row pins the table
+ * to column A, and the landing check turns a silent drift into something that
+ * repairs itself rather than accumulating for days unnoticed.
+ */
+async function appendMemberRow(token: string, values: string[]): Promise<number> {
+  const width = MEMBER_APPLICATION_HEADERS.length;
+  const lastColumn = columnLetter(width);
+  const response = await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(
+      MEMBER_APPLICATIONS_SHEET_NAME,
+      `A1:${lastColumn}1`
+    )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [values] }
+  );
+
+  const updatedRange = String((await response.json())?.updates?.updatedRange ?? "");
+  const landed = updatedRange.match(/![$]?([A-Z]+)[$]?(\d+)/);
+  if (!landed) return 0;
+
+  const startColumn = landed[1];
+  const rowIndex = Number(landed[2]);
+  if (startColumn === "A") return rowIndex;
+
+  /*
+   * It drifted anyway. The row exists and the applicant is about to be emailed,
+   * so the repair is to put the values where they belong and wipe the stray
+   * copy — never to fail the submission, which would lose the applicant to keep
+   * the sheet tidy.
+   */
+  console.error(
+    `Member append landed at column ${startColumn} on row ${rowIndex}; rewriting into column A.`
+  );
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(
+      MEMBER_APPLICATIONS_SHEET_NAME,
+      `A${rowIndex}:${lastColumn}${rowIndex}`
+    )}?valueInputOption=RAW`,
+    { values: [values] }
+  );
+  const strayStart = columnIndexFromLetter(startColumn);
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(
+      MEMBER_APPLICATIONS_SHEET_NAME,
+      `${startColumn}${rowIndex}:${columnLetter(strayStart + width - 1)}${rowIndex}`
+    )}:clear`,
+    {}
+  );
+  return rowIndex;
+}
+
 async function appendMemberApplication(
   token: string,
   payload: MemberApplicationPayload,
@@ -3789,22 +3874,12 @@ async function appendMemberApplication(
     payload.subCommitteeId ?? ""
   ];
 
-  const response = await sheetsFetch(
-    token,
-    "POST",
-    `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { values: [row] }
-  );
-
   /*
-   * Which row this landed on, so the confirmation's thread ids can be written
-   * back beside it. Sheets answers with the range it wrote, e.g.
-   * "'Member Recruitment'!A42:Y42" — the first number in it is the row.
-   * Returns 0 if that ever stops being true; every caller treats 0 as "do not
-   * try to write back", never as row zero.
+   * Returns which row this landed on, so the confirmation's thread ids can be
+   * written back beside it. 0 means "do not try to write back" — never row
+   * zero.
    */
-  const updatedRange = String((await response.json())?.updates?.updatedRange ?? "");
-  return Number(updatedRange.match(/![A-Z]+(\d+)/)?.[1] ?? 0);
+  return await appendMemberRow(token, row);
 }
 
 /*
@@ -5305,6 +5380,159 @@ async function findStrayClassicMemberRows(token: string): Promise<
  * ordinary application: a person still has to look at it once, confirm the
  * committee guess, and get the applicant onto a real interview slot.
  */
+/*
+ * The repair for rows Sheets' append wrote too far to the right. Their whole
+ * record is intact — name, email, committee, answers — just starting at some
+ * column other than A, which is why every dashboard read them as blank and
+ * filed them under "Uncategorized" while their applicants held a real
+ * confirmation email. Reads far wider than the headers so the drifted tail is
+ * actually visible, works out each row's own offset rather than assuming one
+ * shared number (the drift grew from 12 to 29 as it cascaded), and defaults to
+ * reporting only: nothing is written unless apply is explicitly true, and not
+ * before every affected row is copied to a backup tab.
+ */
+async function fixDriftedMemberRows(
+  token: string,
+  apply: boolean
+): Promise<{
+  scanned: number;
+  drifted: Array<{ rowIndex: number; shift: number; fullName: string; aucEmail: string; committee: string; committeeId: string; status: string }>;
+  blank: number[];
+  repaired: number[];
+  backupTab: string | null;
+}> {
+  const width = MEMBER_APPLICATION_HEADERS.length;
+  await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+
+  // Wide enough to contain the row even at the largest drift seen, plus slack.
+  const scanWidth = width * 3;
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(scanWidth)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const isTimestamp = (value: string) => /^\d{4}-\d{2}-\d{2}T/.test(value);
+  const isEmail = (value: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value);
+
+  const drifted: Array<{
+    rowIndex: number;
+    shift: number;
+    values: string[];
+    fullName: string;
+    aucEmail: string;
+    committee: string;
+    committeeId: string;
+    status: string;
+  }> = [];
+  const blank: number[] = [];
+
+  rows.forEach((row, index) => {
+    const rowIndex = index + 2;
+    const cell = (i: number) => String(row[i] ?? "").trim();
+    if (cell(0) || cell(1) || cell(2)) return; // already sitting in column A
+
+    let shift = 0;
+    for (let candidate = 1; candidate < scanWidth - 2; candidate++) {
+      if (isTimestamp(cell(candidate)) && isEmail(cell(candidate + 2))) {
+        shift = candidate;
+        break;
+      }
+    }
+    if (!shift) {
+      blank.push(rowIndex);
+      return;
+    }
+
+    const values: string[] = [];
+    for (let column = 0; column < width; column++) values.push(String(row[shift + column] ?? ""));
+
+    /*
+     * The confirmation write-back used the row number Sheets reported and the
+     * correct column, so those two landed where they belong even though the
+     * application around them did not. Carrying them over keeps the proof that
+     * the applicant was emailed, which is the one thing that would otherwise be
+     * destroyed by moving the row.
+     */
+    for (const column of [25, 26]) {
+      if (!values[column]?.trim() && cell(column)) values[column] = cell(column);
+    }
+
+    drifted.push({
+      rowIndex,
+      shift,
+      values,
+      fullName: values[1] ?? "",
+      aucEmail: values[2] ?? "",
+      committee: values[8] ?? "",
+      committeeId: values[9] ?? "",
+      status: values[17] ?? ""
+    });
+  });
+
+  const summary = drifted.map(({ values: _values, ...rest }) => rest);
+  if (!apply || !drifted.length) {
+    return { scanned: rows.length, drifted: summary, blank, repaired: [], backupTab: null };
+  }
+
+  const backupTab = `Drift Backup ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+  await ensureSheetTab(token, backupTab);
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(backupTab, `A1:${columnLetter(scanWidth)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    {
+      values: drifted.map((entry) => [
+        String(entry.rowIndex),
+        ...(rows[entry.rowIndex - 2] ?? []).map((value) => String(value ?? ""))
+      ])
+    }
+  );
+
+  const repaired: number[] = [];
+  for (const entry of drifted) {
+    try {
+      await sheetsFetch(
+        token,
+        "PUT",
+        `${sheetRange(
+          MEMBER_APPLICATIONS_SHEET_NAME,
+          `A${entry.rowIndex}:${columnLetter(width)}${entry.rowIndex}`
+        )}?valueInputOption=RAW`,
+        { values: [entry.values] }
+      );
+      /*
+       * Only the part of the stray copy that sits beyond the row's own columns.
+       * A drift smaller than the sheet is wide (the first one was 12) overlaps
+       * the cells just written, and clearing blindly from the old start would
+       * erase the repair itself.
+       */
+      const clearStart = Math.max(entry.shift, width);
+      const clearEnd = entry.shift + width - 1;
+      if (clearStart <= clearEnd) {
+        await sheetsFetch(
+          token,
+          "POST",
+          `${sheetRange(
+            MEMBER_APPLICATIONS_SHEET_NAME,
+            `${columnLetter(clearStart + 1)}${entry.rowIndex}:${columnLetter(clearEnd + 1)}${entry.rowIndex}`
+          )}:clear`,
+          {}
+        );
+      }
+      repaired.push(entry.rowIndex);
+    } catch (error) {
+      console.error(
+        `Could not repair drifted row ${entry.rowIndex}: ${error instanceof Error ? error.message : error}`
+      );
+    }
+  }
+
+  return { scanned: rows.length, drifted: summary, blank, repaired, backupTab };
+}
+
 async function recoverStrayClassicMemberRows(
   token: string,
   rowIndexes: number[]
@@ -5346,12 +5574,7 @@ async function recoverStrayClassicMemberRows(
     ];
 
     try {
-      await sheetsFetch(
-        token,
-        "POST",
-        `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-        { values: [values] }
-      );
+      await appendMemberRow(token, values);
       recovered.push(row.aucEmail);
     } catch (error) {
       console.error(
