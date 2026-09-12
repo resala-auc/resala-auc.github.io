@@ -267,6 +267,34 @@ const COMMITTEE_QUESTIONS = {
     "Do you prefer coming up with ideas, planning them, organizing them, or working during execution? Why?"
   ]
 };
+
+/*
+ * The committee grid used to group applicants by the free-text "Committee"
+ * column — the same column a hand-typed row, an older form wording, or a
+ * stray space can spell differently from everyone else, so one committee's
+ * real applicants scattered across several near-duplicate tiles and any row
+ * with a blank Committee cell vanished from every tile while still counting
+ * toward the Total stat. Committee Id is a value the applicant never typed —
+ * the join form hardcodes it — so grouping by it first is what keeps the
+ * tiles' sum equal to the Total. A row missing even that (a very old or
+ * hand-edited entry) still surfaces under "Uncategorized" rather than
+ * disappearing.
+ */
+const CANONICAL_COMMITTEES = {
+  "tech": "Tech Team",
+  "operations": "Operations",
+  "branding-media": "Branding/Media",
+  "hr": "HR",
+  "pr-fundraising": "PR/Fundraising",
+  "visits": "Visits",
+  "childrens-day": "Children's Day",
+  "initiatives": "Initiatives",
+  "general-volunteer": GENERAL_VOLUNTEER
+};
+function committeeLabel(a) {
+  return CANONICAL_COMMITTEES[a.committeeId] || a.committee || "Uncategorized";
+}
+
 /* No waitlist: accepted, general volunteer, or turned down. Waitlisted is kept
    out of the list but still shown on anyone who already carries it, so nobody
    is silently retitled by a dropdown that no longer offers what they are. */
@@ -376,7 +404,7 @@ function renderStats() {
 }
 
 function committeeOptions() {
-  return [...new Set(state.data.applicants.map((a) => a.committee).filter(Boolean))].sort();
+  return [...new Set(state.data.applicants.map(committeeLabel))].sort();
 }
 
 /* The page opens on the committees, not on 400 rows: a committee is the unit
@@ -388,7 +416,7 @@ function renderCommitteeGrid() {
   detail.classList.toggle("hidden", !state.committee);
 
   if (state.committee) {
-    const people = state.data.applicants.filter((a) => a.committee === state.committee);
+    const people = state.data.applicants.filter((a) => committeeLabel(a) === state.committee);
     document.getElementById("committee-heading").textContent = `${state.committee} · ${people.length} applicant${people.length === 1 ? "" : "s"}`;
     return;
   }
@@ -397,7 +425,7 @@ function renderCommitteeGrid() {
   if (!committees.length) { grid.innerHTML = ""; return; }
 
   grid.innerHTML = `<div class="cgrid">${committees.map((c) => {
-    const people = state.data.applicants.filter((a) => a.committee === c);
+    const people = state.data.applicants.filter((a) => committeeLabel(a) === c);
     const booked = people.filter((a) => hasSlot(a) && !needsInvite(a)).length;
     const waiting = people.filter(needsScheduling).length;
     return `
@@ -420,7 +448,7 @@ function renderApplicants() {
   const rows = state.data.applicants.filter((a) => {
     const settled = hasSlot(a) && !needsInvite(a);
     return (
-      (!committeeFilter || a.committee === committeeFilter) &&
+      (!committeeFilter || committeeLabel(a) === committeeFilter) &&
       (!statusFilter || (a.status || "New") === statusFilter) &&
       (!schedulingFilter || (schedulingFilter === "booked" ? settled : needsScheduling(a)))
     );
@@ -438,7 +466,7 @@ function renderApplicants() {
 
   const byCommittee = new Map();
   for (const a of rows) {
-    const key = a.committee || "—";
+    const key = committeeLabel(a);
     if (!byCommittee.has(key)) byCommittee.set(key, []);
     byCommittee.get(key).push(a);
   }
@@ -647,7 +675,7 @@ function renderApprovals() {
    */
   const groups = new Map();
   for (const a of rows) {
-    const key = `${a.committee || "—"} · ${a.subCommittee || "Not placed yet"}`;
+    const key = `${committeeLabel(a)} · ${a.subCommittee || "Not placed yet"}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(a);
   }
