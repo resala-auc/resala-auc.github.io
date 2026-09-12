@@ -1309,6 +1309,8 @@ type MemberAdminMeetCheckPayload = { mode: "member-admin-meet-check"; email: str
 type MemberAdminResendPayload = { mode: "member-admin-resend-confirmation"; email: string; rowIndex: number };
 type MemberAdminPastPayload = { mode: "member-admin-past-applicants"; email: string };
 type MemberAdminAuditPayload = { mode: "member-admin-audit"; email: string };
+type MemberAdminFindStrayPayload = { mode: "member-admin-find-stray"; email: string };
+type MemberAdminRecoverStrayPayload = { mode: "member-admin-recover-stray"; email: string; rowIndexes: number[] };
 type MemberAdminAcceptPastPayload = {
   mode: "member-admin-accept-past";
   email: string;
@@ -1926,6 +1928,8 @@ type SubmissionPayload =
   | MemberAdminPastPayload
   | MemberAdminAcceptPastPayload
   | MemberAdminAuditPayload
+  | MemberAdminFindStrayPayload
+  | MemberAdminRecoverStrayPayload
   | AdminResetPayload
   | AdminAddTestSlotPayload
   | AdminLoadPayload
@@ -2796,6 +2800,20 @@ Deno.serve(async (request) => {
       return jsonResponse({ ok: true, ...(await auditMemberApplications(auditToken)) });
     }
 
+    if (isMemberFindStrayPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const strayToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(strayToken, payload.email);
+      return jsonResponse({ ok: true, rows: await findStrayClassicMemberRows(strayToken) });
+    }
+
+    if (isMemberRecoverStrayPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const recoverToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(recoverToken, payload.email);
+      return jsonResponse({ ok: true, ...(await recoverStrayClassicMemberRows(recoverToken, payload.rowIndexes)) });
+    }
+
     if (isMemberAdminSlotsPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const slotsToken = await getGoogleAccessToken();
@@ -3091,6 +3109,14 @@ function isMemberAdminSlotsPayload(payload: SubmissionPayload): payload is Membe
 
 function isMemberAuditPayload(payload: SubmissionPayload): payload is MemberAdminAuditPayload {
   return (payload as MemberAdminAuditPayload).mode === "member-admin-audit";
+}
+
+function isMemberFindStrayPayload(payload: SubmissionPayload): payload is MemberAdminFindStrayPayload {
+  return (payload as MemberAdminFindStrayPayload).mode === "member-admin-find-stray";
+}
+
+function isMemberRecoverStrayPayload(payload: SubmissionPayload): payload is MemberAdminRecoverStrayPayload {
+  return (payload as MemberAdminRecoverStrayPayload).mode === "member-admin-recover-stray";
 }
 
 function isMemberResendPayload(payload: SubmissionPayload): payload is MemberAdminResendPayload {
@@ -5105,6 +5131,189 @@ async function auditMemberApplications(token: string): Promise<{
     generalVolunteers,
     blankCommittee
   };
+}
+
+/**
+ * A stray submission: someone who filled out the members form, but whose
+ * browser was still running the /join build from before it was repointed at
+ * members — the payload it posts carries no `mode`, so the backend accepts
+ * it as a classic/heads application instead, appends it to the old
+ * Applications tab, and sends a real confirmation email from there. Nothing
+ * about that request is an error, so nothing here ever logged one: the
+ * applicant has a genuine confirmation in their inbox and a genuine row in
+ * the sheet, just the wrong one — invisible to every member dashboard,
+ * which only ever reads the Member Recruitment tab.
+ *
+ * Found by committee spelling alone, not by the classic sheet's own
+ * "Status" column, because Applications for the classic cycle predates this
+ * repoint and every one of THOSE rows is real heads history that must not
+ * be touched: the old build's payload put the committee name in the exact
+ * same "Role Applied For" text a heads applicant's own build would have
+ * written, so a stray member row is indistinguishable from a real heads row
+ * except by which committee name it names — Operations/HR/etc. read
+ * identically either way, but "Tech Team" (rather than "Tech Director") or a
+ * timestamp after members opened could only have come from the new form.
+ */
+async function findStrayClassicMemberRows(token: string): Promise<
+  Array<{
+    rowIndex: number;
+    timestamp: string;
+    fullName: string;
+    aucEmail: string;
+    studentId: string;
+    major: string;
+    yearLevel: string;
+    phone: string;
+    roleAppliedFor: string;
+    matchedCommitteeId: string;
+    matchedCommitteeName: string;
+    whyThisRole: string;
+    whyChooseYourself: string;
+    hopeToLearn: string;
+    interviewSlot: string;
+  }>
+> {
+  const sheetName = await getSheetName(token);
+  const response = await sheetsFetch(token, "GET", sheetRange(sheetName, `A2:${columnLetter(HEADERS.length)}`));
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const memberEmailsResponse = await sheetsFetch(token, "GET", sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, "C2:C"));
+  const memberEmails = new Set(
+    (((await memberEmailsResponse.json()).values ?? []) as string[][]).map((row) => normalize(String(row[0] ?? "")))
+  );
+
+  const keyToCommittee = new Map(
+    MEMBER_COMMITTEE_IDS.map((id) => [committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[id]), id])
+  );
+
+  /*
+   * Members only opened once /join was repointed. A row from before that
+   * cannot be a stray member submission no matter what its committee name
+   * happens to read as — it is simply real heads history.
+   */
+  const cutoff = new Date("2026-08-31T00:00:00+03:00").getTime();
+
+  const results: Array<{
+    rowIndex: number;
+    timestamp: string;
+    fullName: string;
+    aucEmail: string;
+    studentId: string;
+    major: string;
+    yearLevel: string;
+    phone: string;
+    roleAppliedFor: string;
+    matchedCommitteeId: string;
+    matchedCommitteeName: string;
+    whyThisRole: string;
+    whyChooseYourself: string;
+    hopeToLearn: string;
+    interviewSlot: string;
+  }> = [];
+
+  rows.forEach((row, index) => {
+    const timestamp = String(row[0] ?? "").trim();
+    const when = new Date(timestamp).getTime();
+    if (!Number.isFinite(when) || when < cutoff) return;
+
+    const aucEmail = String(row[2] ?? "").trim();
+    if (!aucEmail || memberEmails.has(normalize(aucEmail))) return;
+
+    const roleAppliedFor = String(row[7] ?? "").trim();
+    const matchedCommitteeId = keyToCommittee.get(committeeKey(roleAppliedFor));
+    if (!matchedCommitteeId) return;
+
+    results.push({
+      rowIndex: index + 2,
+      timestamp,
+      fullName: String(row[1] ?? "").trim(),
+      aucEmail,
+      studentId: String(row[3] ?? "").trim(),
+      major: String(row[4] ?? "").trim(),
+      yearLevel: String(row[5] ?? "").trim(),
+      phone: String(row[6] ?? "").trim(),
+      roleAppliedFor,
+      matchedCommitteeId,
+      matchedCommitteeName: displayCommitteeName(MEMBER_COMMITTEE_HIERARCHY_NAMES[matchedCommitteeId]),
+      whyThisRole: String(row[10] ?? "").trim(),
+      whyChooseYourself: String(row[11] ?? "").trim(),
+      hopeToLearn: String(row[12] ?? "").trim(),
+      interviewSlot: String(row[14] ?? "").trim()
+    });
+  });
+
+  return results;
+}
+
+/**
+ * Copies exactly the stray rows an admin picked (re-found here, not trusted
+ * from the client, so nobody can hand-craft a row this never actually
+ * found) into Member Recruitment. What the classic sheet never asked for —
+ * WhatsApp consent, a sub-committee, a Member interview slot booking — is
+ * left blank rather than guessed, and Status is written as "Recovered —
+ * needs review" rather than "Submitted" so it never quietly passes as an
+ * ordinary application: a person still has to look at it once, confirm the
+ * committee guess, and get the applicant onto a real interview slot.
+ */
+async function recoverStrayClassicMemberRows(
+  token: string,
+  rowIndexes: number[]
+): Promise<{ recovered: string[]; skipped: string[] }> {
+  const wanted = new Set(rowIndexes);
+  const candidates = await findStrayClassicMemberRows(token);
+  const recovered: string[] = [];
+  const skipped: string[] = [];
+
+  for (const row of candidates) {
+    if (!wanted.has(row.rowIndex)) continue;
+
+    const values = [
+      row.timestamp,
+      row.fullName,
+      row.aucEmail,
+      row.studentId,
+      row.major,
+      row.yearLevel,
+      row.phone,
+      "", // WhatsApp Consent — the classic form never asked; needs a follow-up.
+      row.matchedCommitteeName,
+      row.matchedCommitteeId,
+      "",
+      "", // Second Preference / Id — members don't have one.
+      row.whyThisRole,
+      row.whyChooseYourself,
+      row.hopeToLearn,
+      row.interviewSlot,
+      "", // Interview Slot Id — no Member reservation row exists for this booking.
+      "Recovered — needs review",
+      row.timestamp,
+      "",
+      "", // Meet Link / Calendar Event Id
+      "",
+      "", // Decision By / At
+      "",
+      "" // Sub-committee / Id — the classic form never asked.
+    ];
+
+    try {
+      await sheetsFetch(
+        token,
+        "POST",
+        `${sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+        { values: [values] }
+      );
+      recovered.push(row.aucEmail);
+    } catch (error) {
+      console.error(
+        `Could not recover stray row for ${row.aucEmail} (classic row ${row.rowIndex}): ${
+          error instanceof Error ? error.message : error
+        }`
+      );
+      skipped.push(row.aucEmail);
+    }
+  }
+
+  return { recovered, skipped };
 }
 
 /**
