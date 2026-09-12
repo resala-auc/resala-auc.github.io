@@ -2894,92 +2894,31 @@ Deno.serve(async (request) => {
     }
 
     if (isMemberSubmitPayload(payload)) {
-      validateMemberApplication(payload);
+      return await handleMemberSubmit(payload);
+    }
 
-      if (!SHEET_ID) {
-        throw new Error("SHEET_ID is not configured.");
-      }
-
-      const memberToken = await getGoogleAccessToken();
-      await ensureSheetTab(memberToken, MEMBER_APPLICATIONS_SHEET_NAME);
-      await ensureSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
-      await ensureMemberApplicationNotDuplicate(memberToken, payload);
-
-      /*
-       * The committee's directors, its placed heads, and HR — resolved once
-       * and used for both the calendar invite and the email's Cc. A general
-       * volunteer joins no committee, so theirs is HR alone: HR is who adds
-       * them to the volunteers group, and nobody else needs telling.
-       */
-      const memberRecipients = payload.isGeneralVolunteer
-        ? await getMemberCommitteeRecipients(memberToken, MONITOR_COMMITTEE, payload.aucEmail)
-        : await getMemberCommitteeRecipients(memberToken, payload.committeeId, payload.aucEmail);
-
-      let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
-      let memberSelectedSlot: InterviewSlotOption | null = null;
-      // No interview to hold a slot for, whatever a stale tab might send.
-      if (payload.interviewSlotId && !payload.isGeneralVolunteer) {
-        // Validation only — no calendar invite, no write, nothing to lose the
-        // application to yet. Throws here still means "pick another slot,"
-        // exactly as before, and nothing has been recorded either way.
-        memberSelectedSlot = await validateMemberInterviewSlot(memberToken, payload.committeeId, payload.interviewSlotId);
-        memberSlotLabel = memberSelectedSlot.label;
-      }
-
-      /*
-       * The applicant's own record, written before a single email goes out.
-       * A calendar invite is a real message Google sends the instant the
-       * event is created — it cannot be recalled if a later step fails — so
-       * nothing that sends one is allowed to run before this row exists.
-       */
-      const memberRowIndex = await appendMemberApplication(
-        memberToken,
-        payload,
-        payload.isGeneralVolunteer ? "" : memberSlotLabel,
-        null
+    /*
+     * A member application from a browser still running the /join build
+     * from before it was repointed at members: same fields, no `mode` to
+     * route on, so it would otherwise fall all the way through to the
+     * classic path below and land in the old Applications tab with a real
+     * confirmation email already sent — invisible to every member
+     * dashboard. Caught here by committee spelling alone.
+     *
+     * Refused rather than silently converted and saved: the member cycle
+     * requires WhatsApp consent and a sub-committee choice that this old
+     * shape never collected, so there is no honest value to write for
+     * them. Refusing tells the applicant's browser to show an error before
+     * anything is recorded — nothing is lost, and refreshing gets them the
+     * current form, which asks for both and saves correctly the first
+     * time. This is the fix for every future applicant; recovering the
+     * ones this already happened to before this existed is a separate,
+     * one-time, human-reviewed action (see findStrayClassicMemberRows).
+     */
+    if (detectStrayMemberCommitteeId(payload)) {
+      throw new Error(
+        "This page is out of date. Please refresh and submit your application again — nothing has been saved yet."
       );
-
-      let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
-      if (memberSelectedSlot) {
-        memberBooking = await bookMemberInterview(memberToken, payload, memberSelectedSlot, memberRecipients);
-        if (memberBooking && memberRowIndex) {
-          await writeMemberCells(memberToken, memberRowIndex, "Meet Link", [
-            memberBooking.meetLink,
-            memberBooking.calendarEventId
-          ]).catch((error) =>
-            console.error(`Could not store the booking for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
-          );
-        }
-      }
-
-      /*
-       * A general volunteer is told they are in, not that an interview is
-       * booked — there is no interview. It is the same email an admin sends
-       * when they place somebody as a volunteer after one, so the two arrive
-       * saying the same thing.
-       */
-      const confirmation = payload.isGeneralVolunteer
-        ? await trySendGeneralVolunteerConfirmation(payload, memberRecipients)
-        : await trySendMemberConfirmationEmail(
-            payload,
-            memberSlotLabel,
-            memberBooking?.meetLink ?? "",
-            memberRecipients
-          );
-
-      // Written after the row exists, so the reminder can reply onto this very
-      // thread instead of starting a second one the applicant has to connect.
-      if (memberRowIndex && (confirmation.threadId || confirmation.messageId)) {
-        await writeMemberCells(memberToken, memberRowIndex, "Confirmation Thread Id", [
-          confirmation.threadId,
-          confirmation.messageId,
-          ""
-        ]).catch((error) =>
-          console.error(`Could not store the confirmation thread for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
-        );
-      }
-
-      return jsonResponse({ ok: true, emailSent: confirmation.sent });
     }
 
     validateApplication(payload);
@@ -3694,6 +3633,117 @@ async function ensureMemberApplicationNotDuplicate(token: string, payload: Membe
   if (duplicate) {
     throw new Error("An application with this AUC email or Student ID already exists.");
   }
+}
+
+/**
+ * A committee name — either cycle's spelling — resolved to a member
+ * committee id, or null if it names something else entirely (a real classic
+ * application, or garbage). committeeKey already folds the two cycles'
+ * spellings to the same key everywhere else in this file; this just checks
+ * that key against the 8 member committees specifically.
+ */
+function detectStrayMemberCommitteeId(payload: ApplicationPayload): string | null {
+  const key = committeeKey(payload.roleAppliedFor);
+  for (const id of MEMBER_COMMITTEE_IDS) {
+    if (committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[id]) === key) return id;
+  }
+  return null;
+}
+
+/**
+ * Everything from `validateMemberApplication` through the confirmation email
+ * for a member-submit payload, split out so both a properly-tagged
+ * `mode: "member-submit"` request and any other route into this same,
+ * single, tested path — never two copies of application-saving logic that
+ * could quietly drift apart.
+ */
+async function handleMemberSubmit(payload: MemberApplicationPayload): Promise<Response> {
+  validateMemberApplication(payload);
+
+  if (!SHEET_ID) {
+    throw new Error("SHEET_ID is not configured.");
+  }
+
+  const memberToken = await getGoogleAccessToken();
+  await ensureSheetTab(memberToken, MEMBER_APPLICATIONS_SHEET_NAME);
+  await ensureSheetHeaders(memberToken, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
+  await ensureMemberApplicationNotDuplicate(memberToken, payload);
+
+  /*
+   * The committee's directors, its placed heads, and HR — resolved once
+   * and used for both the calendar invite and the email's Cc. A general
+   * volunteer joins no committee, so theirs is HR alone: HR is who adds
+   * them to the volunteers group, and nobody else needs telling.
+   */
+  const memberRecipients = payload.isGeneralVolunteer
+    ? await getMemberCommitteeRecipients(memberToken, MONITOR_COMMITTEE, payload.aucEmail)
+    : await getMemberCommitteeRecipients(memberToken, payload.committeeId, payload.aucEmail);
+
+  let memberSlotLabel = payload.interviewSlotLabel ?? payload.interviewSlot ?? "";
+  let memberSelectedSlot: InterviewSlotOption | null = null;
+  // No interview to hold a slot for, whatever a stale tab might send.
+  if (payload.interviewSlotId && !payload.isGeneralVolunteer) {
+    // Validation only — no calendar invite, no write, nothing to lose the
+    // application to yet. Throws here still means "pick another slot,"
+    // exactly as before, and nothing has been recorded either way.
+    memberSelectedSlot = await validateMemberInterviewSlot(memberToken, payload.committeeId, payload.interviewSlotId);
+    memberSlotLabel = memberSelectedSlot.label;
+  }
+
+  /*
+   * The applicant's own record, written before a single email goes out.
+   * A calendar invite is a real message Google sends the instant the
+   * event is created — it cannot be recalled if a later step fails — so
+   * nothing that sends one is allowed to run before this row exists.
+   */
+  const memberRowIndex = await appendMemberApplication(
+    memberToken,
+    payload,
+    payload.isGeneralVolunteer ? "" : memberSlotLabel,
+    null
+  );
+
+  let memberBooking: { meetLink: string; calendarEventId: string } | null = null;
+  if (memberSelectedSlot) {
+    memberBooking = await bookMemberInterview(memberToken, payload, memberSelectedSlot, memberRecipients);
+    if (memberBooking && memberRowIndex) {
+      await writeMemberCells(memberToken, memberRowIndex, "Meet Link", [
+        memberBooking.meetLink,
+        memberBooking.calendarEventId
+      ]).catch((error) =>
+        console.error(`Could not store the booking for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
+      );
+    }
+  }
+
+  /*
+   * A general volunteer is told they are in, not that an interview is
+   * booked — there is no interview. It is the same email an admin sends
+   * when they place somebody as a volunteer after one, so the two arrive
+   * saying the same thing.
+   */
+  const confirmation = payload.isGeneralVolunteer
+    ? await trySendGeneralVolunteerConfirmation(payload, memberRecipients)
+    : await trySendMemberConfirmationEmail(
+        payload,
+        memberSlotLabel,
+        memberBooking?.meetLink ?? "",
+        memberRecipients
+      );
+
+  // Written after the row exists, so the reminder can reply onto this very
+  // thread instead of starting a second one the applicant has to connect.
+  if (memberRowIndex && (confirmation.threadId || confirmation.messageId)) {
+    await writeMemberCells(memberToken, memberRowIndex, "Confirmation Thread Id", [
+      confirmation.threadId,
+      confirmation.messageId,
+      ""
+    ]).catch((error) =>
+      console.error(`Could not store the confirmation thread for ${payload.aucEmail}: ${error instanceof Error ? error.message : error}`)
+    );
+  }
+
+  return jsonResponse({ ok: true, emailSent: confirmation.sent });
 }
 
 function memberAnswerAt(payload: MemberApplicationPayload, index: number, fallback: string | undefined): string {

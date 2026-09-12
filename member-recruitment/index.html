@@ -145,7 +145,6 @@
     <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
     <button id="deep-audit">Deep audit</button>
-    <button id="find-stray">Find lost applications</button>
     <button id="refresh">Refresh</button>
     <button id="logout">Sign out</button>
   </header>
@@ -389,6 +388,7 @@ async function load(email) {
   document.getElementById("bar-sub").textContent = state.admin?.email ?? "";
   sessionStorage.setItem("member-recruitment-admin-email", email);
   renderAll();
+  autoRecoverStrayApplications(email);
 }
 
 function renderStats() {
@@ -1087,63 +1087,51 @@ document.getElementById("deep-audit").addEventListener("click", async () => {
 });
 
 /*
- * A submission from before /join was repointed at members lands here: the
- * old build posted no `mode` at all, so the backend took it as a classic
- * application, wrote it to the old Applications tab, and sent a real
- * confirmation email from there — nothing about that request looked like a
- * failure. Found by committee spelling ("Tech Team", or the old "Tech
- * Director" the heads build would have sent) on a row timestamped after
- * members opened, whose applicant has no row in Member Recruitment yet.
- * Recovering copies the name, contact details and the three real answers
- * over; WhatsApp consent and a sub-committee were never asked on the old
- * form, so those stay blank and the row is marked "Recovered — needs
- * review" rather than "Submitted" so nobody mistakes it for an ordinary one.
+ * Runs on every load, not behind a button someone has to remember to press.
+ * A submission from a browser still running the /join build from before it
+ * was repointed at members lands in the old Applications tab with a real
+ * confirmation email already sent — nothing about it looks like a failure,
+ * so nobody would think to go looking for it. Silent when there is nothing
+ * to do; a one-time notice names who it recovered when there is, since a
+ * write to real applicant data should never happen invisibly even when it
+ * needs no one's permission to run.
  */
-document.getElementById("find-stray").addEventListener("click", async () => {
-  const button = document.getElementById("find-stray");
-  button.disabled = true;
+async function autoRecoverStrayApplications(email) {
   try {
-    const { rows } = await api({ mode: "member-admin-find-stray", email: state.admin.email });
-    if (!rows.length) {
-      await noticeDialog("No lost applications found — every member-shaped submission since /join opened for members has a row in Member Recruitment.");
-      return;
-    }
-
-    const lines = [
-      `${rows.length} application${rows.length === 1 ? "" : "s"} found in the old Applications sheet that never made it into Member Recruitment:`,
-      ""
-    ];
-    for (const r of rows) {
-      lines.push(`  ${r.fullName} · ${r.aucEmail} · ${r.matchedCommitteeName} · applied ${r.timestamp}`);
-    }
-    lines.push(
-      "",
-      "These have a real confirmation email already sent and real answers on file — recovering copies them into " +
-        "Member Recruitment as \"Recovered — needs review\". WhatsApp consent and a sub-committee were never asked " +
-        "on the old form, so those are left blank for a person to fill in, and none of them get a new email."
-    );
-    lines.push("", "Recover all of them into Member Recruitment now?");
-
-    if (!(await confirmDialog(lines.join("\n")))) return;
+    const { rows } = await api({ mode: "member-admin-find-stray", email });
+    if (!rows.length) return;
 
     const result = await api({
       mode: "member-admin-recover-stray",
-      email: state.admin.email,
+      email,
       rowIndexes: rows.map((r) => r.rowIndex)
     });
+
+    if (result.recovered.length) {
+      const body = await api({ mode: "member-admin-load", email });
+      state.data = {
+        applicants: body.applicants ?? [],
+        reservations: body.reservations ?? [],
+        scoreMax: body.scoreMax ?? 20
+      };
+      renderAll();
+    }
+
+    const names = rows.map((r) => `${r.fullName} · ${r.aucEmail} · ${r.matchedCommitteeName}`);
     await noticeDialog(
-      `${result.recovered.length} application${result.recovered.length === 1 ? "" : "s"} recovered into Member Recruitment.` +
+      `${result.recovered.length} application${result.recovered.length === 1 ? "" : "s"} found in the old Applications ` +
+        `sheet — a browser still running the previous join form — recovered automatically into Member Recruitment, ` +
+        `marked "Recovered — needs review":\n\n${names.join("\n")}\n\n` +
+        `WhatsApp consent and a sub-committee were never asked on the old form, so those are blank until someone ` +
+        `fills them in. Nobody was emailed again.` +
         (result.skipped.length
-          ? `\n\n${result.skipped.length} could not be written and are still only in the old sheet: ${result.skipped.join(", ")}. Try again in a moment.`
+          ? `\n\n${result.skipped.length} could not be written and are still only in the old sheet: ${result.skipped.join(", ")}. Will retry the next time this page loads.`
           : "")
     );
-    await load(state.admin.email);
   } catch (error) {
-    await noticeDialog(error.message);
-  } finally {
-    button.disabled = false;
+    console.error("Automatic stray-application recovery failed:", error);
   }
-});
+}
 
 /*
  * The reminder normally fires on a schedule; this is the manual handle for it.
