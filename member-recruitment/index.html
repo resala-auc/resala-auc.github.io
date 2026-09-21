@@ -1426,7 +1426,10 @@ document.getElementById("test-form").addEventListener("submit", async (event) =>
     });
     msg.style.color = "#1a7f4b";
     msg.textContent = `Sent to ${result.sentTo} — ${result.committee}` +
-      (result.letterAttached ? ", with its Letter of Responsibility." : ". The letter could not be attached.");
+      (result.letterAttached ? ", with its Letter of Responsibility." : ". The letter could not be attached.") +
+      (result.wouldCc?.length
+        ? ` A real one also copies ${result.wouldCc.length}: ${result.wouldCc.join(", ")}.`
+        : " A real one would copy nobody — this committee has no directors or heads on the team board.");
   } catch (error) {
     msg.style.color = "#a3231b";
     msg.textContent = error.message;

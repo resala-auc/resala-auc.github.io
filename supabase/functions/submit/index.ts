@@ -2914,7 +2914,7 @@ Deno.serve((request) =>
       const testAdmin = await requireRecruitmentAdmin(testToken, String((payload as { email?: unknown }).email ?? ""));
       return jsonResponse({
         ok: true,
-        ...(await sendTestMemberAcceptance(testAdmin, String((payload as { committeeId?: unknown }).committeeId ?? "")))
+        ...(await sendTestMemberAcceptance(testToken, testAdmin, String((payload as { committeeId?: unknown }).committeeId ?? "")))
       });
     }
 
@@ -4980,20 +4980,49 @@ async function getMemberResponsibilitiesAttachment(
 }
 
 /*
+ * Who is copied on an acceptance: the directors and heads of the committee the
+ * member is joining, so the people who will chase the CONFIRMED reply and add
+ * them to the group see the acceptance land — and the member's "Reply All"
+ * reaches them, not just the Resala inbox. Every director and head, not only
+ * those on interview emails: that flag is about interviews, and this is the
+ * member arriving. Read from the roster live, so a director who has just
+ * changed their heads is copied on the next acceptance, not a stale list.
+ */
+async function memberCommitteeLeadersCc(token: string, committee: string, excludeEmail = ""): Promise<string> {
+  const wanted = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[committee] ?? committee);
+  if (!wanted) return "";
+  const { entries } = await loadHierarchy(token);
+  const skip = normalize(excludeEmail);
+  const leaders = new Map<string, string>();
+  for (const entry of entries) {
+    const email = String(entry.aucEmail ?? "").trim();
+    const key = normalize(email);
+    if (committeeKey(entry.department) !== wanted) continue;
+    if (entry.level !== "director" && entry.level !== "head") continue;
+    if (!isValidContactEmail(email) || key === skip || leaders.has(key)) continue;
+    leaders.set(key, email);
+  }
+  return [...leaders.values()].join(", ");
+}
+
+/*
  * The real acceptance, sent to the signed-in admin and nobody else: the same
  * builder, the same Letter of Responsibility fetch and the same Gmail path an
  * approval uses, so what arrives is exactly what an applicant would get. The
  * recipient is never taken from the request, and nothing is written anywhere.
  */
 async function sendTestMemberAcceptance(
+  token: string,
   admin: { name: string; email: string },
   committeeId: string
-): Promise<{ sentTo: string; committee: string; subCommittee: string; letterAttached: boolean }> {
+): Promise<{ sentTo: string; committee: string; subCommittee: string; letterAttached: boolean; wouldCc: string[] }> {
   const hierarchyName = MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId];
   if (!hierarchyName) throw new Error("Choose a committee.");
   const committee = displayCommitteeName(hierarchyName);
   const subCommittee = MEMBER_SUB_COMMITTEES[committeeId]?.[0] ?? "";
   const attachments = await getMemberResponsibilitiesAttachment(committeeId);
+  // A test must not land in real directors' inboxes. It says who a real one copies instead.
+  const wouldCc = await memberCommitteeLeadersCc(token, committeeId, admin.email);
   const name =
     admin.name && admin.name !== "Recruitment admin"
       ? admin.name
@@ -5010,7 +5039,13 @@ async function sendTestMemberAcceptance(
   );
   if (!sent) throw new Error("Gmail did not accept the test email.");
   console.log(`Test acceptance for ${committeeId} sent to ${admin.email}`);
-  return { sentTo: admin.email, committee, subCommittee, letterAttached: attachments.length > 0 };
+  return {
+    sentTo: admin.email,
+    committee,
+    subCommittee,
+    letterAttached: attachments.length > 0,
+    wouldCc: wouldCc ? wouldCc.split(", ") : []
+  };
 }
 
 async function sendMemberReminderEmail(
@@ -6069,7 +6104,7 @@ async function acceptPastApplicant(
   });
   const emailSent = await sendMemberReminderEmail(
     aucEmail,
-    "",
+    await memberCommitteeLeadersCc(token, committee, aucEmail),
     template,
     { threadId: "", messageId: "" },
     responsibilities
@@ -6157,7 +6192,7 @@ async function approveMemberFinalList(
     );
     const sent = await sendMemberReminderEmail(
       aucEmail,
-      "",
+      await memberCommitteeLeadersCc(token, String(row[9] ?? "").trim() || String(row[8] ?? "").trim(), aucEmail),
       template,
       { threadId: String(row[25] ?? "").trim(), messageId: String(row[26] ?? "").trim() },
       responsibilities
