@@ -41,6 +41,8 @@ await cp("committee", "dist/committee", { recursive: true });
 await cp("recruitment", "dist/recruitment", { recursive: true });
 await cp("member-recruitment", "dist/member-recruitment", { recursive: true });
 await cp("team", "dist/team", { recursive: true });
+// Google sign-in shared by every dashboard above, imported as ../admin-auth.js.
+await cp("admin-auth.js", "dist/admin-auth.js");
 await cp("committee-members", "dist/committee-members", { recursive: true });
 // The committee portal builds its scoring form from the rubrics at runtime.
 // Copied as .js: some static hosts serve .mjs as application/octet-stream,

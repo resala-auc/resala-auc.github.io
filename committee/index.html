@@ -247,7 +247,7 @@
     <h1>Committee Portal</h1>
     <p>Heads recruitment. Sign in with the AUC email on your board record.</p>
     <label for="email">AUC email</label>
-    <input type="email" id="email" placeholder="you@aucegypt.edu" autocomplete="email">
+    <input type="email" id="email" autocomplete="email" placeholder="you@aucegypt.edu">
     <button class="btn btn-block" id="login-btn">Enter portal</button>
     <div class="error hidden" id="login-error"></div>
   </div>
@@ -372,7 +372,7 @@ async function api(payload) {
     body: JSON.stringify(payload)
   });
   const body = await res.json();
-  if (!res.ok || body.ok === false) throw new Error(body.error || "Something went wrong.");
+  if (!res.ok || body.ok === false) throw (new Error(body.error || "Something went wrong."));
   return body;
 }
 
@@ -1722,21 +1722,6 @@ async function save() {
 
 /* ── wiring ─────────────────────────────────────────────────────────────── */
 
-document.getElementById("login-btn").addEventListener("click", async () => {
-  const email = document.getElementById("email").value.trim();
-  const err = document.getElementById("login-error");
-  const btn = document.getElementById("login-btn");
-  err.classList.add("hidden");
-  if (!email) { err.textContent = "Enter your AUC email."; err.classList.remove("hidden"); return; }
-  btn.disabled = true; btn.textContent = "Checking…";
-  try { await load(email); }
-  catch (e) { err.textContent = e.message; err.classList.remove("hidden"); }
-  finally { btn.disabled = false; btn.textContent = "Enter portal"; }
-});
-
-document.getElementById("email").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") document.getElementById("login-btn").click();
-});
 
 document.getElementById("tabs").addEventListener("click", (e) => {
   const tab = e.target.closest("[data-tab]");
@@ -1916,6 +1901,22 @@ document.getElementById("refresh").addEventListener("click", () => load(state.ac
 document.getElementById("logout").addEventListener("click", () => {
   sessionStorage.removeItem("committeeEmail");
   location.reload();
+});
+
+document.getElementById("login-btn").addEventListener("click", async () => {
+  const email = document.getElementById("email").value.trim();
+  const err = document.getElementById("login-error");
+  const btn = document.getElementById("login-btn");
+  err.classList.add("hidden");
+  if (!email) { err.textContent = "Enter your AUC email."; err.classList.remove("hidden"); return; }
+  btn.disabled = true; btn.textContent = "Checking…";
+  try { await load(email); }
+  catch (e) { err.textContent = e.message; err.classList.remove("hidden"); }
+  finally { btn.disabled = false; btn.textContent = "Enter portal"; }
+});
+
+document.getElementById("email").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("login-btn").click();
 });
 
 const saved = sessionStorage.getItem("committeeEmail");

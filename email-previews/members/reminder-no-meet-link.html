@@ -1,12 +1,28 @@
 <!doctype html>
 <html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      /* Phones. The layout is one fluid column already, so this only trims
+         padding and display type — nothing moves or disappears. */
+      @media only screen and (max-width: 600px) {
+        .pad { padding: 20px 18px !important; }
+        .head-pad { padding: 20px 18px 24px !important; }
+        .hero { font-size: 34px !important; letter-spacing: -1px !important; }
+        .box { padding: 15px 16px !important; }
+        .stack { display: block !important; width: 100% !important; }
+        .body-text { font-size: 16px !important; }
+      }
+    </style>
+  </head>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
             <tr>
-              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+              <td class="head-pad" style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
                 <img src="https://resala-auc.github.io/join/resala-logo.png" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
                 <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
                 <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
@@ -14,7 +30,7 @@
                 <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">Tech Team</div>
               </td>
             </tr>
-            <tr><td style="padding:26px 28px 8px;">
+            <tr><td class="pad" style="padding:26px 28px 8px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi Nour,</p>
                 <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Your Tech Team interview is in about 1 hour.</p>
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">

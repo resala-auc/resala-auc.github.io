@@ -15,6 +15,12 @@ const GOOGLE_SERVICE_ACCOUNT_KEY = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") ??
 const GOOGLE_CLIENT_EMAIL = Deno.env.get("GOOGLE_CLIENT_EMAIL") ?? "";
 const GOOGLE_PRIVATE_KEY = Deno.env.get("GOOGLE_PRIVATE_KEY") ?? "";
 const GMAIL_CLIENT_ID = Deno.env.get("GMAIL_CLIENT_ID") ?? "";
+// The Web OAuth client behind the dashboards' "Sign in with Google" button. Public by design.
+const GOOGLE_SIGNIN_CLIENT_ID = Deno.env.get("GOOGLE_SIGNIN_CLIENT_ID") ?? "";
+// Signs dashboard sessions. Changing it signs everybody out.
+const SESSION_SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") ?? "";
+import { AsyncLocalStorage } from "node:async_hooks";
+const requestIdentity = new AsyncLocalStorage<RequestIdentity>();
 const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
 const GMAIL_REFRESH_TOKEN = Deno.env.get("GMAIL_REFRESH_TOKEN") ?? "";
 const GMAIL_SENDER_EMAIL = Deno.env.get("GMAIL_SENDER_EMAIL") ?? "";
@@ -190,6 +196,19 @@ const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full 
  */
 // 20 September falls inside Egypt's daylight saving, so this is +03:00.
 const MEMBER_APPLICATION_DEADLINE = Deno.env.get("MEMBER_APPLICATION_DEADLINE") ?? "2026-09-20T23:59:59+03:00";
+/*
+ * The opening, and the document of responsibilities an accepted member is
+ * asked to accept. The document rides on the acceptance email when
+ * MEMBER_RESPONSIBILITIES_URL points at one; until it does the email asks for
+ * the same confirmation and says the document follows, rather than pointing
+ * at an attachment that is not there.
+ */
+const MEMBER_OPENING_DATE = Deno.env.get("MEMBER_OPENING_DATE") ?? "Wednesday 30 September";
+const MEMBER_OPENING_TIME = Deno.env.get("MEMBER_OPENING_TIME") ?? "4:00 PM - 8:00 PM";
+const MEMBER_OPENING_PLACE = Deno.env.get("MEMBER_OPENING_PLACE") ?? "Moataz Al Alfi Hall, AUC";
+const MEMBER_RESPONSIBILITIES_URL = Deno.env.get("MEMBER_RESPONSIBILITIES_URL") ?? "";
+const MEMBER_RESPONSIBILITIES_FILENAME =
+  Deno.env.get("MEMBER_RESPONSIBILITIES_FILENAME") ?? "Resala AUC - Role Responsibilities.pdf";
 
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
@@ -999,7 +1018,30 @@ const HIERARCHY_HEADERS = [
    * and have none; a head runs one; a member works in one. Appended — never
    * insert, or every existing row shifts under its headers.
    */
-  "Sub-committee"
+  "Sub-committee",
+  /*
+   * Where an accepted member is between "told they are in" and "actually in
+   * the club". Written the moment an acceptance goes out, then moved on by
+   * their own committee: the applicant replies CONFIRMED, a head or director
+   * marks that, and marks again once they are in the WhatsApp group. Appended
+   * — never insert. Blank on a row written before this column existed, which
+   * for a member reads as still waiting.
+   */
+  "Membership Status",
+  "Membership Updated At",
+  "Membership Updated By"
+];
+
+/* The three states, in the order they happen. */
+const MEMBERSHIP_WAITING = "Waiting for confirmation";
+const MEMBERSHIP_CONFIRMED = "Confirmed by email";
+const MEMBERSHIP_IN_CLUB = "In the club";
+const MEMBERSHIP_NOT_JOINING = "Not joining";
+const MEMBERSHIP_STATUSES = [
+  MEMBERSHIP_WAITING,
+  MEMBERSHIP_CONFIRMED,
+  MEMBERSHIP_IN_CLUB,
+  MEMBERSHIP_NOT_JOINING
 ];
 
 /*
@@ -1347,6 +1389,33 @@ type TeamUpsertMemberPayload = {
 };
 type TeamRemoveMemberPayload = { mode: "team-remove-member"; email: string; aucEmail: string; department: string };
 type TeamSaveCommitteesPayload = { mode: "team-save-committees"; email: string; committees: string[] };
+type CommitteeMemberUpsertHeadPayload = {
+  mode: "committee-member-upsert-head";
+  email: string;
+  head: { name: string; aucEmail: string; phone?: string; subCommittee?: string; previousEmail?: string };
+};
+type CommitteeMemberRemoveHeadPayload = {
+  mode: "committee-member-remove-head";
+  email: string;
+  aucEmail: string;
+};
+type CommitteeMemberSetMembershipPayload = {
+  mode: "committee-member-set-membership";
+  email: string;
+  aucEmail: string;
+  status: string;
+};
+type TeamEmailAudience =
+  | { type: "all" }
+  | { type: "committee"; committee: string }
+  | { type: "person"; aucEmail: string };
+type TeamSendEmailPayload = {
+  mode: "team-send-email";
+  email: string;
+  audience: TeamEmailAudience;
+  subject: string;
+  message: string;
+};
 
 type MemberSendRemindersPayload = {
   mode: "member-send-reminders";
@@ -1489,6 +1558,9 @@ type AdminLoadHierarchyPayload = {
 };
 
 type HierarchyEntry = {
+  membershipStatus?: string;
+  membershipUpdatedAt?: string;
+  membershipUpdatedBy?: string;
   department: string;
   positionType: string;
   name: string;
@@ -1912,6 +1984,10 @@ type SubmissionPayload =
   | TeamUpsertMemberPayload
   | TeamRemoveMemberPayload
   | TeamSaveCommitteesPayload
+  | TeamSendEmailPayload
+  | CommitteeMemberUpsertHeadPayload
+  | CommitteeMemberRemoveHeadPayload
+  | CommitteeMemberSetMembershipPayload
   | CommitteeMemberLoadPayload
   | CommitteeMemberScorePayload
   | CommitteeMemberDecidePayload
@@ -2162,7 +2238,8 @@ function splitSecondPreference(value: unknown): { committee: string; head: strin
   return { committee: committee.trim(), head: rest.join("—").trim() };
 }
 
-Deno.serve(async (request) => {
+Deno.serve((request) =>
+  requestIdentity.run({ email: null }, async () => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -2170,6 +2247,11 @@ Deno.serve(async (request) => {
   if (request.method === "GET") {
     try {
       const url = new URL(request.url);
+
+      // The dashboards ask which Google client to sign in with, so it lives in one place.
+      if (url.searchParams.has("authConfig")) {
+        return jsonResponse({ ok: true, clientId: GOOGLE_SIGNIN_CLIENT_ID });
+      }
 
       if (!SHEET_ID) {
         throw new Error("SHEET_ID is not configured.");
@@ -2232,6 +2314,21 @@ Deno.serve(async (request) => {
 
   try {
     const payload = await parsePayload(request);
+
+    // Who is calling, as Google verified at sign-in — never the email the body names.
+    requestIdentity.getStore()!.email = await verifySessionToken((payload as { session?: unknown }).session);
+
+    if ((payload as { mode?: string }).mode === "auth-google") {
+      const person = await verifyGoogleIdToken(String((payload as { credential?: unknown }).credential ?? ""));
+      const session = await createSessionToken(person.email, person.name);
+      return jsonResponse({
+        ok: true,
+        session: session.token,
+        expiresAt: session.expiresAt,
+        email: person.email,
+        name: person.name
+      });
+    }
 
     if (isAdminResetPayload(payload)) {
       authorizeAdminReset(request);
@@ -2752,6 +2849,18 @@ Deno.serve(async (request) => {
         portalResult = await sendMemberConfirmationAsCommittee(portalToken, portalAccess, payload.rowIndex);
       } else if (payload.mode === "committee-member-submit-final") {
         portalResult = await submitMemberFinalList(portalToken, portalAccess, payload.subCommittee);
+      } else if (payload.mode === "committee-member-upsert-head") {
+        portalResult = await upsertCommitteeHead(portalToken, portalAccess, payload.head);
+      } else if (payload.mode === "committee-member-remove-head") {
+        portalResult = await removeCommitteeHead(portalToken, portalAccess, payload.aucEmail);
+      } else if (payload.mode === "committee-member-set-membership") {
+        portalResult = await setMembershipStatus(
+          portalToken,
+          portalAccess.committee,
+          payload.aucEmail,
+          payload.status,
+          portalAccess.email
+        );
       } else if (payload.mode === "committee-member-withdraw-final") {
         portalResult = await withdrawMemberFinalList(portalToken, portalAccess, payload.subCommittee);
       }
@@ -2778,6 +2887,9 @@ Deno.serve(async (request) => {
       if (payload.mode === "team-remove-member") {
         const result = await removeTeamMember(teamToken, payload.aucEmail, payload.department);
         return jsonResponse({ ok: true, ...result, ...(await loadTeamBoard(teamToken)) });
+      }
+      if (payload.mode === "team-send-email") {
+        return jsonResponse({ ok: true, ...(await sendTeamEmail(teamToken, payload.email, payload)) });
       }
       await writeTeamCommittees(teamToken, payload.committees ?? []);
       return jsonResponse({ ok: true, ...(await loadTeamBoard(teamToken)) });
@@ -2983,7 +3095,7 @@ Deno.serve(async (request) => {
       400
     );
   }
-});
+}));
 
 async function parsePayload(
   request: Request
@@ -3013,6 +3125,9 @@ function isMemberAdminReschedulePayload(payload: SubmissionPayload): payload is 
 }
 
 const COMMITTEE_MEMBER_MODES = new Set([
+  "committee-member-set-membership",
+  "committee-member-upsert-head",
+  "committee-member-remove-head",
   "committee-member-load",
   "committee-member-score",
   "committee-member-decide",
@@ -3027,6 +3142,9 @@ const COMMITTEE_MEMBER_MODES = new Set([
 function isCommitteeMemberPayload(
   payload: SubmissionPayload
 ): payload is
+  | CommitteeMemberUpsertHeadPayload
+  | CommitteeMemberRemoveHeadPayload
+  | CommitteeMemberSetMembershipPayload
   | CommitteeMemberLoadPayload
   | CommitteeMemberScorePayload
   | CommitteeMemberDecidePayload
@@ -3039,11 +3157,24 @@ function isCommitteeMemberPayload(
   return COMMITTEE_MEMBER_MODES.has(String((payload as { mode?: string }).mode ?? ""));
 }
 
-const TEAM_MODES = new Set(["team-load", "team-seed", "team-upsert-member", "team-remove-member", "team-save-committees"]);
+const TEAM_MODES = new Set([
+  "team-load",
+  "team-seed",
+  "team-upsert-member",
+  "team-remove-member",
+  "team-save-committees",
+  "team-send-email"
+]);
 
 function isTeamPayload(
   payload: SubmissionPayload
-): payload is TeamLoadPayload | TeamSeedPayload | TeamUpsertMemberPayload | TeamRemoveMemberPayload | TeamSaveCommitteesPayload {
+): payload is
+  | TeamLoadPayload
+  | TeamSeedPayload
+  | TeamUpsertMemberPayload
+  | TeamRemoveMemberPayload
+  | TeamSaveCommitteesPayload
+  | TeamSendEmailPayload {
   return TEAM_MODES.has(String((payload as { mode?: string }).mode ?? ""));
 }
 
@@ -4337,13 +4468,29 @@ function memberEmailShell({
 }): string {
   return `<!doctype html>
 <html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      /* Phones. The layout is one fluid column already, so this only trims
+         padding and display type — nothing moves or disappears. */
+      @media only screen and (max-width: 600px) {
+        .pad { padding: 20px 18px !important; }
+        .head-pad { padding: 20px 18px 24px !important; }
+        .hero { font-size: 34px !important; letter-spacing: -1px !important; }
+        .box { padding: 15px 16px !important; }
+        .stack { display: block !important; width: 100% !important; }
+        .body-text { font-size: 16px !important; }
+      }
+    </style>
+  </head>
   <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
       <tr>
         <td align="center" style="padding:0 12px;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
             <tr>
-              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+              <td class="head-pad" style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
                 <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;">
                 <div style="font-size:25px;line-height:1.15;color:#ffffff;font-weight:bold;margin-top:14px;">Beyond Ana Maly</div>
                 <div style="font-size:14px;line-height:1.5;color:#f5c46b;margin-top:6px;font-weight:bold;letter-spacing:0.5px;">Build the First Step</div>
@@ -4351,7 +4498,7 @@ function memberEmailShell({
                 <div style="font-size:15px;line-height:1.5;color:#dbe7ef;margin-top:10px;">${escapeHtml(subheading)}</div>
               </td>
             </tr>
-            <tr><td style="padding:26px 28px 8px;">${bodyHtml}</td></tr>
+            <tr><td class="pad" style="padding:26px 28px 8px;">${bodyHtml}</td></tr>
             <tr>
               <td style="background:#f7f3ea;border-top:1px solid #eadfca;padding:18px 28px;text-align:center;font-size:13px;line-height:1.6;color:#64748b;">
                 Resala AUC · Beyond Ana Maly
@@ -4784,11 +4931,38 @@ export function buildMemberReminderEmail(
  * captured — an application from before this existed — it still sends, just
  * as its own message rather than silently skipping someone's reminder.
  */
+/*
+ * The responsibilities document, fetched once per send run rather than per
+ * person. An acceptance is never held up by it: if it is not configured, or
+ * the fetch fails, the email still goes out and says the document follows —
+ * being accepted late, or not at all, is worse than reading it a day later.
+ */
+async function getMemberResponsibilitiesAttachment(): Promise<EmailAttachment[]> {
+  if (!MEMBER_RESPONSIBILITIES_URL) return [];
+  try {
+    const response = await fetch(MEMBER_RESPONSIBILITIES_URL);
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return [
+      {
+        filename: MEMBER_RESPONSIBILITIES_FILENAME,
+        contentType: response.headers.get("content-type")?.split(";")[0]?.trim() || "application/pdf",
+        contentBytes: new Uint8Array(await response.arrayBuffer())
+      }
+    ];
+  } catch (error) {
+    console.error(
+      `Could not fetch the member responsibilities document: ${error instanceof Error ? error.message : error}`
+    );
+    return [];
+  }
+}
+
 async function sendMemberReminderEmail(
   to: string,
   cc: string,
   template: { subject: string; text: string; html: string },
-  thread: { threadId: string; messageId: string }
+  thread: { threadId: string; messageId: string },
+  attachments: EmailAttachment[] = []
 ): Promise<boolean> {
   if (!gmailConfigured()) return false;
   try {
@@ -4802,6 +4976,7 @@ async function sendMemberReminderEmail(
       subject: thread.threadId || thread.messageId ? `Re: ${template.subject}` : template.subject,
       text: template.text,
       html: template.html,
+      attachments,
       inReplyTo: thread.messageId || undefined,
       references: thread.messageId || undefined
     });
@@ -5074,9 +5249,54 @@ async function resendMemberConfirmation(
  * not be copied on every applicant's interview mail, and a cohort of them
  * would bury the people who should.
  */
+/*
+ * Move somebody along: they replied, or they are in the WhatsApp group, or
+ * they are not coming after all. Writes only the three membership cells on
+ * their row rather than rewriting the roster, so two committees working at
+ * once cannot overwrite each other's people.
+ */
+async function setMembershipStatus(
+  token: string,
+  committee: string,
+  aucEmail: string,
+  status: string,
+  byEmail: string
+): Promise<{ aucEmail: string; status: string; updatedAt: string }> {
+  if (!MEMBERSHIP_STATUSES.includes(status)) throw new Error("That is not a membership status.");
+  const wantedEmail = normalize(aucEmail);
+  if (!wantedEmail) throw new Error("Which person?");
+
+  await ensureHierarchySheet(token);
+  const width = columnLetter(HIERARCHY_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", sheetRange(HIERARCHY_SHEET_NAME, `A2:${width}`));
+  const rows = ((await response.json()).values ?? []) as string[][];
+
+  const wantedCommittee = committeeKey(committee);
+  const index = rows.findIndex(
+    (row) =>
+      normalize(String(row[4] ?? "")) === wantedEmail &&
+      committeeKey(String(row[1] ?? "")) === wantedCommittee
+  );
+  if (index === -1) throw new Error("That person is not on this committee's roster.");
+
+  const updatedAt = new Date().toISOString();
+  const firstColumn = columnLetter(HIERARCHY_HEADERS.indexOf("Membership Status") + 1);
+  const lastColumn = columnLetter(HIERARCHY_HEADERS.indexOf("Membership Updated By") + 1);
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(HIERARCHY_SHEET_NAME, `${firstColumn}${index + 2}:${lastColumn}${index + 2}`)}?valueInputOption=RAW`,
+    { values: [[status, updatedAt, byEmail]] }
+  );
+  invalidateHierarchyCache();
+  console.log(`${byEmail} set ${aucEmail} to "${status}" on ${committee}`);
+  return { aucEmail, status, updatedAt };
+}
+
 async function addAcceptedMembersToRoster(
   token: string,
-  people: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }>
+  people: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }>,
+  addedBy = ""
 ): Promise<number> {
   if (!people.length) return 0;
 
@@ -5092,7 +5312,25 @@ async function addAcceptedMembersToRoster(
     const key = `${committeeKey(department)}::${normalize(person.aucEmail)}`;
     if (!department || !isValidAucEmail(person.aucEmail) || already.has(key)) continue;
     already.add(key);
-    rows.push([at, department, "Member", person.name, person.aucEmail, person.phone, "No", "member", person.subCommittee]);
+    /*
+     * On the board from the moment they are told, not from the moment they
+     * answer: a committee can only chase what it can see, and an acceptance
+     * with no row is exactly the person who quietly never joins.
+     */
+    rows.push([
+      at,
+      department,
+      "Member",
+      person.name,
+      person.aucEmail,
+      person.phone,
+      "No",
+      "member",
+      person.subCommittee,
+      MEMBERSHIP_WAITING,
+      at,
+      addedBy
+    ]);
   }
   if (!rows.length) return 0;
 
@@ -5100,7 +5338,7 @@ async function addAcceptedMembersToRoster(
   await sheetsFetch(
     token,
     "POST",
-    `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    `${sheetRange(HIERARCHY_SHEET_NAME, `A:${columnLetter(HIERARCHY_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { values: rows }
   );
   invalidateHierarchyCache();
@@ -5757,9 +5995,11 @@ async function acceptPastApplicant(
   const person = applicants.find((candidate) => normalize(candidate.aucEmail) === normalize(aucEmail));
   if (!person) throw new Error("That applicant is no longer on the previous-cycles list.");
 
-  const added = await addAcceptedMembersToRoster(token, [
-    { department: committee, subCommittee: matchedSub, name: person.fullName, aucEmail, phone: person.phone }
-  ]);
+  const added = await addAcceptedMembersToRoster(
+    token,
+    [{ department: committee, subCommittee: matchedSub, name: person.fullName, aucEmail, phone: person.phone }],
+    adminEmail
+  );
   if (!added) throw new Error(`${person.fullName} is already on the team board.`);
 
   /*
@@ -5767,8 +6007,17 @@ async function acceptPastApplicant(
    * out on belongs to a cycle they were turned down in, and landing an
    * acceptance at the bottom of it would read as an afterthought.
    */
-  const template = buildMemberAcceptanceEmail(person.fullName, committee, matchedSub);
-  const emailSent = await sendMemberReminderEmail(aucEmail, "", template, { threadId: "", messageId: "" });
+  const responsibilities = await getMemberResponsibilitiesAttachment();
+  const template = buildMemberAcceptanceEmail(person.fullName, committee, matchedSub, {
+    responsibilitiesAttached: responsibilities.length > 0
+  });
+  const emailSent = await sendMemberReminderEmail(
+    aucEmail,
+    "",
+    template,
+    { threadId: "", messageId: "" },
+    responsibilities
+  );
 
   console.log(`${adminEmail} accepted ${aucEmail} from a previous cycle into ${committee} / ${matchedSub}`);
   return { fullName: person.fullName, committee, subCommittee: matchedSub, emailSent };
@@ -5805,6 +6054,8 @@ async function approveMemberFinalList(
   const joining: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }> = [];
   let approved = 0;
   let emailed = 0;
+  // Fetched once for the whole run, not once per person.
+  const responsibilities = await getMemberResponsibilitiesAttachment();
 
   for (const rowIndex of wanted) {
     const row = await readMemberApplicationRow(token, rowIndex);
@@ -5835,12 +6086,21 @@ async function approveMemberFinalList(
       phone: String(row[6] ?? "").trim()
     });
 
-    const template = buildMemberAcceptanceEmail(fullName, String(row[8] ?? "").trim(), String(row[23] ?? "").trim());
+    const template = buildMemberAcceptanceEmail(
+      fullName,
+      String(row[8] ?? "").trim(),
+      // Where the committee put them, or failing that what they chose — the
+      // same answer the roster write below uses, so the email cannot name a
+      // sub-committee they were moved out of.
+      String(row[33] ?? "").trim() || String(row[23] ?? "").trim(),
+      { responsibilitiesAttached: responsibilities.length > 0 }
+    );
     const sent = await sendMemberReminderEmail(
       aucEmail,
       "",
       template,
-      { threadId: String(row[25] ?? "").trim(), messageId: String(row[26] ?? "").trim() }
+      { threadId: String(row[25] ?? "").trim(), messageId: String(row[26] ?? "").trim() },
+      responsibilities
     );
     if (sent) {
       await writeMemberCells(token, rowIndex, "Acceptance Email Sent At", [new Date().toISOString()]);
@@ -5857,7 +6117,7 @@ async function approveMemberFinalList(
    */
   let addedToTeam = 0;
   try {
-    addedToTeam = await addAcceptedMembersToRoster(token, joining);
+    addedToTeam = await addAcceptedMembersToRoster(token, joining, adminEmail);
   } catch (error) {
     console.error(`Could not add accepted members to the team board: ${error instanceof Error ? error.message : error}`);
     failures.push({ rowIndex: 0, fullName: "The team board", reason: "They are accepted, but were not added to the board." });
@@ -6448,7 +6708,7 @@ async function seedTeamFromAcceptedHeads(
     await sheetsFetch(
       token,
       "POST",
-      `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      `${sheetRange(HIERARCHY_SHEET_NAME, `A:${columnLetter(HIERARCHY_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
       {
         values: additions.map((entry) => [
           at,
@@ -6479,9 +6739,142 @@ async function seedTeamFromAcceptedHeads(
 }
 
 /** The whole board, for the team dashboard. */
+/*
+ * One email per person, never one shared To/Cc list: a committee message would
+ * otherwise hand every volunteer's address to everyone else on it, and a
+ * single bad address would bounce the whole send. Recipients are resolved here
+ * from the roster rather than taken from the page, so the board cannot be used
+ * to mail anybody who is not actually on the team.
+ */
+async function sendTeamEmail(
+  token: string,
+  senderEmail: string,
+  payload: TeamSendEmailPayload
+): Promise<{ recipients: number; sent: number; failed: Array<{ name: string; aucEmail: string; error: string }> }> {
+  if (!gmailConfigured()) throw new Error("Email sending is not configured on the server.");
+
+  const subject = String(payload.subject ?? "").replace(/[\r\n]+/g, " ").trim();
+  const message = String(payload.message ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!subject) throw new Error("Write a subject before sending.");
+  if (subject.length > 200) throw new Error("Keep the subject under 200 characters.");
+  if (!message) throw new Error("Write a message before sending.");
+  if (message.length > 10000) throw new Error("Keep the message under 10,000 characters.");
+
+  const { members } = await loadTeamBoard(token);
+  const audience: TeamEmailAudience = payload.audience ?? { type: "all" };
+  const chosen = members.filter((member) => {
+    if (audience.type === "committee") return committeeKey(member.department) === committeeKey(audience.committee);
+    if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
+    return true;
+  });
+
+  // Somebody on two committees is one person, and gets one copy.
+  const byEmail = new Map<string, { name: string; aucEmail: string }>();
+  for (const member of chosen) {
+    const key = normalize(member.aucEmail);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(key) || byEmail.has(key)) continue;
+    byEmail.set(key, { name: member.name, aucEmail: member.aucEmail.trim() });
+  }
+  const recipients = [...byEmail.values()];
+  if (!recipients.length) throw new Error("Nobody on the board matches who you picked, so nothing was sent.");
+
+  const accessToken = await getGmailAccessToken();
+  const failed: Array<{ name: string; aucEmail: string; error: string }> = [];
+  let sent = 0;
+
+  // A few at a time: fast enough for the whole team, gentle enough on Gmail's rate limit.
+  for (let index = 0; index < recipients.length; index += 5) {
+    await Promise.all(
+      recipients.slice(index, index + 5).map(async (recipient) => {
+        const firstName = recipient.name.split(/\s+/)[0] || "there";
+        try {
+          const raw = buildRawEmailMessage({
+            from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+            to: recipient.aucEmail,
+            subject,
+            text: `Hi ${firstName},\n\n${message}\n\nBest,\nResala AUC\n\nSent by ${senderEmail} from the Resala AUC team board.`,
+            html: buildTeamEmailHtml({ firstName, subject, message, senderEmail })
+          });
+          const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ raw })
+          });
+          if (!response.ok) throw new Error(`Gmail refused it: ${(await response.text()).slice(0, 200)}`);
+          sent++;
+        } catch (error) {
+          failed.push({
+            name: recipient.name,
+            aucEmail: recipient.aucEmail,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      })
+    );
+  }
+
+  console.log(`Team email "${subject}" by ${senderEmail}: ${sent}/${recipients.length} sent.`);
+  return { recipients: recipients.length, sent, failed };
+}
+
+function buildTeamEmailHtml({
+  firstName,
+  subject,
+  message,
+  senderEmail
+}: {
+  firstName: string;
+  subject: string;
+  message: string;
+  senderEmail: string;
+}): string {
+  const paragraphs = message
+    .split(/\n{2,}/)
+    .map((paragraph) => {
+      const body = escapeHtml(paragraph)
+        .replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)]/g, (url) => `<a href="${url}" style="color:#0d2b45;">${url}</a>`)
+        .replace(/\n/g, "<br>");
+      return `<p style="margin:0 0 16px;font-size:16px;line-height:1.6;">${body}</p>`;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f7f3ea;color:#172033;font-family:Arial,Helvetica,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f7f3ea;margin:0;padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border:1px solid #eadfca;border-radius:18px;overflow:hidden;">
+            <tr>
+              <td style="background:#0d2b45;padding:24px 28px 30px;text-align:center;color:#ffffff;">
+                <img src="${escapeHtml(EMAIL_LOGO_URL)}" alt="Resala AUC" width="128" style="display:block;width:128px;max-width:128px;height:auto;border:0;margin:0 auto;">
+                <div style="font-size:24px;line-height:1.25;color:#ffffff;font-weight:bold;margin-top:20px;">${escapeHtml(subject)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:26px 28px 8px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                ${paragraphs}
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#f3efe5;padding:16px 28px;text-align:center;border-top:1px solid #eadfca;">
+                <div style="font-size:12px;line-height:1.5;color:#667085;">Sent by ${escapeHtml(senderEmail)} · Resala AUC · Build the First Step</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
 async function loadTeamBoard(token: string): Promise<{
   committees: string[];
-  members: Array<{ department: string; positionType: string; level: string; subCommittee: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean }>;
+  members: Array<{ department: string; positionType: string; level: string; subCommittee: string; name: string; aucEmail: string; phone: string; interviewEmails: boolean; isAdmin: boolean; membershipStatus: string; membershipUpdatedAt: string; membershipUpdatedBy: string }>;
+  membershipStatuses: string[];
   /** Each committee's sub-committees, so the page offers only that committee's. */
   subCommitteesByCommittee: Record<string, string[]>;
   acceptedHeadsNotOnRoster: Array<{ department: string; name: string; aucEmail: string; positionType: string }>;
@@ -6503,7 +6896,10 @@ async function loadTeamBoard(token: string): Promise<{
     phone: String(entry.phone ?? "").trim(),
     subCommittee: String(entry.subCommittee ?? "").trim(),
     interviewEmails: entry.interviewEmails !== false,
-    isAdmin: adminEmails.has(normalize(entry.aucEmail ?? ""))
+    isAdmin: adminEmails.has(normalize(entry.aucEmail ?? "")),
+    membershipStatus: entry.membershipStatus ?? "",
+    membershipUpdatedAt: entry.membershipUpdatedAt ?? "",
+    membershipUpdatedBy: entry.membershipUpdatedBy ?? ""
   }));
 
   // Anyone the recruitment sheet still calls a head who is not on the roster —
@@ -6545,7 +6941,13 @@ async function loadTeamBoard(token: string): Promise<{
   const subCommitteesByCommittee: Record<string, string[]> = {};
   for (const committee of sorted) subCommitteesByCommittee[committee] = subCommitteesFor(committee);
 
-  return { committees: sorted, members, acceptedHeadsNotOnRoster, subCommitteesByCommittee };
+  return {
+    committees: sorted,
+    members,
+    acceptedHeadsNotOnRoster,
+    subCommitteesByCommittee,
+    membershipStatuses: MEMBERSHIP_STATUSES
+  };
 }
 
 /*
@@ -6691,6 +7093,32 @@ async function loadMemberCommitteePortal(
    * list looks thin — with hundreds of rows this becomes a real second pass.
    */
   otherCommitteeValuesInSheet?: Array<{ committee: string; committeeId: string; count: number }>;
+  /*
+   * The people this committee has already accepted, and where each of them is
+   * between the acceptance email and actually being in the club. This is the
+   * committee's own chase list: only they know whether somebody answered and
+   * whether they are in the group.
+   */
+  heads: Array<{
+    name: string;
+    aucEmail: string;
+    phone: string;
+    positionType: string;
+    level: string;
+    subCommittee: string;
+  }>;
+  team: Array<{
+    name: string;
+    aucEmail: string;
+    phone: string;
+    subCommittee: string;
+    positionType: string;
+    level: string;
+    membershipStatus: string;
+    membershipUpdatedAt: string;
+    membershipUpdatedBy: string;
+  }>;
+  membershipStatuses: string[];
 }> {
   await ensureSheetTab(token, MEMBER_APPLICATIONS_SHEET_NAME);
   await ensureSheetHeaders(token, MEMBER_APPLICATIONS_SHEET_NAME, MEMBER_APPLICATION_HEADERS);
@@ -6822,8 +7250,40 @@ async function loadMemberCommitteePortal(
     a.localeCompare(b)
   );
 
+  const { entries: rosterEntries } = await loadHierarchy(token, true);
+  const ourCommittee = committeeKey(access.committee);
+  const team = rosterEntries
+    .filter((entry) => committeeKey(entry.department) === ourCommittee && entry.level === "member")
+    .map((entry) => ({
+      name: entry.name,
+      aucEmail: entry.aucEmail ?? "",
+      phone: entry.phone ?? "",
+      subCommittee: entry.subCommittee ?? "",
+      positionType: entry.positionType,
+      level: String(entry.level ?? "member"),
+      membershipStatus: entry.membershipStatus || MEMBERSHIP_WAITING,
+      membershipUpdatedAt: entry.membershipUpdatedAt ?? "",
+      membershipUpdatedBy: entry.membershipUpdatedBy ?? ""
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const heads = rosterEntries
+    .filter((entry) => committeeKey(entry.department) === ourCommittee && entry.level !== "member")
+    .map((entry) => ({
+      name: entry.name,
+      aucEmail: entry.aucEmail ?? "",
+      phone: entry.phone ?? "",
+      positionType: entry.positionType,
+      level: String(entry.level ?? "head"),
+      subCommittee: entry.subCommittee ?? ""
+    }))
+    .sort((a, b) => a.level.localeCompare(b.level) || a.name.localeCompare(b.name));
+
   return {
     access,
+    team,
+    heads,
+    membershipStatuses: MEMBERSHIP_STATUSES,
     criteria: MEMBER_SCORE_CRITERIA,
     maxPerCriterion: MEMBER_SCORE_MAX,
     subCommittees,
@@ -6832,6 +7292,58 @@ async function loadMemberCommitteePortal(
     applicants,
     otherCommitteeValuesInSheet
   };
+}
+
+/*
+ * A committee's own heads, maintained by its own director.
+ *
+ * Deliberately narrow: the department comes from the director's own access
+ * rather than from the request, the position is always Head, and a removal
+ * refuses anything that is not a head on that same committee. The worst this
+ * can do is reshuffle one committee's heads — never another committee, never
+ * a promotion to director, never the people above them.
+ */
+function requireDirector(access: MemberCommitteeAccess): void {
+  if (access.level !== "director") {
+    throw new Error("Only a director can change this committee's heads.");
+  }
+}
+
+async function upsertCommitteeHead(
+  token: string,
+  access: MemberCommitteeAccess,
+  head: { name: string; aucEmail: string; phone?: string; subCommittee?: string; previousEmail?: string }
+): Promise<{ saved: true }> {
+  requireDirector(access);
+  return await upsertTeamMember(token, {
+    department: access.committee,
+    positionType: "Head",
+    level: "head",
+    name: head.name,
+    aucEmail: head.aucEmail,
+    phone: head.phone ?? "",
+    subCommittee: head.subCommittee ?? "",
+    interviewEmails: true,
+    previousEmail: head.previousEmail,
+    previousDepartment: access.committee
+  });
+}
+
+async function removeCommitteeHead(
+  token: string,
+  access: MemberCommitteeAccess,
+  aucEmail: string
+): Promise<{ removed: number; adminRevoked: boolean; stillOnOtherCommittees: number }> {
+  requireDirector(access);
+  const { entries } = await loadHierarchy(token, true);
+  const target = entries.find(
+    (entry) =>
+      normalize(entry.aucEmail ?? "") === normalize(aucEmail) &&
+      committeeKey(entry.department) === committeeKey(access.committee)
+  );
+  if (!target) throw new Error("That person is not on this committee.");
+  if (target.level !== "head") throw new Error("Only heads can be removed here.");
+  return await removeTeamMember(token, aucEmail, access.committee);
 }
 
 /** One interviewer's score for one applicant. Saving again replaces their own row, nobody else's. */
@@ -7171,21 +7683,36 @@ async function setMemberCommitteeDecision(
 export function buildMemberAcceptanceEmail(
   fullName: string,
   committee: string,
-  subCommittee: string
+  subCommittee: string,
+  options: { responsibilitiesAttached?: boolean } = {}
 ): { subject: string; text: string; html: string } {
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
-  const place = subCommittee ? `${committee} — ${subCommittee}` : committee;
+  const place = subCommittee ? `${committee} - ${subCommittee}` : committee;
+  const responsibilitiesLine = options.responsibilitiesAttached === true
+    ? "Read the responsibilities document attached to this email, and confirm you accept them."
+    : "Confirm you accept the responsibilities of your role. The document setting them out follows in a separate email, and taking your place means accepting it.";
 
   const text = [
     `Hi ${firstName},`,
     "",
-    `You are in. Welcome to ${place}.`,
+    `You're in. Welcome to ${place}.`,
     "",
-    "Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.",
+    '"Ana maly." Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt - one reason, carried forward every year by one more person who decides it is their problem.',
     "",
-    "Use your AUC account from here on — it is what our meetings, documents and shared drives are opened with. If you do not have one yet, tell your committee the moment you do.",
+    "This year, that person is you. Build the First Step was our call, and you answered it.",
     "",
-    "Reply on this thread if anything is unclear.",
+    "THE OPENING",
+    `Date:  ${MEMBER_OPENING_DATE}`,
+    `Time:  ${MEMBER_OPENING_TIME}`,
+    `Place: ${MEMBER_OPENING_PLACE}`,
+    "",
+    "BEFORE YOU START - TWO THINGS TO CONFIRM",
+    `1. Your attendance at the opening: ${MEMBER_OPENING_DATE}, ${MEMBER_OPENING_TIME}, at ${MEMBER_OPENING_PLACE}.`,
+    `2. ${responsibilitiesLine}`,
+    "",
+    "Reply to this email with the word CONFIRMED to confirm both. If you cannot make the opening, reply and tell us - it is better to know now than on the day.",
+    "",
+    "Use your AUC account from here on - it is what our meetings, documents and shared drives are opened with. If you do not have one yet, tell your committee the moment you do.",
     "",
     "Be the first step toward someone's better life.",
     "",
@@ -7193,31 +7720,77 @@ export function buildMemberAcceptanceEmail(
     "Resala AUC"
   ].join("\n");
 
+  const openingRow = (label: string, value: string, last = false) => `
+                        <tr>
+                          <td class="stack" style="padding:0 0 ${last ? "0" : "10px"};font-size:12px;color:#9fb6c9;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;width:74px;vertical-align:top;">${escapeHtml(label)}</td>
+                          <td class="stack" style="padding:0 0 ${last ? "0" : "10px"};font-size:16px;line-height:1.5;color:#ffffff;font-weight:bold;vertical-align:top;">${escapeHtml(value)}</td>
+                        </tr>`;
+
+  const checklistItem = (number: string, title: string, detail: string) => `
+                  <tr>
+                    <td style="padding:0 0 14px;">
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                        <tr>
+                          <td style="width:32px;vertical-align:top;padding-top:1px;">
+                            <div style="width:22px;height:22px;border:2px solid #0d2b45;border-radius:5px;text-align:center;font-size:13px;line-height:22px;color:#0d2b45;font-weight:bold;">${escapeHtml(number)}</div>
+                          </td>
+                          <td style="vertical-align:top;">
+                            <div class="body-text" style="font-size:16px;line-height:1.5;color:#0d2b45;font-weight:bold;">${escapeHtml(title)}</div>
+                            <div class="body-text" style="font-size:15px;line-height:1.6;color:#3f4650;margin-top:4px;">${escapeHtml(detail)}</div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>`;
+
   const html = memberEmailShell({
     heading: "You're In",
-    subheading: committee,
+    subheading: place,
     bodyHtml: `
-                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">You are in. Welcome to Resala AUC.</p>
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
+                <p class="body-text" style="margin:0 0 10px;font-size:17px;line-height:1.6;color:#1b1f23;">Hi ${escapeHtml(firstName)},</p>
+                <div class="hero" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:46px;line-height:1.05;font-weight:900;color:#0c2c80;letter-spacing:-1.5px;margin:0 0 18px;">You&rsquo;re in.</div>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
                   <tr>
-                    <td style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
-                      <div style="font-size:13px;color:#8a4706;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:7px;">Your place</div>
+                    <td class="box" style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:12px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:7px;">Your place</div>
                       <div style="font-size:20px;line-height:1.35;font-weight:bold;color:#0d2b45;">${escapeHtml(committee)}</div>
-                      ${
-                        subCommittee
-                          ? `<div style="font-size:15px;line-height:1.6;color:#8a4706;margin-top:6px;">${escapeHtml(subCommittee)}</div>`
-                          : ""
-                      }
+                      ${subCommittee ? `<div style="font-size:15px;line-height:1.6;color:#8a4706;margin-top:6px;">${escapeHtml(subCommittee)}</div>` : ""}
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 18px;font-size:15px;line-height:1.65;color:#172033;">Your committee will be in touch with what happens next: the group you join, when you start, and who to ask.</p>
+
+                <p class="body-text" style="margin:0 0 16px;font-size:17px;line-height:1.65;color:#3f4650;">&ldquo;Ana maly.&rdquo; Not my problem. Dr. Sherif Abdel Azeem, the professor whose class project became Resala, refused to accept that from his students. That refusal grew into a room of 50 people, then a nationwide NGO with over 100,000 volunteers across Egypt &mdash; one reason, carried forward every year by one more person who decides it <i>is</i> their problem.</p>
+                <p class="body-text" style="margin:0 0 24px;font-size:17px;line-height:1.65;color:#1b1f23;">This year, that person is you. <b>Build the First Step</b> was our call, and you answered it.</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
+                  <tr>
+                    <td class="box" style="background:#0d2b45;border-radius:14px;padding:20px 22px;">
+                      <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:12px;">The opening</div>
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">${openingRow("Date", MEMBER_OPENING_DATE)}${openingRow("Time", MEMBER_OPENING_TIME)}${openingRow("Place", MEMBER_OPENING_PLACE, true)}
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <div style="font-size:12px;color:#0c2c80;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin:0 0 12px;">Before you start &mdash; two things to confirm</div>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0;">${checklistItem("1", "Your attendance at the opening", `${MEMBER_OPENING_DATE}, ${MEMBER_OPENING_TIME}, at ${MEMBER_OPENING_PLACE}.`)}${checklistItem("2", "The responsibilities of your role", responsibilitiesLine)}
+                </table>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td class="box" style="background:#fdf9f3;border:1px solid #eadfca;border-left:5px solid #0c2c80;border-radius:14px;padding:18px;">
+                      <div class="body-text" style="font-size:16px;line-height:1.6;color:#0d2b45;">Reply to this email with the word <b>CONFIRMED</b> to confirm both.</div>
+                      <div class="body-text" style="font-size:15px;line-height:1.6;color:#3f4650;margin-top:6px;">If you cannot make the opening, reply and tell us &mdash; it is better to know now than on the day.</div>
+                    </td>
+                  </tr>
+                </table>
+
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
-                    <td style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
-                      <div style="font-size:13px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:bold;margin-bottom:8px;">Use your AUC account</div>
-                      <div style="font-size:15px;line-height:1.65;color:#172033;">
+                    <td class="box" style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
+                      <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:8px;">Use your AUC account</div>
+                      <div class="body-text" style="font-size:15px;line-height:1.65;color:#172033;">
                         Our meetings, documents and shared drives are all opened with it, so sign in with your
                         <strong>@aucegypt.edu</strong> account from here on. If you do not have one yet, tell your committee
                         the moment you do and they will move you over.
@@ -7225,13 +7798,12 @@ export function buildMemberAcceptanceEmail(
                     </td>
                   </tr>
                 </table>
-                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">Reply on this thread if anything is unclear.</p>
-                <p style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone's better life.</p>`
+
+                <p class="body-text" style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone&rsquo;s better life.</p>`
   });
 
-  return { subject: `Resala AUC — welcome to ${place}`, text, html };
-}
-
+  return { subject: `Resala AUC - welcome to ${place}`, text, html };
+} 
 /** Add or update one person. Identified by the email they are on the board under. */
 /*
  * Read-modify-write of the whole roster, so the read must be fresh: the cache
@@ -7278,7 +7850,19 @@ async function upsertTeamMember(
       normalize(entry.aucEmail ?? "") === targetEmail && committeeKey(entry.department) === targetDepartment;
     if (isTarget && !replaced) {
       replaced = true;
-      next.push({ department, positionType, name, aucEmail, phone: String(member.phone ?? "").trim(), interviewEmails: member.interviewEmails !== false, level: member.level ?? teamLevel("", positionType), subCommittee });
+      next.push({
+        department,
+        positionType,
+        name,
+        aucEmail,
+        phone: String(member.phone ?? "").trim(),
+        interviewEmails: member.interviewEmails !== false,
+        level: member.level ?? teamLevel("", positionType),
+        subCommittee,
+        membershipStatus: entry.membershipStatus ?? "",
+        membershipUpdatedAt: entry.membershipUpdatedAt ?? "",
+        membershipUpdatedBy: entry.membershipUpdatedBy ?? ""
+      });
       continue;
     }
     // The same person twice on the same committee is a duplicate, not a move.
@@ -9495,11 +10079,143 @@ async function loadAdminApplicants(token: string): Promise<{
  * the people running this cycle, which sees everything.
  *
  * Access is by AUC email in both cases, checked live against a sheet, so a
- * roster change takes effect without a deploy. Email alone is a weak boundary
- * and is a deliberate choice: anyone who knows a director's address can read
- * their applicants. Adding an emailed one-time code later only changes the two
- * `require*` helpers below.
+ * roster change takes effect without a deploy.
+ *
+ * The admin portals go further: requireRecruitmentAdmin reads the address
+ * Google verified at sign-in, carried by a signed session token, and ignores
+ * whatever email the body names. The committee portals are deliberately left
+ * on email alone — knowing a director's address is enough to open their own
+ * committee, which is the trade that was asked for.
  * ══════════════════════════════════════════════════════════════════════════ */
+
+type RequestIdentity = { email: string | null };
+
+const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
+const SIGN_IN_AGAIN = "Your sign-in has expired or is missing. Sign in again with Google.";
+
+/*
+ * Throws rather than returning an empty string, so a path that forgets to
+ * sign the caller in fails closed instead of matching an empty roster cell.
+ */
+function signedInEmail(): string {
+  const email = requestIdentity.getStore()?.email;
+  if (!email) throw new Error(SIGN_IN_AGAIN);
+  return email;
+}
+
+function b64urlFromBytes(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function bytesFromB64url(value: string) {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+}
+
+let googleKeysCache: { keys: Map<string, CryptoKey>; expiresAt: number } | null = null;
+
+async function googleSigningKey(kid: string): Promise<CryptoKey> {
+  // Refetched on expiry, and on an unknown kid, since Google rotates its keys.
+  if (!googleKeysCache || googleKeysCache.expiresAt < Date.now() || !googleKeysCache.keys.has(kid)) {
+    const response = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+    if (!response.ok) throw new Error("Could not reach Google to check the sign-in. Try again.");
+    const maxAge = Number(response.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1] ?? 3600);
+    const { keys } = (await response.json()) as { keys: Array<JsonWebKey & { kid: string }> };
+    const imported = new Map<string, CryptoKey>();
+    for (const jwk of keys) {
+      imported.set(
+        jwk.kid,
+        await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"])
+      );
+    }
+    googleKeysCache = { keys: imported, expiresAt: Date.now() + maxAge * 1000 };
+  }
+  const key = googleKeysCache.keys.get(kid);
+  if (!key) throw new Error("Google did not recognise that sign-in. Sign in again.");
+  return key;
+}
+
+async function verifyGoogleIdToken(credential: string): Promise<{ email: string; name: string }> {
+  if (!GOOGLE_SIGNIN_CLIENT_ID) throw new Error("Google sign-in is not configured on the server.");
+  const unreadable = "That sign-in could not be read. Sign in again.";
+  const parts = credential.split(".");
+  if (parts.length !== 3) throw new Error(unreadable);
+
+  let header: { alg?: string; kid?: string };
+  let claims: Record<string, unknown>;
+  try {
+    header = JSON.parse(new TextDecoder().decode(bytesFromB64url(parts[0])));
+    claims = JSON.parse(new TextDecoder().decode(bytesFromB64url(parts[1])));
+  } catch {
+    throw new Error(unreadable);
+  }
+  if (header.alg !== "RS256" || !header.kid) throw new Error(unreadable);
+
+  const valid = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    await googleSigningKey(header.kid),
+    bytesFromB64url(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  if (!valid) throw new Error("That sign-in did not come from Google. Sign in again.");
+  if (claims.iss !== "accounts.google.com" && claims.iss !== "https://accounts.google.com") {
+    throw new Error("That sign-in did not come from Google. Sign in again.");
+  }
+  // Issued for this site's client, not replayed from some other app's sign-in.
+  if (claims.aud !== GOOGLE_SIGNIN_CLIENT_ID) throw new Error("That sign-in was for a different site. Sign in again.");
+  if (typeof claims.exp !== "number" || claims.exp < Math.floor(Date.now() / 1000) - 60) {
+    throw new Error("That sign-in has expired. Sign in again.");
+  }
+  if (claims.email_verified !== true && claims.email_verified !== "true") {
+    throw new Error("Google has not verified that account's email address, so it cannot be used to sign in.");
+  }
+  const email = normalize(claims.email);
+  if (!email) throw new Error(unreadable);
+  return { email, name: String(claims.name ?? "").trim() };
+}
+
+async function sessionKey(): Promise<CryptoKey> {
+  if (SESSION_SIGNING_SECRET.length < 32) throw new Error("Sign-in is not configured on the server.");
+  return await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(SESSION_SIGNING_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+}
+
+async function createSessionToken(email: string, name: string): Promise<{ token: string; expiresAt: number }> {
+  const expiresAt = Date.now() + SESSION_LIFETIME_MS;
+  const body = b64urlFromBytes(new TextEncoder().encode(JSON.stringify({ email, name, exp: expiresAt })));
+  const signature = new Uint8Array(
+    await crypto.subtle.sign("HMAC", await sessionKey(), new TextEncoder().encode(`v1.${body}`))
+  );
+  return { token: `v1.${body}.${b64urlFromBytes(signature)}`, expiresAt };
+}
+
+/* Null for anything missing, forged, tampered with or expired — never a throw,
+   because applicant-facing requests carry no session at all. */
+async function verifySessionToken(token: unknown): Promise<string | null> {
+  const [version, body, signature, extra] = String(token ?? "").split(".");
+  if (version !== "v1" || !body || !signature || extra !== undefined) return null;
+  try {
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      await sessionKey(),
+      bytesFromB64url(signature),
+      new TextEncoder().encode(`v1.${body}`)
+    );
+    if (!valid) return null;
+    const claims = JSON.parse(new TextDecoder().decode(bytesFromB64url(body)));
+    if (typeof claims.exp !== "number" || claims.exp < Date.now()) return null;
+    return normalize(claims.email) || null;
+  } catch {
+    return null;
+  }
+}
 
 type CommitteeAccess = {
   department: string;
@@ -9545,6 +10261,7 @@ async function readRecruitmentAdminEmails(token: string): Promise<Set<string>> {
 }
 
 async function requireRecruitmentAdmin(token: string, email: string): Promise<{ name: string; email: string }> {
+  email = signedInEmail();
   const wanted = normalize(email);
   if (!wanted) throw new Error("Enter your AUC email.");
 
@@ -13717,7 +14434,17 @@ async function loadHierarchy(token: string, fresh = false): Promise<{ entries: H
       // already being copied, and a blank cell must not quietly drop someone.
       interviewEmails: normalize(row[6]) !== "no",
       level: teamLevel(row[7], row[2]),
-      subCommittee: String(row[8] ?? "").trim()
+      subCommittee: String(row[8] ?? "").trim(),
+      /*
+       * Blank on every row written before this column existed. For a member
+       * that means the acceptance predates the tracking, which is still
+       * "waiting" — not "no status" — so their committee sees them to chase.
+       */
+      membershipStatus:
+        String(row[9] ?? "").trim() ||
+        (teamLevel(row[7], row[2]) === "member" ? MEMBERSHIP_WAITING : ""),
+      membershipUpdatedAt: String(row[10] ?? "").trim(),
+      membershipUpdatedBy: String(row[11] ?? "").trim()
     }));
 
   hierarchyCache = { at: Date.now(), entries };
@@ -13737,18 +14464,23 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
       // mean "leave them on the emails", not "take them off".
       interviewEmails: entry.interviewEmails !== false,
       level: entry.level ?? teamLevel("", entry.positionType),
-      subCommittee: String(entry.subCommittee ?? "").trim()
+      subCommittee: String(entry.subCommittee ?? "").trim(),
+      // Carried through a rewrite: this editor never edits them, and dropping
+      // them would silently reset everybody to waiting.
+      membershipStatus: String(entry.membershipStatus ?? "").trim(),
+      membershipUpdatedAt: String(entry.membershipUpdatedAt ?? "").trim(),
+      membershipUpdatedBy: String(entry.membershipUpdatedBy ?? "").trim()
     }))
     .filter((entry) => entry.positionType && entry.name);
 
   await ensureHierarchySheet(token);
   // Anything cached from before this write is now wrong.
   invalidateHierarchyCache();
-  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A2:I")}:clear`, {});
+  await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, `A2:${columnLetter(HIERARCHY_HEADERS.length)}`)}:clear`, {});
 
   if (cleaned.length) {
     const timestamp = new Date().toISOString();
-    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, "A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    await sheetsFetch(token, "POST", `${sheetRange(HIERARCHY_SHEET_NAME, `A:${columnLetter(HIERARCHY_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
       values: cleaned.map((entry) => [
         timestamp,
         entry.department,
@@ -13758,7 +14490,10 @@ async function saveHierarchy(token: string, payload: AdminSaveHierarchyPayload):
         entry.phone,
         entry.interviewEmails ? "Yes" : "No",
         entry.level,
-        entry.subCommittee
+        entry.subCommittee,
+        entry.membershipStatus,
+        entry.membershipUpdatedAt,
+        entry.membershipUpdatedBy
       ])
     });
   }

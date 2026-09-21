@@ -126,9 +126,7 @@
     <img src="https://resala-auc.github.io/join/resala-logo.png" alt="Resala AUC">
     <h1>Member Recruitment</h1>
     <p>Members cycle. Restricted to the people running this recruitment.</p>
-    <label for="email">AUC email</label>
-    <input type="email" id="email" placeholder="you@aucegypt.edu" autocomplete="email">
-    <button class="btn btn-block" id="login-btn">Enter</button>
+    <div id="google-signin" style="display:flex;justify-content:center;min-height:44px;margin-top:6px;"></div>
     <div class="error hidden" id="login-error"></div>
   </div>
 </div>
@@ -219,6 +217,7 @@
 </dialog>
 
 <script type="module">
+import { mountSignIn, currentSession, sessionToken, signOut, signedOutGuard, isSignInError } from "../admin-auth.js";
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 const GENERAL_VOLUNTEER = "General Volunteer";
 
@@ -360,7 +359,7 @@ async function api(payload) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, session: sessionToken() })
   });
   let body;
   try {
@@ -370,9 +369,7 @@ async function api(payload) {
     // that is not our JSON at all; saying so beats "Something went wrong."
     throw new Error(`The server answered ${res.status} with no detail. Try again, and tell whoever maintains this.`);
   }
-  if (!res.ok || body.ok === false) {
-    throw new Error(body.error || `The server answered ${res.status} with no detail.`);
-  }
+  if (!res.ok || body.ok === false) throw signedOutGuard(new Error(body.error || `The server answered ${res.status} with no detail.`));
   return body;
 }
 
@@ -941,17 +938,20 @@ function renderAll() {
   renderSlots();
 }
 
-document.getElementById("login-btn").addEventListener("click", async () => {
-  const email = document.getElementById("email").value.trim();
+function showSignInError(error) {
   const errorEl = document.getElementById("login-error");
-  errorEl.classList.add("hidden");
-  if (!email) return;
-  try {
-    await load(email);
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.classList.remove("hidden");
-  }
+  errorEl.textContent = error.message;
+  errorEl.classList.remove("hidden");
+}
+
+mountSignIn({
+  endpoint: ENDPOINT,
+  container: document.getElementById("google-signin"),
+  onSignedIn: (session) => {
+    document.getElementById("login-error").classList.add("hidden");
+    return load(session.email);
+  },
+  onError: showSignInError
 });
 
 /*
@@ -1227,6 +1227,7 @@ document.getElementById("send-reminders").addEventListener("click", async () => 
 document.getElementById("refresh").addEventListener("click", () => load(state.admin.email));
 document.getElementById("logout").addEventListener("click", () => {
   sessionStorage.removeItem("member-recruitment-admin-email");
+  signOut();
   location.reload();
 });
 
@@ -1382,11 +1383,8 @@ document.getElementById("dlg-body").addEventListener("click", async (e) => {
   }
 });
 
-const cachedEmail = sessionStorage.getItem("member-recruitment-admin-email");
-if (cachedEmail) {
-  document.getElementById("email").value = cachedEmail;
-  load(cachedEmail).catch(() => {});
-}
+const session = currentSession();
+if (session) load(session.email).catch((error) => { if (!isSignInError(error)) showSignInError(error); });
 </script>
 </body>
 </html>

@@ -141,6 +141,29 @@
   .msg { margin-top: 12px; font-size: 13.5px; min-height: 20px; }
   .msg.ok { color: var(--good); }
   .msg.bad { color: var(--bad); }
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tab { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px;
+         font-weight: 700; font-size: 14px; color: var(--muted); }
+  .tab[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  .team-card { background: #fff; border: 1px solid var(--line); border-radius: 15px; overflow: hidden; }
+  .team-table { width: 100%; border-collapse: collapse; }
+  .team-table th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .7px;
+                   color: var(--muted); font-weight: 700; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .team-table td { padding: 12px 14px; border-bottom: 1px solid #f2ede2; vertical-align: top; font-size: 14.5px; }
+  .team-table tr:last-child td { border-bottom: 0; }
+  .team-actions { display: flex; gap: 7px; justify-content: flex-end; flex-wrap: wrap; align-items: center; }
+  .pill.wait { background: #fff4e0; color: #8a5a00; }
+  .pill.conf { background: #eaf1fb; color: var(--blue); }
+  .pill.inclub { background: #e6f4ec; color: var(--good); }
+  .pill.out { background: #fdecec; color: var(--bad); }
+  @media (max-width: 620px) {
+    .team-table thead { display: none; }
+    .team-table td { display: block; border-bottom: 0; padding: 4px 14px; }
+    .team-table tr { display: block; border-bottom: 1px solid #f2ede2; padding: 10px 0; }
+    .team-actions { justify-content: flex-start; margin-top: 8px; }
+  }
+
   .close { float: right; background: none; border: 0; font-size: 24px; color: var(--muted); line-height: 1; }
 </style>
 </head>
@@ -171,9 +194,14 @@
   </header>
 
   <main>
+    <div class="tabs" id="tabs">
+      <button class="tab" data-view="applicants" aria-pressed="true">Applicants</button>
+      <button class="tab" data-view="team" aria-pressed="false">Our team</button>
+    </div>
+
     <div class="stats" id="stats"></div>
 
-    <div class="toolbar">
+    <div class="toolbar" id="applicant-toolbar">
       <input type="text" id="search" placeholder="Search a name or email">
       <select id="filter-sub"><option value="">All sub-committees</option></select>
       <select id="filter-state">
@@ -187,10 +215,25 @@
 
     <div id="mismatch-banner"></div>
     <div id="groups"></div>
+    <div id="heads-view" class="hidden"></div>
+    <div id="team-view" class="hidden"></div>
   </main>
 </div>
 
 <dialog id="dlg"><div class="dlg" id="dlg-body"></div></dialog>
+
+<dialog id="head-dialog" style="max-width:420px;">
+  <form class="dlg" id="head-form" method="dialog">
+    <div class="field">
+      <label for="head-input" id="head-label">Full name</label>
+      <input type="text" id="head-input" required>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="head-cancel">Cancel</button>
+      <button type="submit" class="btn btn-gold">Next</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="confirm-dialog" style="max-width:440px;">
   <div class="dlg">
@@ -224,7 +267,8 @@ const decided = (a) => !["New", "Interviewed", ""].includes(String(a.status ?? "
 let state = {
   access: null, criteria: [], max: 5, applicants: [], subCommittees: [],
   allSubs: [], questions: [],
-  search: "", sub: "", filter: "", open: null, draft: null, slots: null, chosenSlot: null
+  search: "", sub: "", filter: "", open: null, draft: null, slots: null, chosenSlot: null,
+  team: [], heads: [], membershipStatuses: [], view: "applicants"
 };
 
 async function api(payload) {
@@ -236,7 +280,7 @@ async function api(payload) {
   let body;
   try { body = await res.json(); }
   catch { throw new Error(`The server answered ${res.status} with no detail.`); }
-  if (!res.ok || body.ok === false) throw new Error(body.error || `The server answered ${res.status} with no detail.`);
+  if (!res.ok || body.ok === false) throw (new Error(body.error || `The server answered ${res.status} with no detail.`));
   return body;
 }
 
@@ -273,6 +317,9 @@ function absorb(body) {
   // Only set when the list is thin — undefined otherwise, which is what
   // keeps the banner silent once there is nothing left to explain.
   state.otherCommitteeValues = body.otherCommitteeValuesInSheet;
+  state.team = body.team ?? state.team;
+  state.heads = body.heads ?? state.heads;
+  state.membershipStatuses = body.membershipStatuses ?? state.membershipStatuses;
 }
 
 async function load(email) {
@@ -437,11 +484,235 @@ function renderMismatch() {
     </div>`;
 }
 
+const WAITING = "Waiting for confirmation";
+const CONFIRMED = "Confirmed by email";
+const IN_CLUB = "In the club";
+const NOT_JOINING = "Not joining";
+
 function render() {
+  const onTeam = state.view === "team";
+  document.getElementById("applicant-toolbar").classList.toggle("hidden", onTeam);
+  document.getElementById("groups").classList.toggle("hidden", onTeam);
+  document.getElementById("mismatch-banner").classList.toggle("hidden", onTeam);
+  document.getElementById("team-view").classList.toggle("hidden", !onTeam);
+  document.getElementById("heads-view").classList.toggle("hidden", !onTeam);
+  for (const tab of document.querySelectorAll("#tabs .tab")) {
+    tab.setAttribute("aria-pressed", String(tab.dataset.view === state.view));
+  }
+  if (onTeam) { renderTeamStats(); renderHeads(); renderTeam(); return; }
   renderStats();
   renderMismatch();
   renderGroups();
 }
+
+function membershipPill(status) {
+  const s = String(status || WAITING);
+  const kind = s === IN_CLUB ? "inclub" : s === CONFIRMED ? "conf" : s === NOT_JOINING ? "out" : "wait";
+  return `<span class="pill ${kind}">${esc(s)}</span>`;
+}
+
+/* What matters is how many are actually in, not how many were told. */
+function renderTeamStats() {
+  const count = (status) => state.team.filter((m) => (m.membershipStatus || WAITING) === status).length;
+  const cards = [
+    ["Accepted", state.team.length],
+    ["Waiting on them", count(WAITING)],
+    ["Confirmed by email", count(CONFIRMED)],
+    ["In the club", count(IN_CLUB)]
+  ];
+  document.getElementById("stats").innerHTML = cards
+    .map(([k, v]) => `<div class="stat"><div class="v">${v}</div><div class="k">${esc(k)}</div></div>`)
+    .join("");
+}
+
+/*
+ * The chase list: everyone this committee accepted, and the one button that
+ * moves each of them forward — they reply, then they are put in the WhatsApp
+ * group and they are properly in.
+ */
+function renderTeam() {
+  const el = document.getElementById("team-view");
+  if (!state.team.length) {
+    el.innerHTML = `<div class="team-card"><div style="padding:18px;color:var(--muted);font-size:14px;">
+      Nobody yet. People appear here the moment their acceptance email goes out.</div></div>`;
+    return;
+  }
+
+  const nextStep = (status) => {
+    const s = String(status || WAITING);
+    if (s === WAITING) return { to: CONFIRMED, label: "They replied CONFIRMED" };
+    if (s === CONFIRMED) return { to: IN_CLUB, label: "Added to the WhatsApp group" };
+    return null;
+  };
+  const statuses = state.membershipStatuses.length
+    ? state.membershipStatuses
+    : [WAITING, CONFIRMED, IN_CLUB, NOT_JOINING];
+
+  el.innerHTML = `
+    <div class="team-card">
+      <table class="team-table">
+        <thead><tr><th>Name</th><th>Sub-committee</th><th>Where they are</th><th></th></tr></thead>
+        <tbody>
+          ${state.team.map((m) => {
+            const status = m.membershipStatus || WAITING;
+            const step = nextStep(status);
+            return `
+            <tr>
+              <td><b>${esc(m.name)}</b><div class="note">${esc(m.aucEmail)}</div>${
+                m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""
+              }</td>
+              <td>${esc(m.subCommittee) || `<span class="note">Not set</span>`}</td>
+              <td>${membershipPill(status)}${
+                m.membershipUpdatedBy ? `<div class="note" style="margin-top:4px;">by ${esc(m.membershipUpdatedBy)}</div>` : ""
+              }</td>
+              <td>
+                <div class="team-actions">
+                  ${step ? `<button class="btn btn-gold btn-sm" data-advance="${esc(m.aucEmail)}" data-to="${esc(step.to)}">${esc(step.label)}</button>` : ""}
+                  <select data-set="${esc(m.aucEmail)}" aria-label="Change status for ${esc(m.name)}">
+                    ${statuses.map((s) => `<option value="${esc(s)}"${s === status ? " selected" : ""}>${esc(s)}</option>`).join("")}
+                  </select>
+                </div>
+              </td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
+/* Only the director maintains this list: heads change between cycles, and
+   waiting on an admin to type a name is how a roster goes stale. */
+function renderHeads() {
+  const el = document.getElementById("heads-view");
+  const isDirector = state.access?.level === "director";
+  const heads = state.heads.filter((h) => h.level === "head");
+  el.innerHTML = `
+    <div class="team-card" style="margin-bottom:16px;">
+      <div class="sub-head">
+        <h2>Heads</h2>
+        <span class="count">${heads.length} head${heads.length === 1 ? "" : "s"}</span>
+        <div class="spacer"></div>
+        ${isDirector ? `<button class="btn btn-gold btn-sm" id="add-head">Add a head</button>` : ""}
+      </div>
+      ${heads.length
+        ? `<table class="team-table">
+            <tbody>
+              ${heads.map((h) => `
+                <tr>
+                  <td><b>${esc(h.name)}</b><div class="note">${esc(h.aucEmail)}</div></td>
+                  <td>${esc(h.subCommittee) || `<span class="note">No sub-committee</span>`}</td>
+                  <td>
+                    <div class="team-actions">
+                      ${isDirector ? `
+                        <button class="btn btn-ghost btn-sm" data-edit-head="${esc(h.aucEmail)}">Edit</button>
+                        <button class="btn btn-ghost btn-sm" data-remove-head="${esc(h.aucEmail)}" style="color:var(--bad);">Remove</button>` : ""}
+                    </div>
+                  </td>
+                </tr>`).join("")}
+            </tbody>
+          </table>`
+        : `<div class="empty">No heads on this committee yet.</div>`}
+      ${isDirector ? "" : `<div class="empty">Only your director can change this list.</div>`}
+    </div>`;
+}
+
+async function headDialog(existing) {
+  const name = await promptFor("Full name", existing?.name ?? "");
+  if (name === null) return;
+  const aucEmail = await promptFor("AUC email", existing?.aucEmail ?? "");
+  if (aucEmail === null) return;
+  const subCommittee = await promptFor("Sub-committee (leave blank if none)", existing?.subCommittee ?? "");
+  if (subCommittee === null) return;
+  try {
+    absorb(await api({
+      mode: "committee-member-upsert-head",
+      email: state.access.email,
+      head: { name, aucEmail, subCommittee, previousEmail: existing?.aucEmail }
+    }));
+    render();
+  } catch (error) {
+    await confirmDialog(error.message);
+  }
+}
+
+/* A dialog of our own: window.prompt is blocked in some browsers and looks
+   nothing like the rest of this page. */
+function promptFor(label, value) {
+  return new Promise((resolve) => {
+    const dlg = document.getElementById("head-dialog");
+    const form = document.getElementById("head-form");
+    const input = document.getElementById("head-input");
+    document.getElementById("head-label").textContent = label;
+    input.value = value;
+    const finish = (result) => {
+      dlg.close();
+      form.removeEventListener("submit", onSubmit);
+      cancel.removeEventListener("click", onCancel);
+      dlg.removeEventListener("cancel", onCancel);
+      resolve(result);
+    };
+    const onSubmit = (event) => { event.preventDefault(); finish(input.value.trim()); };
+    const onCancel = () => finish(null);
+    const cancel = document.getElementById("head-cancel");
+    form.addEventListener("submit", onSubmit);
+    cancel.addEventListener("click", onCancel);
+    dlg.addEventListener("cancel", onCancel);
+    if (!dlg.open) dlg.showModal();
+    input.focus();
+  });
+}
+
+document.getElementById("heads-view").addEventListener("click", async (event) => {
+  if (event.target.closest("#add-head")) { headDialog(null); return; }
+
+  const editEmail = event.target.closest("[data-edit-head]")?.dataset.editHead;
+  if (editEmail) {
+    headDialog(state.heads.find((h) => norm(h.aucEmail) === norm(editEmail)));
+    return;
+  }
+
+  const removeEmail = event.target.closest("[data-remove-head]")?.dataset.removeHead;
+  if (removeEmail) {
+    const head = state.heads.find((h) => norm(h.aucEmail) === norm(removeEmail));
+    if (!head) return;
+    if (!(await confirmDialog(
+      `Remove ${head.name} from ${state.access.committee}?\n\n` +
+      "They lose this portal and stop being copied on interview emails. Nobody is emailed about this."
+    ))) return;
+    try {
+      absorb(await api({ mode: "committee-member-remove-head", email: state.access.email, aucEmail: head.aucEmail }));
+      render();
+    } catch (error) {
+      await confirmDialog(error.message);
+    }
+  }
+});
+
+async function setMembership(aucEmail, status) {
+  try {
+    absorb(await api({ mode: "committee-member-set-membership", email: state.access.email, aucEmail, status }));
+    render();
+  } catch (error) {
+    await confirmDialog(error.message);
+  }
+}
+
+document.getElementById("tabs").addEventListener("click", (event) => {
+  const view = event.target.closest(".tab")?.dataset.view;
+  if (!view || view === state.view) return;
+  state.view = view;
+  render();
+});
+
+document.getElementById("team-view").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-advance]");
+  if (button) setMembership(button.dataset.advance, button.dataset.to);
+});
+
+document.getElementById("team-view").addEventListener("change", (event) => {
+  const select = event.target.closest("[data-set]");
+  if (select) setMembership(select.dataset.set, select.value);
+});
 
 // ---- one applicant --------------------------------------------------------
 

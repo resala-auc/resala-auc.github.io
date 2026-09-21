@@ -31,10 +31,17 @@
   .login-card p { margin: 0 0 24px; color: var(--muted); font-size: 14px; }
   label { display: block; text-align: left; font-size: 12px; font-weight: 700; text-transform: uppercase;
           letter-spacing: .8px; color: var(--muted); margin-bottom: 6px; }
-  input[type=email], input[type=text], input[type=tel], select {
+  input[type=email], input[type=text], input[type=tel], select, textarea {
     width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
     background: var(--soft); color: var(--ink); }
-  input:focus, select:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  textarea { resize: vertical; min-height: 160px; line-height: 1.55; }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--sky); outline-offset: 1px; background: #fff; }
+  .recipients { background: var(--soft); border: 1px solid var(--line); border-radius: 10px;
+                padding: 10px 12px; margin-bottom: 14px; font-size: 14px; }
+  .recipients b { color: var(--blue); }
+  .recipients details { margin-top: 6px; }
+  .recipients summary { cursor: pointer; color: var(--blue); font-size: 13px; font-weight: 600; }
+  .recipients ul { margin: 8px 0 0; padding-left: 18px; max-height: 160px; overflow-y: auto; font-size: 13px; color: var(--muted); }
   .btn { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 700; }
   .btn:disabled { opacity: .55; cursor: not-allowed; }
   .btn-gold { background: var(--gold); color: var(--ink); }
@@ -88,6 +95,13 @@
   .pill.on { background: #e6f4ec; color: var(--good); }
   .pill.off { background: #fdecec; color: var(--bad); }
   .pill.admin { background: #eaf1fb; color: var(--blue); }
+  .pill.wait { background: #fff4e0; color: #8a5a00; }
+  .pill.conf { background: #eaf1fb; color: var(--blue); }
+  .pill.inclub { background: #e6f4ec; color: var(--good); }
+  .pill.out { background: #fdecec; color: var(--bad); }
+  .bar-mini { display: flex; height: 7px; border-radius: 999px; overflow: hidden; background: #ece5d6;
+              width: 150px; }
+  .bar-mini i { display: block; height: 100%; }
   .row-actions { display: flex; gap: 7px; justify-content: flex-end; }
 
   /* The committee is one thing with three levels in it, not three lists. */
@@ -122,9 +136,7 @@
     <img src="https://resala-auc.github.io/join/resala-logo.png" alt="">
     <h1>Team Board</h1>
     <p>Who is on the team, and what they get access to.</p>
-    <label for="email">AUC email</label>
-    <input type="email" id="email" autocomplete="email" placeholder="you@aucegypt.edu">
-    <button class="btn btn-block" id="login-btn">Open the board</button>
+    <div id="google-signin" style="display:flex;justify-content:center;min-height:44px;margin-top:6px;"></div>
     <div class="error hidden" id="login-error"></div>
   </div>
 </div>
@@ -149,6 +161,7 @@
       <input type="text" id="search" placeholder="Search a name, email or position">
       <button class="btn btn-gold" id="add-member">Add someone</button>
       <button class="btn btn-ghost" id="add-team">Add a team</button>
+      <button class="btn btn-ghost" id="email-all">Email everyone</button>
     </div>
 
     <div id="teams"></div>
@@ -223,6 +236,28 @@
   </form>
 </dialog>
 
+<dialog id="email-dialog" style="max-width:600px;">
+  <form class="dlg" id="email-form" method="dialog">
+    <h2 id="email-title">Email the team</h2>
+    <div class="sub">Each person gets their own copy, so nobody sees anyone else's address. It goes out from the Resala AUC inbox.</div>
+    <div class="recipients" id="email-recipients"></div>
+    <div class="field">
+      <label for="e-subject">Subject</label>
+      <input type="text" id="e-subject" maxlength="200" required>
+    </div>
+    <div class="field">
+      <label for="e-message">Message</label>
+      <textarea id="e-message" rows="9" maxlength="10000" required></textarea>
+      <div class="note" style="margin-top:6px;">Opens with "Hi" and their first name, and closes with "Best, Resala AUC". Links become clickable.</div>
+    </div>
+    <div class="msg" id="email-msg"></div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" id="email-cancel">Cancel</button>
+      <button type="submit" class="btn btn-gold" id="email-send">Send</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="report-dialog" style="max-width:560px;">
   <div class="dlg">
     <p id="report-message" style="margin:0 0 20px;font-size:14px;line-height:1.6;white-space:pre-wrap;"></p>
@@ -233,6 +268,7 @@
 </dialog>
 
 <script type="module">
+import { mountSignIn, currentSession, sessionToken, signOut, signedOutGuard, isSignInError } from "../admin-auth.js";
 const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
 
 /*
@@ -250,6 +286,21 @@ const POSITIONS = [
 ];
 const levelFor = (position) => POSITIONS.find((p) => norm(p.value) === norm(position))?.level ?? "head";
 
+const WAITING = "Waiting for confirmation";
+const CONFIRMED = "Confirmed by email";
+const IN_CLUB = "In the club";
+const NOT_JOINING = "Not joining";
+
+/* Only the people who came through recruitment are on this journey: a director
+   added by hand was never sent an acceptance to answer. */
+const tracked = (m) => m.level === "member";
+const statusOf = (m) => String(m.membershipStatus || "").trim() || WAITING;
+
+function membershipPill(status) {
+  const kind = status === IN_CLUB ? "inclub" : status === CONFIRMED ? "conf" : status === NOT_JOINING ? "out" : "wait";
+  return `<span class="pill ${kind}">${esc(status)}</span>`;
+}
+
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const norm = (v) => String(v ?? "").trim().toLowerCase();
@@ -260,7 +311,7 @@ async function api(payload) {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ ...payload, session: sessionToken() })
   });
   let body;
   try {
@@ -268,7 +319,7 @@ async function api(payload) {
   } catch {
     throw new Error(`The server answered ${res.status} with no detail.`);
   }
-  if (!res.ok || body.ok === false) throw new Error(body.error || `The server answered ${res.status} with no detail.`);
+  if (!res.ok || body.ok === false) throw signedOutGuard(new Error(body.error || `The server answered ${res.status} with no detail.`));
   return body;
 }
 
@@ -373,12 +424,16 @@ function positionOptions(current) {
 }
 
 function renderStats() {
-  const onEmails = state.members.filter((m) => m.interviewEmails).length;
   const admins = state.members.filter((m) => m.isAdmin).length;
+  const accepted = state.members.filter(tracked);
+  const count = (status) => accepted.filter((m) => statusOf(m) === status).length;
   const cards = [
     ["People on the board", state.members.length],
     ["Teams", state.committees.length],
-    ["On interview emails", onEmails],
+    ["Accepted members", accepted.length],
+    ["Waiting on them", count(WAITING)],
+    ["Confirmed by email", count(CONFIRMED)],
+    ["In the club", count(IN_CLUB)],
     ["With dashboard access", admins]
   ];
   document.getElementById("stats").innerHTML = cards
@@ -431,16 +486,41 @@ function personRow(m) {
               m.subCommittee ? `<div class="note">${esc(m.subCommittee)}</div>` : ""
             }${m.phone ? `<div class="note">${esc(m.phone)}</div>` : ""}</td>
             <td>
+              ${tracked(m) ? `${membershipPill(statusOf(m))}<div style="margin-top:5px;"></div>` : ""}
               <span class="pill ${m.interviewEmails ? "on" : "off"}">${m.interviewEmails ? "On emails" : "Off emails"}</span>
               ${m.isAdmin ? `<div style="margin-top:5px;"><span class="pill admin">Dashboard access</span></div>` : ""}
             </td>
             <td>
               <div class="row-actions">
+                <button class="btn btn-ghost btn-sm" data-email-person="${esc(m.aucEmail)}">Email</button>
                 <button class="btn btn-ghost btn-sm" data-edit="${esc(m.aucEmail)}" data-team="${esc(m.department)}">Edit</button>
                 <button class="btn btn-danger btn-sm" data-remove="${esc(m.aucEmail)}" data-team="${esc(m.department)}">Remove</button>
               </div>
             </td>
           </tr>`;
+}
+
+/* How far this committee has got with the people it accepted: the bar is in
+   the order the journey happens, so a long amber stretch is a committee that
+   has told people and not heard back. */
+function progressFor(onTeam) {
+  const accepted = onTeam.filter(tracked);
+  if (!accepted.length) return "";
+  const count = (status) => accepted.filter((m) => statusOf(m) === status).length;
+  const inClub = count(IN_CLUB);
+  const confirmed = count(CONFIRMED);
+  const waiting = count(WAITING);
+  const out = count(NOT_JOINING);
+  const pct = (n) => `${(n / accepted.length) * 100}%`;
+  return `
+          <span class="count" title="${inClub} in the club, ${confirmed} confirmed, ${waiting} waiting, ${out} not joining">
+            <span class="bar-mini" style="vertical-align:middle;margin-right:7px;">
+              <i style="width:${pct(inClub)};background:var(--good);"></i>
+              <i style="width:${pct(confirmed)};background:var(--blue);"></i>
+              <i style="width:${pct(waiting)};background:#f0b429;"></i>
+              <i style="width:${pct(out)};background:var(--bad);"></i>
+            </span>${inClub}/${accepted.length} in the club
+          </span>`;
 }
 
 function renderTeams() {
@@ -472,7 +552,9 @@ function renderTeams() {
           <span class="count">${counts[0]} director${counts[0] === 1 ? "" : "s"} · ${counts[1]} head${
             counts[1] === 1 ? "" : "s"
           } · ${counts[2]} member${counts[2] === 1 ? "" : "s"}</span>
+          ${progressFor(onTeam)}
           <div class="spacer"></div>
+          <button class="btn btn-ghost btn-sm" data-email-team="${esc(committee)}"${total ? "" : " disabled"}>Email this team</button>
           <button class="btn btn-ghost btn-sm" data-add-to="${esc(committee)}">Add to this team</button>
           <button class="btn btn-danger btn-sm" data-drop-team="${esc(committee)}">Remove team</button>
         </div>
@@ -587,6 +669,12 @@ document.getElementById("member-cancel").addEventListener("click", () =>
 // ---- board actions --------------------------------------------------------
 
 document.getElementById("teams").addEventListener("click", async (event) => {
+  const emailTeam = event.target.closest("[data-email-team]")?.dataset.emailTeam;
+  if (emailTeam) { openEmailDialog({ type: "committee", committee: emailTeam }); return; }
+
+  const emailPerson = event.target.closest("[data-email-person]")?.dataset.emailPerson;
+  if (emailPerson) { openEmailDialog({ type: "person", aucEmail: emailPerson }); return; }
+
   const editEmail = event.target.closest("[data-edit]")?.dataset.edit;
   if (editEmail) {
     const team = event.target.closest("[data-edit]").dataset.team;
@@ -658,6 +746,99 @@ document.getElementById("teams").addEventListener("click", async (event) => {
   }
 });
 
+// ---- email ----------------------------------------------------------------
+
+let emailAudience = null;
+
+/* The same people the server will resolve. It re-reads the roster itself, so
+   this list is only for showing who it will reach before anyone presses Send. */
+function recipientsFor(audience) {
+  const seen = new Map();
+  for (const m of state.members) {
+    if (audience.type === "committee" && norm(m.department) !== norm(audience.committee)) continue;
+    if (audience.type === "person" && norm(m.aucEmail) !== norm(audience.aucEmail)) continue;
+    if (m.aucEmail && !seen.has(norm(m.aucEmail))) seen.set(norm(m.aucEmail), m);
+  }
+  return [...seen.values()];
+}
+
+function audienceLabel(audience, people) {
+  if (audience.type === "committee") return `everyone on ${audience.committee}`;
+  if (audience.type === "person") return people[0]?.name ?? audience.aucEmail;
+  return "everyone on the team";
+}
+
+function openEmailDialog(audience) {
+  const people = recipientsFor(audience);
+  if (!people.length) { noticeDialog("Nobody on the board matches that, so there is nobody to email."); return; }
+  emailAudience = audience;
+
+  document.getElementById("email-title").textContent = `Email ${audienceLabel(audience, people)}`;
+  document.getElementById("email-recipients").innerHTML = audience.type === "person"
+    ? `To <b>${esc(people[0].name)}</b> <span class="note">${esc(people[0].aucEmail)}</span>`
+    : `To <b>${people.length} ${people.length === 1 ? "person" : "people"}</b>
+       <details><summary>See who</summary><ul>${
+         people.map((p) => `<li>${esc(p.name)} · ${esc(p.aucEmail)}</li>`).join("")
+       }</ul></details>`;
+  document.getElementById("email-msg").textContent = "";
+  document.getElementById("email-msg").className = "msg";
+
+  const dlg = document.getElementById("email-dialog");
+  if (!dlg.open) dlg.showModal();
+  document.getElementById("e-subject").focus();
+}
+
+document.getElementById("email-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const subject = document.getElementById("e-subject").value.trim();
+  const message = document.getElementById("e-message").value.trim();
+  const msg = document.getElementById("email-msg");
+  const send = document.getElementById("email-send");
+  if (!subject || !message) {
+    msg.className = "msg bad";
+    msg.textContent = "Write both a subject and a message.";
+    return;
+  }
+
+  const people = recipientsFor(emailAudience);
+  const who = emailAudience.type === "person"
+    ? people[0]?.name ?? emailAudience.aucEmail
+    : `${people.length} ${people.length === 1 ? "person" : "people"}`;
+  if (!(await confirmDialog(`Send "${subject}" to ${who}?\n\nEmails cannot be unsent.`))) return;
+
+  send.disabled = true;
+  msg.className = "msg";
+  msg.textContent = `Sending to ${who}…`;
+  try {
+    const result = await api({
+      mode: "team-send-email",
+      email: state.admin.email,
+      audience: emailAudience,
+      subject,
+      message
+    });
+    document.getElementById("email-dialog").close();
+    document.getElementById("e-subject").value = "";
+    document.getElementById("e-message").value = "";
+    await noticeDialog(
+      `Sent to ${result.sent} of ${result.recipients}.` +
+        (result.failed.length
+          ? `\n\nNot delivered — try these again:\n${result.failed.map((f) => `• ${f.name} (${f.aucEmail}): ${f.error}`).join("\n")}`
+          : "")
+    );
+  } catch (error) {
+    msg.className = "msg bad";
+    msg.textContent = error.message;
+  } finally {
+    send.disabled = false;
+  }
+});
+
+document.getElementById("email-cancel").addEventListener("click", () =>
+  document.getElementById("email-dialog").close());
+
+document.getElementById("email-all").addEventListener("click", () => openEmailDialog({ type: "all" }));
+
 document.getElementById("add-member").addEventListener("click", () => {
   if (!state.committees.length) { noticeDialog("Add a team first — somebody has to be on something."); return; }
   openMemberDialog(null);
@@ -711,34 +892,30 @@ document.getElementById("refresh").addEventListener("click", async () => {
 
 document.getElementById("logout").addEventListener("click", () => {
   state = { admin: null, committees: [], members: [], unseeded: [], search: "", editing: null };
-  localStorage.removeItem("resala-team-email");
+  signOut();
   document.getElementById("app").classList.add("hidden");
   document.getElementById("login").classList.remove("hidden");
 });
 
-document.getElementById("login-btn").addEventListener("click", async () => {
-  const email = document.getElementById("email").value.trim();
+function showSignInError(error) {
   const errorEl = document.getElementById("login-error");
-  errorEl.classList.add("hidden");
-  if (!email) return;
-  try {
-    await load(email);
-    localStorage.setItem("resala-team-email", email);
-  } catch (err) {
-    errorEl.textContent = err.message;
-    errorEl.classList.remove("hidden");
-  }
-});
-
-document.getElementById("email").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") document.getElementById("login-btn").click();
-});
-
-const remembered = localStorage.getItem("resala-team-email");
-if (remembered) {
-  document.getElementById("email").value = remembered;
-  load(remembered).catch(() => {});
+  errorEl.textContent = error.message;
+  errorEl.classList.remove("hidden");
 }
+
+mountSignIn({
+  endpoint: ENDPOINT,
+  container: document.getElementById("google-signin"),
+  onSignedIn: (session) => {
+    document.getElementById("login-error").classList.add("hidden");
+    return load(session.email);
+  },
+  onError: showSignInError
+});
+
+try { localStorage.removeItem("resala-team-email"); } catch {}
+const session = currentSession();
+if (session) load(session.email).catch((error) => { if (!isSignInError(error)) showSignInError(error); });
 </script>
 </body>
 </html>
