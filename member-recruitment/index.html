@@ -582,6 +582,25 @@ function renderDialog(a) {
     </div>
     <div class="note" style="margin-top:6px;">Emails them straight away that they are in as a general volunteer, and frees their interview slot.</div>
 
+    ${a.acceptanceSentAt ? "" : `
+    <h3 class="sec">Move to another committee</h3>
+    <div class="row2">
+      <div>
+        <select id="dlg-move">
+          ${Object.entries(CANONICAL_COMMITTEES)
+            .filter(([id]) => id !== "general-volunteer" && id !== a.committeeId)
+            .map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`).join("")}
+        </select>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="btn btn-gold" id="dlg-move-accept" data-row="${esc(a.rowIndex)}">Move &amp; accept</button>
+      </div>
+    </div>
+    <div class="note" style="margin-top:6px;">Moves them to that committee everywhere, marks them Accepted and puts them in
+      Approvals, ready for their acceptance email. Their sub-committee is cleared — the new committee places them.
+      Nothing is emailed yet.</div>
+    `}
+
     <h3 class="sec">Status</h3>
     <div class="row2">
       <div>
@@ -1376,6 +1395,29 @@ document.getElementById("dlg-body").addEventListener("click", async (e) => {
       state.msg = { type: "bad", text: err.message };
     }
     renderDialog(state.data.applicants.find((x) => x.rowIndex === a.rowIndex) ?? a);
+    return;
+  }
+
+  const moveBtn = e.target.closest("#dlg-move-accept");
+  if (moveBtn) {
+    const rowIndex = Number(moveBtn.dataset.row);
+    const committeeId = document.getElementById("dlg-move").value;
+    const applicant = state.data.applicants.find((x) => x.rowIndex === rowIndex);
+    const ok = await confirmDialog(
+      `Move ${applicant?.fullName ?? "this applicant"} to ${CANONICAL_COMMITTEES[committeeId]} and mark them Accepted?\n\n` +
+      "They move to that committee everywhere and appear in Approvals, ready for their acceptance email. Nothing is emailed yet."
+    );
+    if (!ok) return;
+    moveBtn.disabled = true;
+    try {
+      const r = await api({ mode: "member-admin-move-accept", email: state.admin.email, rowIndex, committeeId });
+      document.getElementById("dlg").close();
+      await load(state.admin.email);
+      await noticeDialog(`${r.fullName} moved from ${r.from || "no committee"} to ${r.to} and marked Accepted. They are in Approvals now.`);
+    } catch (err) {
+      state.msg = { type: "bad", text: err.message };
+      if (applicant) renderDialog(applicant);
+    }
     return;
   }
 

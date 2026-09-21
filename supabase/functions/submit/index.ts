@@ -2786,6 +2786,17 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, admin, ...data });
     }
 
+    if ((payload as { mode?: string }).mode === "member-admin-move-accept") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const moveToken = await getGoogleAccessToken();
+      const moveAdmin = await requireRecruitmentAdmin(moveToken, String((payload as { email?: unknown }).email ?? ""));
+      const move = payload as unknown as { rowIndex: unknown; committeeId: unknown };
+      return jsonResponse({
+        ok: true,
+        ...(await moveAndAcceptMember(moveToken, moveAdmin.email, Number(move.rowIndex), String(move.committeeId ?? "")))
+      });
+    }
+
     if (isMemberAdminSetStatusPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const adminToken = await getGoogleAccessToken();
@@ -4679,6 +4690,47 @@ function memberColumn(header: string): string {
 }
 
 /** Write one contiguous run of columns on a member's row. */
+/*
+ * An admin placing somebody in a different committee from the one they applied
+ * to, and accepting them there in the same step. Everything that decides where
+ * a member belongs moves together — the committee, its id — and the old
+ * committee's sub-committee is cleared rather than carried over, because a
+ * sub-committee only means something inside its own committee; the new one
+ * places them. They land in Approvals like any committee's list, so the
+ * acceptance email still goes through the one path that sends it.
+ */
+async function moveAndAcceptMember(
+  token: string,
+  adminEmail: string,
+  rowIndex: number,
+  committeeId: string
+): Promise<{ fullName: string; from: string; to: string }> {
+  const hierarchyName = MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId];
+  if (!hierarchyName || committeeId === GENERAL_VOLUNTEER_COMMITTEE_ID) {
+    throw new Error("Choose a committee to move them to.");
+  }
+  if (!Number.isInteger(rowIndex) || rowIndex < 2) throw new Error("Which applicant?");
+
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const fullName = String(row[1] ?? "").trim();
+  if (!fullName) throw new Error("There is no applicant on that row.");
+  if (String(row[32] ?? "").trim()) {
+    throw new Error(`${fullName} has already been sent an acceptance email, so they cannot be moved from here.`);
+  }
+
+  const from = String(row[8] ?? "").trim();
+  const to = displayCommitteeName(hierarchyName);
+  const at = new Date().toISOString();
+  await writeMemberCells(token, rowIndex, "Committee", [to, committeeId]);
+  await writeMemberCells(token, rowIndex, "Sub-committee", ["", ""]);
+  await writeMemberCells(token, rowIndex, "Assigned Sub-committee", [""]);
+  await writeMemberCells(token, rowIndex, "Status", ["Accepted"]);
+  await writeMemberCells(token, rowIndex, "Submitted For Approval At", [at, adminEmail]);
+
+  console.log(`${adminEmail} moved ${fullName} (row ${rowIndex}) from "${from}" to ${to} and accepted them`);
+  return { fullName, from, to };
+}
+
 async function writeMemberCells(
   token: string,
   rowIndex: number,
