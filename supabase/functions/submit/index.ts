@@ -1406,9 +1406,11 @@ type CommitteeMemberSetMembershipPayload = {
   aucEmail: string;
   status: string;
 };
+/* Everyone, the board alone (directors and heads), or the members alone. */
+type TeamEmailScope = "everyone" | "board" | "members";
 type TeamEmailAudience =
-  | { type: "all" }
-  | { type: "committee"; committee: string }
+  | { type: "all"; scope?: TeamEmailScope }
+  | { type: "committee"; committee: string; scope?: TeamEmailScope }
   | { type: "person"; aucEmail: string };
 type TeamSendEmailPayload = {
   mode: "team-send-email";
@@ -1416,6 +1418,8 @@ type TeamSendEmailPayload = {
   audience: TeamEmailAudience;
   subject: string;
   message: string;
+  /* People unticked on the page. Only ever narrows the roster-resolved list. */
+  exclude?: string[];
 };
 
 type MemberSendRemindersPayload = {
@@ -6909,9 +6913,14 @@ async function sendTeamEmail(
 
   const { members } = await loadTeamBoard(token);
   const audience: TeamEmailAudience = payload.audience ?? { type: "all" };
+  const scope: TeamEmailScope = audience.type === "person" ? "everyone" : audience.scope ?? "everyone";
+  const excluded = new Set((Array.isArray(payload.exclude) ? payload.exclude : []).map((email) => normalize(email)));
   const chosen = members.filter((member) => {
-    if (audience.type === "committee") return committeeKey(member.department) === committeeKey(audience.committee);
+    if (excluded.has(normalize(member.aucEmail))) return false;
     if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
+    if (audience.type === "committee" && committeeKey(member.department) !== committeeKey(audience.committee)) return false;
+    if (scope === "board") return member.level === "director" || member.level === "head";
+    if (scope === "members") return member.level === "member";
     return true;
   });
 

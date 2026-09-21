@@ -42,6 +42,23 @@
   .recipients details { margin-top: 6px; }
   .recipients summary { cursor: pointer; color: var(--blue); font-size: 13px; font-weight: 600; }
   .recipients ul { margin: 8px 0 0; padding-left: 18px; max-height: 160px; overflow-y: auto; font-size: 13px; color: var(--muted); }
+  .scope { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .scope button { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px;
+                  font-size: 13px; font-weight: 700; color: var(--muted); }
+  .scope button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .pick-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .pick-head .links { margin-left: auto; font-size: 12.5px; }
+  .pick-head .links button { background: none; border: 0; color: var(--blue); font-weight: 700; padding: 0 2px; }
+  .pick { list-style: none; margin: 8px 0 0 !important; padding: 0 !important; max-height: 230px; overflow-y: auto;
+          border-top: 1px solid var(--line); }
+  .pick li { border-bottom: 1px solid #f2ede2; }
+  .pick label { display: flex; align-items: center; gap: 9px; padding: 7px 2px; margin: 0; cursor: pointer;
+                text-transform: none; letter-spacing: 0; font-size: 13.5px; font-weight: 400; color: var(--ink); }
+  .pick label input { width: auto; margin: 0; }
+  .pick .who { flex: 1; min-width: 0; }
+  .pick .who small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .pick .lvl { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .pick li.off .who { opacity: .45; text-decoration: line-through; }
   .btn { background: var(--blue); color: #fff; border: 0; border-radius: 10px; padding: 11px 17px; font-weight: 700; }
   .btn:disabled { opacity: .55; cursor: not-allowed; }
   .btn-gold { background: var(--gold); color: var(--ink); }
@@ -240,6 +257,11 @@
   <form class="dlg" id="email-form" method="dialog">
     <h2 id="email-title">Email the team</h2>
     <div class="sub">Each person gets their own copy, so nobody sees anyone else's address. It goes out from the Resala AUC inbox.</div>
+    <div class="scope" id="email-scope" role="radiogroup" aria-label="Who gets it">
+      <button type="button" data-scope="everyone" aria-pressed="true">Everyone</button>
+      <button type="button" data-scope="board" aria-pressed="false">Board only</button>
+      <button type="button" data-scope="members" aria-pressed="false">Members only</button>
+    </div>
     <div class="recipients" id="email-recipients"></div>
     <div class="field">
       <label for="e-subject">Subject</label>
@@ -749,44 +771,122 @@ document.getElementById("teams").addEventListener("click", async (event) => {
 // ---- email ----------------------------------------------------------------
 
 let emailAudience = null;
+let emailScope = "everyone";
+let emailUnticked = new Set();
 
-/* The same people the server will resolve. It re-reads the roster itself, so
-   this list is only for showing who it will reach before anyone presses Send. */
-function recipientsFor(audience) {
+const LEVEL_NAMES = { director: "Director", head: "Head", member: "Member" };
+
+/* The same people the server resolves; it re-reads the roster itself, so this
+   list only decides who is shown and who is left unticked. */
+function recipientsFor(audience, scope) {
   const seen = new Map();
   for (const m of state.members) {
-    if (audience.type === "committee" && norm(m.department) !== norm(audience.committee)) continue;
-    if (audience.type === "person" && norm(m.aucEmail) !== norm(audience.aucEmail)) continue;
-    if (m.aucEmail && !seen.has(norm(m.aucEmail))) seen.set(norm(m.aucEmail), m);
+    if (!m.aucEmail) continue;
+    if (audience.type === "person") {
+      if (norm(m.aucEmail) !== norm(audience.aucEmail)) continue;
+    } else {
+      if (audience.type === "committee" && norm(m.department) !== norm(audience.committee)) continue;
+      if (scope === "board" && m.level !== "director" && m.level !== "head") continue;
+      if (scope === "members" && m.level !== "member") continue;
+    }
+    if (!seen.has(norm(m.aucEmail))) seen.set(norm(m.aucEmail), m);
   }
-  return [...seen.values()];
+  return [...seen.values()].sort((a, b) =>
+    ["director", "head", "member"].indexOf(a.level) - ["director", "head", "member"].indexOf(b.level) ||
+    String(a.department).localeCompare(String(b.department)) ||
+    String(a.name).localeCompare(String(b.name)));
 }
 
+const ticked = (people) => people.filter((p) => !emailUnticked.has(norm(p.aucEmail)));
+
 function audienceLabel(audience, people) {
-  if (audience.type === "committee") return `everyone on ${audience.committee}`;
   if (audience.type === "person") return people[0]?.name ?? audience.aucEmail;
-  return "everyone on the team";
+  const group = { everyone: "everyone", board: "the board", members: "the members" }[emailScope];
+  return audience.type === "committee" ? `${group} on ${audience.committee}` : `${group} of the club`;
+}
+
+function renderRecipients() {
+  const audience = emailAudience;
+  const people = recipientsFor(audience, emailScope);
+  document.getElementById("email-scope").classList.toggle("hidden", audience.type === "person");
+  for (const b of document.querySelectorAll("#email-scope button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.scope === emailScope));
+  }
+  document.getElementById("email-title").textContent = `Email ${audienceLabel(audience, people)}`;
+
+  const box = document.getElementById("email-recipients");
+  if (audience.type === "person") {
+    box.innerHTML = people.length
+      ? `To <b>${esc(people[0].name)}</b> <span class="note">${esc(people[0].aucEmail)}</span>`
+      : "Nobody on the board matches that.";
+    return;
+  }
+  if (!people.length) {
+    box.innerHTML = `<b>Nobody here.</b> <span class="note">Try another group.</span>`;
+    return;
+  }
+  const going = ticked(people).length;
+  box.innerHTML = `
+    <div class="pick-head">
+      <span>To <b>${going} of ${people.length}</b></span>
+      <span class="links"><button type="button" data-pick="all">Tick all</button> · <button type="button" data-pick="none">Untick all</button></span>
+    </div>
+    <ul class="pick">
+      ${people.map((p) => {
+        const off = emailUnticked.has(norm(p.aucEmail));
+        return `<li class="${off ? "off" : ""}"><label>
+          <input type="checkbox" data-pick-email="${esc(p.aucEmail)}"${off ? "" : " checked"}>
+          <span class="who">${esc(p.name)}<small>${esc(p.aucEmail)}${audience.type === "all" ? ` · ${esc(p.department)}` : ""}</small></span>
+          <span class="lvl">${esc(LEVEL_NAMES[p.level] ?? p.level ?? "")}</span>
+        </label></li>`;
+      }).join("")}
+    </ul>`;
 }
 
 function openEmailDialog(audience) {
-  const people = recipientsFor(audience);
-  if (!people.length) { noticeDialog("Nobody on the board matches that, so there is nobody to email."); return; }
   emailAudience = audience;
-
-  document.getElementById("email-title").textContent = `Email ${audienceLabel(audience, people)}`;
-  document.getElementById("email-recipients").innerHTML = audience.type === "person"
-    ? `To <b>${esc(people[0].name)}</b> <span class="note">${esc(people[0].aucEmail)}</span>`
-    : `To <b>${people.length} ${people.length === 1 ? "person" : "people"}</b>
-       <details><summary>See who</summary><ul>${
-         people.map((p) => `<li>${esc(p.name)} · ${esc(p.aucEmail)}</li>`).join("")
-       }</ul></details>`;
+  emailScope = "everyone";
+  // Somebody who has said they are not joining is left out unless ticked back in.
+  emailUnticked = new Set(
+    state.members.filter((m) => m.level === "member" && m.membershipStatus === NOT_JOINING).map((m) => norm(m.aucEmail))
+  );
+  if (!recipientsFor(audience, emailScope).length) {
+    noticeDialog("Nobody on the board matches that, so there is nobody to email.");
+    return;
+  }
+  renderRecipients();
   document.getElementById("email-msg").textContent = "";
   document.getElementById("email-msg").className = "msg";
-
   const dlg = document.getElementById("email-dialog");
   if (!dlg.open) dlg.showModal();
   document.getElementById("e-subject").focus();
 }
+
+document.getElementById("email-scope").addEventListener("click", (event) => {
+  const scope = event.target.closest("[data-scope]")?.dataset.scope;
+  if (!scope || scope === emailScope) return;
+  emailScope = scope;
+  renderRecipients();
+});
+
+document.getElementById("email-recipients").addEventListener("click", (event) => {
+  const which = event.target.closest("[data-pick]")?.dataset.pick;
+  if (!which) return;
+  const people = recipientsFor(emailAudience, emailScope);
+  for (const p of people) {
+    if (which === "all") emailUnticked.delete(norm(p.aucEmail));
+    else emailUnticked.add(norm(p.aucEmail));
+  }
+  renderRecipients();
+});
+
+document.getElementById("email-recipients").addEventListener("change", (event) => {
+  const box = event.target.closest("[data-pick-email]");
+  if (!box) return;
+  const key = norm(box.dataset.pickEmail);
+  if (box.checked) emailUnticked.delete(key); else emailUnticked.add(key);
+  renderRecipients();
+});
 
 document.getElementById("email-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -800,10 +900,16 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
     return;
   }
 
-  const people = recipientsFor(emailAudience);
+  const people = recipientsFor(emailAudience, emailScope);
+  const going = emailAudience.type === "person" ? people : ticked(people);
+  if (!going.length) {
+    msg.className = "msg bad";
+    msg.textContent = "Nobody is ticked.";
+    return;
+  }
   const who = emailAudience.type === "person"
     ? people[0]?.name ?? emailAudience.aucEmail
-    : `${people.length} ${people.length === 1 ? "person" : "people"}`;
+    : `${going.length} ${going.length === 1 ? "person" : "people"}`;
   if (!(await confirmDialog(`Send "${subject}" to ${who}?\n\nEmails cannot be unsent.`))) return;
 
   send.disabled = true;
@@ -813,7 +919,8 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
     const result = await api({
       mode: "team-send-email",
       email: state.admin.email,
-      audience: emailAudience,
+      audience: emailAudience.type === "person" ? emailAudience : { ...emailAudience, scope: emailScope },
+      exclude: emailAudience.type === "person" ? [] : people.filter((p) => emailUnticked.has(norm(p.aucEmail))).map((p) => p.aucEmail),
       subject,
       message
     });
