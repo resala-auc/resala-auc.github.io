@@ -2908,6 +2908,16 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, ...(await loadPastApplicants(pastToken)) });
     }
 
+    if ((payload as { mode?: string }).mode === "member-admin-test-acceptance") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const testToken = await getGoogleAccessToken();
+      const testAdmin = await requireRecruitmentAdmin(testToken, String((payload as { email?: unknown }).email ?? ""));
+      return jsonResponse({
+        ok: true,
+        ...(await sendTestMemberAcceptance(testAdmin, String((payload as { committeeId?: unknown }).committeeId ?? "")))
+      });
+    }
+
     if (isMemberAuditPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const auditToken = await getGoogleAccessToken();
@@ -4967,6 +4977,40 @@ async function getMemberResponsibilitiesAttachment(
   }
   cache.set(committeeId, attachments);
   return attachments;
+}
+
+/*
+ * The real acceptance, sent to the signed-in admin and nobody else: the same
+ * builder, the same Letter of Responsibility fetch and the same Gmail path an
+ * approval uses, so what arrives is exactly what an applicant would get. The
+ * recipient is never taken from the request, and nothing is written anywhere.
+ */
+async function sendTestMemberAcceptance(
+  admin: { name: string; email: string },
+  committeeId: string
+): Promise<{ sentTo: string; committee: string; subCommittee: string; letterAttached: boolean }> {
+  const hierarchyName = MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId];
+  if (!hierarchyName) throw new Error("Choose a committee.");
+  const committee = displayCommitteeName(hierarchyName);
+  const subCommittee = MEMBER_SUB_COMMITTEES[committeeId]?.[0] ?? "";
+  const attachments = await getMemberResponsibilitiesAttachment(committeeId);
+  const name =
+    admin.name && admin.name !== "Recruitment admin"
+      ? admin.name
+      : admin.email.split("@")[0].replace(/^./, (c) => c.toUpperCase());
+  const template = buildMemberAcceptanceEmail(name, committee, subCommittee, {
+    responsibilitiesAttached: attachments.length > 0
+  });
+  const sent = await sendMemberReminderEmail(
+    admin.email,
+    "",
+    { ...template, subject: `[TEST] ${template.subject}` },
+    { threadId: "", messageId: "" },
+    attachments
+  );
+  if (!sent) throw new Error("Gmail did not accept the test email.");
+  console.log(`Test acceptance for ${committeeId} sent to ${admin.email}`);
+  return { sentTo: admin.email, committee, subCommittee, letterAttached: attachments.length > 0 };
 }
 
 async function sendMemberReminderEmail(

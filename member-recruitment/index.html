@@ -144,6 +144,7 @@
     <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
     <button id="deep-audit">Deep audit</button>
+    <button id="test-acceptance">Test acceptance email</button>
     <button id="refresh">Refresh</button>
     <button id="logout">Sign out</button>
   </header>
@@ -205,6 +206,21 @@
       <button type="button" class="btn btn-gold" id="confirm-ok">Confirm</button>
     </div>
   </div>
+</dialog>
+
+<dialog id="test-dialog" style="max-width:440px;">
+  <form class="dlg" id="test-form" method="dialog">
+    <h2 style="margin:0 0 6px;">Send me a test acceptance</h2>
+    <p style="margin:0 0 16px;font-size:13.5px;color:#6b7280;">The real acceptance email, with that committee's Letter of
+      Responsibility attached — sent only to you. Nothing is saved anywhere.</p>
+    <label for="test-committee">Committee</label>
+    <select id="test-committee"></select>
+    <div class="msg" id="test-msg" style="margin-top:12px;min-height:20px;font-size:13.5px;"></div>
+    <div class="dlg-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn btn-ghost" id="test-cancel">Close</button>
+      <button type="submit" class="btn btn-gold" id="test-send">Send to me</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="report-dialog" style="max-width:560px;">
@@ -1380,6 +1396,42 @@ document.getElementById("dlg-body").addEventListener("click", async (e) => {
     }
     const applicant = state.data.applicants.find((x) => x.rowIndex === rowIndex);
     if (applicant) renderDialog(applicant);
+  }
+});
+
+document.getElementById("test-committee").innerHTML = Object.entries(CANONICAL_COMMITTEES)
+  .filter(([id]) => id !== "general-volunteer")
+  .map(([id, label]) => `<option value="${esc(id)}">${esc(label)}</option>`)
+  .join("");
+
+document.getElementById("test-acceptance").addEventListener("click", () => {
+  const msg = document.getElementById("test-msg");
+  msg.textContent = "";
+  msg.style.color = "";
+  document.getElementById("test-dialog").showModal();
+});
+document.getElementById("test-cancel").addEventListener("click", () => document.getElementById("test-dialog").close());
+document.getElementById("test-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const msg = document.getElementById("test-msg");
+  const button = document.getElementById("test-send");
+  button.disabled = true;
+  msg.style.color = "";
+  msg.textContent = "Sending…";
+  try {
+    const result = await api({
+      mode: "member-admin-test-acceptance",
+      email: state.admin.email,
+      committeeId: document.getElementById("test-committee").value
+    });
+    msg.style.color = "#1a7f4b";
+    msg.textContent = `Sent to ${result.sentTo} — ${result.committee}` +
+      (result.letterAttached ? ", with its Letter of Responsibility." : ". The letter could not be attached.");
+  } catch (error) {
+    msg.style.color = "#a3231b";
+    msg.textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 });
 
