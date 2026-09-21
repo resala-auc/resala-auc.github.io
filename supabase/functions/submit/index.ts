@@ -2790,6 +2790,22 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, admin, ...data });
     }
 
+    if (
+      (payload as { mode?: string }).mode === "member-admin-update-email" ||
+      (payload as { mode?: string }).mode === "member-admin-resend-acceptance"
+    ) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const fixToken = await getGoogleAccessToken();
+      const fixAdmin = await requireRecruitmentAdmin(fixToken, String((payload as { email?: unknown }).email ?? ""));
+      const fix = payload as unknown as { mode: string; rowIndex: unknown; newEmail?: unknown };
+      return jsonResponse({
+        ok: true,
+        ...(fix.mode === "member-admin-update-email"
+          ? await updateMemberApplicantEmail(fixToken, fixAdmin.email, Number(fix.rowIndex), String(fix.newEmail ?? ""))
+          : await resendMemberAcceptance(fixToken, fixAdmin.email, Number(fix.rowIndex)))
+      });
+    }
+
     if ((payload as { mode?: string }).mode === "member-admin-move-accept") {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const moveToken = await getGoogleAccessToken();
@@ -4694,6 +4710,106 @@ function memberColumn(header: string): string {
 }
 
 /** Write one contiguous run of columns on a member's row. */
+/*
+ * Correct an applicant's email after the fact — a typo is how an acceptance
+ * ends up in nobody's inbox. The address is a key in three places, and all
+ * three move together: the application row, every interviewer's score for
+ * them (scores are matched by email, so leaving them behind would show the
+ * applicant as unscored), and their team-board row if they have already been
+ * accepted (membership tracking and CCs read from it).
+ */
+async function updateMemberApplicantEmail(
+  token: string,
+  adminEmail: string,
+  rowIndex: number,
+  newEmail: string
+): Promise<{ fullName: string; from: string; to: string; scoresMoved: number; rosterUpdated: number }> {
+  const to = newEmail.trim();
+  if (!isValidContactEmail(to)) throw new Error("That is not a valid email address.");
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const fullName = String(row[1] ?? "").trim();
+  const from = String(row[2] ?? "").trim();
+  if (!fullName) throw new Error("There is no applicant on that row.");
+  if (normalize(from) === normalize(to)) throw new Error("That is already their email.");
+
+  const emails = await sheetsFetch(token, "GET", sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, "C2:C"));
+  const taken = (((await emails.json()).values ?? []) as string[][]).some(
+    (cell, index) => index + 2 !== rowIndex && normalize(cell[0]) === normalize(to)
+  );
+  if (taken) throw new Error(`Another application already uses ${to}.`);
+
+  await writeMemberCells(token, rowIndex, "AUC Email", [to]);
+
+  let scoresMoved = 0;
+  for (const score of await readMemberScores(token)) {
+    if (normalize(score.applicantEmail) !== normalize(from)) continue;
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(MEMBER_SCORES_SHEET_NAME, `B${score.rowIndex}:B${score.rowIndex}`)}?valueInputOption=RAW`,
+      { values: [[to]] }
+    );
+    scoresMoved++;
+  }
+
+  let rosterUpdated = 0;
+  await ensureHierarchySheet(token);
+  const roster = await sheetsFetch(token, "GET", sheetRange(HIERARCHY_SHEET_NAME, "E2:E"));
+  const rosterRows = ((await roster.json()).values ?? []) as string[][];
+  for (let index = 0; index < rosterRows.length; index++) {
+    if (normalize(rosterRows[index][0]) !== normalize(from)) continue;
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(HIERARCHY_SHEET_NAME, `E${index + 2}:E${index + 2}`)}?valueInputOption=RAW`,
+      { values: [[to]] }
+    );
+    rosterUpdated++;
+  }
+  if (rosterUpdated) invalidateHierarchyCache();
+
+  console.log(`${adminEmail} changed ${fullName}'s email from ${from} to ${to} (scores ${scoresMoved}, roster ${rosterUpdated})`);
+  return { fullName, from, to, scoresMoved, rosterUpdated };
+}
+
+/*
+ * Send an approved applicant's acceptance again — after fixing a wrong address,
+ * or when the first one never arrived. The same email an approval sends,
+ * letter and committee CCs included, as a fresh message rather than a reply:
+ * the original thread may belong to the address that was wrong.
+ */
+async function resendMemberAcceptance(
+  token: string,
+  adminEmail: string,
+  rowIndex: number
+): Promise<{ fullName: string; sentTo: string }> {
+  const row = await readMemberApplicationRow(token, rowIndex);
+  const fullName = String(row[1] ?? "").trim();
+  const aucEmail = String(row[2] ?? "").trim();
+  if (!fullName) throw new Error("There is no applicant on that row.");
+  if (!String(row[30] ?? "").trim()) throw new Error(`${fullName} has not been approved yet — approve them first.`);
+
+  const committeeRef = String(row[9] ?? "").trim() || String(row[8] ?? "").trim();
+  const responsibilities = await getMemberResponsibilitiesAttachment(committeeRef);
+  const template = buildMemberAcceptanceEmail(
+    fullName,
+    String(row[8] ?? "").trim(),
+    String(row[33] ?? "").trim() || String(row[23] ?? "").trim(),
+    { responsibilitiesAttached: responsibilities.length > 0 }
+  );
+  const sent = await sendMemberReminderEmail(
+    aucEmail,
+    await memberCommitteeLeadersCc(token, committeeRef, aucEmail),
+    template,
+    { threadId: "", messageId: "" },
+    responsibilities
+  );
+  if (!sent) throw new Error(`Gmail did not accept the email to ${aucEmail}.`);
+  await writeMemberCells(token, rowIndex, "Acceptance Email Sent At", [new Date().toISOString()]);
+  console.log(`${adminEmail} resent ${fullName}'s acceptance to ${aucEmail}`);
+  return { fullName, sentTo: aucEmail };
+}
+
 /*
  * An admin placing somebody in a different committee from the one they applied
  * to, and accepting them there in the same step. Everything that decides where

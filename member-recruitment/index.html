@@ -223,6 +223,24 @@
   </form>
 </dialog>
 
+<dialog id="fix-email-dialog" style="max-width:440px;">
+  <form class="dlg" id="fix-email-form" method="dialog">
+    <h2 style="margin:0 0 6px;" id="fix-email-title">Fix email</h2>
+    <p style="margin:0 0 14px;font-size:13.5px;color:#6b7280;" id="fix-email-sub"></p>
+    <label for="fix-email-input">Correct email</label>
+    <input type="email" id="fix-email-input" required autocomplete="off">
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;text-transform:none;letter-spacing:0;font-weight:400;font-size:14px;color:#1b1f23;" id="fix-email-resend-row">
+      <input type="checkbox" id="fix-email-resend" style="width:auto;margin-top:3px;">
+      <span>Send the acceptance to the new address straight away</span>
+    </label>
+    <div class="msg" id="fix-email-msg" style="margin-top:12px;min-height:20px;font-size:13.5px;"></div>
+    <div class="dlg-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn btn-ghost" id="fix-email-cancel">Cancel</button>
+      <button type="submit" class="btn btn-gold" id="fix-email-save">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog id="report-dialog" style="max-width:560px;">
   <div class="dlg" style="padding:22px 24px;">
     <p id="report-message" style="margin:0 0 20px;font-size:14px;line-height:1.6;white-space:pre-wrap;"></p>
@@ -751,10 +769,15 @@ function renderApprovals() {
                   : a.approvedAt
                     ? `<span class="pill part">Approved, not emailed</span>`
                     : `<span class="pill open">Waiting on you</span>`}
-                ${a.acceptanceSentAt
-                  ? ""
-                  : `<div style="margin-top:6px;"><button class="btn btn-ghost btn-sm"
-                       data-return-one="${esc(a.rowIndex)}">Send back</button></div>`}
+                <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
+                  <button class="btn btn-ghost btn-sm" data-fix-email="${esc(a.rowIndex)}">Fix email</button>
+                  ${a.approvedAt
+                    ? `<button class="btn btn-ghost btn-sm" data-resend="${esc(a.rowIndex)}">${a.acceptanceSentAt ? "Resend" : "Send"} acceptance</button>`
+                    : ""}
+                  ${a.acceptanceSentAt
+                    ? ""
+                    : `<button class="btn btn-ghost btn-sm" data-return-one="${esc(a.rowIndex)}">Send back</button>`}
+                </div>
               </td>
             </tr>`).join("")}
           <tr>
@@ -776,7 +799,80 @@ function renderApprovals() {
   }).join("");
 }
 
+let fixingRow = null;
+
+document.getElementById("fix-email-cancel").addEventListener("click", () =>
+  document.getElementById("fix-email-dialog").close());
+
+document.getElementById("fix-email-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const a = fixingRow;
+  if (!a) return;
+  const newEmail = document.getElementById("fix-email-input").value.trim();
+  const resend = document.getElementById("fix-email-resend").checked;
+  const msg = document.getElementById("fix-email-msg");
+  const save = document.getElementById("fix-email-save");
+  save.disabled = true;
+  msg.style.color = "";
+  msg.textContent = "Saving…";
+  try {
+    const r = await api({ mode: "member-admin-update-email", email: state.admin.email, rowIndex: a.rowIndex, newEmail });
+    let note = `${r.fullName}'s email is now ${r.to}.`;
+    if (r.scoresMoved) note += ` ${r.scoresMoved} interviewer score${r.scoresMoved === 1 ? "" : "s"} moved with it.`;
+    if (r.rosterUpdated) note += " Their team-board entry was updated too.";
+    if (resend) {
+      msg.textContent = "Sending the acceptance…";
+      const s = await api({ mode: "member-admin-resend-acceptance", email: state.admin.email, rowIndex: a.rowIndex });
+      note += `\n\nAcceptance sent to ${s.sentTo}.`;
+    }
+    document.getElementById("fix-email-dialog").close();
+    await load(state.admin.email);
+    state.view = "approvals";
+    renderAll();
+    await noticeDialog(note);
+  } catch (error) {
+    msg.style.color = "#a3231b";
+    msg.textContent = error.message;
+  } finally {
+    save.disabled = false;
+  }
+});
+
 document.getElementById("view-approvals").addEventListener("click", async (event) => {
+  const fixRow = event.target.closest("[data-fix-email]")?.dataset.fixEmail;
+  if (fixRow) {
+    const a = (state.data?.applicants ?? []).find((x) => String(x.rowIndex) === String(fixRow));
+    if (!a) return;
+    fixingRow = a;
+    document.getElementById("fix-email-title").textContent = `Fix ${a.fullName}'s email`;
+    document.getElementById("fix-email-sub").textContent = `Currently ${a.aucEmail}. Their scores and team-board entry move with it.`;
+    document.getElementById("fix-email-input").value = a.aucEmail;
+    document.getElementById("fix-email-resend-row").classList.toggle("hidden", !a.approvedAt);
+    document.getElementById("fix-email-resend").checked = Boolean(a.approvedAt);
+    document.getElementById("fix-email-msg").textContent = "";
+    document.getElementById("fix-email-dialog").showModal();
+    document.getElementById("fix-email-input").select();
+    return;
+  }
+
+  const resendRow = event.target.closest("[data-resend]")?.dataset.resend;
+  if (resendRow) {
+    const a = (state.data?.applicants ?? []).find((x) => String(x.rowIndex) === String(resendRow));
+    if (!a) return;
+    if (!(await confirmDialog(
+      `Send ${a.fullName}'s acceptance again to ${a.aucEmail}?\n\n` +
+      "The same email — Letter of Responsibility attached and their committee's directors and heads copied — as a fresh message."
+    ))) return;
+    try {
+      const r = await api({ mode: "member-admin-resend-acceptance", email: state.admin.email, rowIndex: a.rowIndex });
+      await load(state.admin.email);
+      state.view = "approvals";
+      renderAll();
+      await noticeDialog(`Acceptance sent to ${r.sentTo}.`);
+    } catch (error) { await noticeDialog(error.message); }
+    return;
+  }
+
   /* One applicant handed back on their own, so a single doubtful decision does
      not cost the committee the whole list. */
   const oneRow = event.target.closest("[data-return-one]")?.dataset.returnOne;
