@@ -10,7 +10,7 @@ of a member, in the committee's own words.
 Run: python3 scripts/build-responsibility-letters.py
 Needs Google Chrome for the PDF step.
 """
-import base64, html, pathlib, subprocess, sys
+import base64, html, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "responsibilities"
@@ -39,14 +39,14 @@ GENERAL = [
         "Represent Resala in every interaction connected to the club. Misrepresenting it leads to an evaluation meeting.",
     ]),
     ("Commitment and attendance", [
-        "Attend a minimum of four events per month.",
-        "Attend the reflection meeting every two weeks (Wednesday by default). Miss no more than two per semester.",
-        "Attend every bonding event: the opening, the closing, and two each month.",
+        "Attend a minimum of **four events per month**.",
+        "Attend the reflection meeting **every two weeks** (Wednesday by default). Miss **no more than two per semester**.",
+        "Attend **every bonding event**: the opening, the closing, and **two each month**.",
         "Commitments in other clubs are not an excuse. Give Resala priority at any event shared with other clubs.",
     ]),
     ("Warnings", [
-        "Every member is entitled to two warnings before downgrade, following the Office of Residential Life framework.",
-        "A warning arrives by email with a 15-day action plan. Reply within two days: no reply brings a second warning, and no reply to that brings downgrade.",
+        "Every member is entitled to **two warnings before downgrade**, following the Office of Residential Life framework.",
+        "A warning arrives by email with a **15-day action plan**. Reply **within two days**: no reply brings a second warning, and no reply to that brings downgrade.",
     ]),
 ]
 
@@ -113,7 +113,7 @@ CSS = """
 @page { size: A4; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 210mm; height: 297mm; }
-body { font-family: "Noto Sans", Arial, sans-serif; color: #1c2140; font-size: 8.6pt; line-height: 1.38;
+body { font-family: "Noto Sans", Arial, sans-serif; color: #1c2140; font-size: 9pt; line-height: 1.42;
        -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .page { width: 210mm; height: 297mm; display: flex; flex-direction: column; overflow: hidden; }
 header { background: #27328a; color: #fff; padding: 8mm 14mm 6.5mm; display: flex; align-items: center; gap: 6mm;
@@ -124,34 +124,43 @@ header img { width: 21mm; height: 21mm; object-fit: contain; }
 h1 { font-family: "Fredoka", "Noto Sans", sans-serif; font-weight: 600; font-size: 23pt; line-height: 1.05; margin-top: 1mm; }
 .role { font-size: 11pt; color: #d9dce4; margin-top: 1mm; }
 main { flex: 1; padding: 5mm 14mm 0; display: flex; flex-direction: column; gap: 3.2mm; }
-.intro { font-size: 9.1pt; line-height: 1.45; color: #2b3163; }
+.intro { font-size: 9.5pt; line-height: 1.5; color: #2b3163; }
 .intro b { color: #27328a; }
 .part { display: flex; align-items: baseline; gap: 3mm; border-bottom: 1.2pt solid #afb8db; padding-bottom: 1.2mm; }
 .part .n { font-family: "Fredoka", sans-serif; font-weight: 600; color: #ff9933; font-size: 12pt; }
 .part h2 { font-family: "Fredoka", sans-serif; font-weight: 600; color: #27328a; font-size: 12.5pt; }
 .part .note { margin-left: auto; font-size: 7.6pt; color: #6b7090; }
 .grid { columns: 2; column-gap: 7mm; }
-.block { break-inside: avoid; margin-bottom: 2.4mm; }
+.block { break-inside: avoid; margin-bottom: 3mm; }
 h3 { font-size: 8pt; letter-spacing: .12em; text-transform: uppercase; color: #27328a; font-weight: 800; margin-bottom: 1mm; }
 ul { list-style: none; }
 li { position: relative; padding-left: 3.6mm; margin-bottom: .9mm; }
 li::before { content: ""; position: absolute; left: 0; top: 1.65mm; width: 1.5mm; height: 1.5mm; border-radius: 50%; background: #ff9933; }
+strong.num { background: #fff0dc; color: #27328a; font-weight: 800; padding: .1mm 1.1mm; border-radius: 1mm;
+             box-shadow: inset 0 -.5mm 0 #ff9933;
+             -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .role-card { background: #f3f4f9; border-left: 1.6mm solid #27328a; border-radius: 2mm; padding: 3.2mm 5mm; }
 .vow { font-family: "Fredoka", sans-serif; font-weight: 500; color: #27328a; font-size: 11pt; margin-bottom: 2.2mm; }
 .role-card li { margin-bottom: 1.1mm; }
 footer { padding: 3.5mm 14mm 7mm; }
-.ack { font-size: 8.1pt; color: #2b3163; margin-bottom: 5mm; }
+.ack { font-size: 8.6pt; color: #2b3163; background: #f3f4f9; border-radius: 2mm; padding: 3mm 4mm; }
+.ack b { color: #27328a; }
 .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; }
 .line { border-top: .8pt solid #27328a; padding-top: 1.2mm; font-size: 7.6pt; color: #6b7090; letter-spacing: .06em; text-transform: uppercase; }
 .line + .line { margin-top: 6mm; }
-.brand { margin-top: 4mm; display: flex; justify-content: space-between; font-size: 7.4pt; color: #6b7090; }
+.brand { margin-top: 3.5mm; display: flex; justify-content: space-between; font-size: 7.4pt; color: #6b7090; }
 .brand b { color: #27328a; }
 """
+
+def marked(text):
+    """Escape, then turn **x** into a highlighted number."""
+    return re.sub(r"\*\*(.+?)\*\*", r'<strong class="num">\1</strong>', html.escape(text))
+
 
 def letter(committee_id, name, vow, duties, logo_uri):
     e = html.escape
     general = "".join(
-        f'<div class="block"><h3>{i}. {e(title)}</h3><ul>{"".join(f"<li>{e(x)}</li>" for x in items)}</ul></div>'
+        f'<div class="block"><h3>{i}. {e(title)}</h3><ul>{"".join(f"<li>{marked(x)}</li>" for x in items)}</ul></div>'
         for i, (title, items) in enumerate(GENERAL, 1)
     )
     role = "".join(f"<li>{e(x)}</li>" for x in duties)
@@ -181,12 +190,8 @@ def letter(committee_id, name, vow, duties, logo_uri):
   <div class="role-card"><div class="vow">{e(vow)}</div><ul>{role}</ul></div>
 </main>
 <footer>
-  <p class="ack">By confirming, you acknowledge that you have read, understood and accepted both parts of this Letter of
-  Responsibility, and commit to them throughout your time as a member of {e(name)}.</p>
-  <div class="sign">
-    <div><div class="line">Member name</div><div class="line">Signature &amp; date</div></div>
-    <div><div class="line">Committee director</div><div class="line">Signature &amp; date</div></div>
-  </div>
+  <p class="ack">By replying <b>CONFIRMED</b> to your acceptance email, you acknowledge that you have read, understood and
+  accepted both parts of this Letter of Responsibility, and commit to them throughout your time as a member of {e(name)}.</p>
   <div class="brand"><span><b>Resala AUC</b> · Build the First Step</span><span>Be the first step toward someone's better life.</span></div>
 </footer>
 </div></body></html>"""
