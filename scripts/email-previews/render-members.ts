@@ -127,7 +127,7 @@ await write(
 await write(
   "acceptance",
   "Acceptance · sent by an admin once the committee's list is approved",
-  buildMemberAcceptanceEmail(applicant.fullName, "Tech Team", "The Builder")
+  buildMemberAcceptanceEmail(applicant.fullName, "Tech Team", "The Builder", { responsibilitiesAttached: true })
 );
 
 await write(

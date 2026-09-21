@@ -197,18 +197,19 @@ const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full 
 // 20 September falls inside Egypt's daylight saving, so this is +03:00.
 const MEMBER_APPLICATION_DEADLINE = Deno.env.get("MEMBER_APPLICATION_DEADLINE") ?? "2026-09-20T23:59:59+03:00";
 /*
- * The opening, and the document of responsibilities an accepted member is
- * asked to accept. The document rides on the acceptance email when
- * MEMBER_RESPONSIBILITIES_URL points at one; until it does the email asks for
- * the same confirmation and says the document follows, rather than pointing
- * at an attachment that is not there.
+ * The opening, and the Letter of Responsibility an accepted member is asked
+ * to accept. Each committee has its own letter, published with the site at
+ * <base>/<committee-id>.pdf (built by scripts/build-responsibility-letters.py)
+ * and attached to that committee's acceptances. If one cannot be fetched the
+ * email still goes out and says the letter follows, rather than pointing at
+ * an attachment that is not there.
  */
 const MEMBER_OPENING_DATE = Deno.env.get("MEMBER_OPENING_DATE") ?? "Wednesday 30 September";
 const MEMBER_OPENING_TIME = Deno.env.get("MEMBER_OPENING_TIME") ?? "4:00 PM - 8:00 PM";
 const MEMBER_OPENING_PLACE = Deno.env.get("MEMBER_OPENING_PLACE") ?? "Moataz Al Alfi Hall, AUC";
-const MEMBER_RESPONSIBILITIES_URL = Deno.env.get("MEMBER_RESPONSIBILITIES_URL") ?? "";
-const MEMBER_RESPONSIBILITIES_FILENAME =
-  Deno.env.get("MEMBER_RESPONSIBILITIES_FILENAME") ?? "Resala AUC - Role Responsibilities.pdf";
+const MEMBER_RESPONSIBILITIES_BASE_URL = (
+  Deno.env.get("MEMBER_RESPONSIBILITIES_BASE_URL") ?? "https://resala-auc.github.io/responsibilities"
+).replace(/\/+$/, "");
 
 const INTERVIEW_SCORE_HEADERS = [
   "Interview Notes URL",
@@ -4932,29 +4933,40 @@ export function buildMemberReminderEmail(
  * as its own message rather than silently skipping someone's reminder.
  */
 /*
- * The responsibilities document, fetched once per send run rather than per
- * person. An acceptance is never held up by it: if it is not configured, or
- * the fetch fails, the email still goes out and says the document follows —
- * being accepted late, or not at all, is worse than reading it a day later.
+ * The committee's own Letter of Responsibility. `cache` is shared across one
+ * send run, so approving thirty people fetches each committee's letter once.
+ * An acceptance is never held up by it: if the fetch fails the email still
+ * goes out and says the letter follows — being accepted late is worse than
+ * reading the letter a day later.
  */
-async function getMemberResponsibilitiesAttachment(): Promise<EmailAttachment[]> {
-  if (!MEMBER_RESPONSIBILITIES_URL) return [];
+async function getMemberResponsibilitiesAttachment(
+  committee: string,
+  cache: Map<string, EmailAttachment[]> = new Map()
+): Promise<EmailAttachment[]> {
+  const committeeId = MEMBER_COMMITTEE_HIERARCHY_NAMES[committee] ? committee : memberCommitteeIdFor(committee);
+  if (!committeeId || !MEMBER_RESPONSIBILITIES_BASE_URL) return [];
+  const cached = cache.get(committeeId);
+  if (cached) return cached;
+
+  let attachments: EmailAttachment[] = [];
   try {
-    const response = await fetch(MEMBER_RESPONSIBILITIES_URL);
+    const response = await fetch(`${MEMBER_RESPONSIBILITIES_BASE_URL}/${committeeId}.pdf`);
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return [
+    const name = displayCommitteeName(MEMBER_COMMITTEE_HIERARCHY_NAMES[committeeId] ?? committee).replace(/[\\/]/g, "-");
+    attachments = [
       {
-        filename: MEMBER_RESPONSIBILITIES_FILENAME,
-        contentType: response.headers.get("content-type")?.split(";")[0]?.trim() || "application/pdf",
+        filename: `Resala AUC - ${name} Letter of Responsibility.pdf`,
+        contentType: "application/pdf",
         contentBytes: new Uint8Array(await response.arrayBuffer())
       }
     ];
   } catch (error) {
     console.error(
-      `Could not fetch the member responsibilities document: ${error instanceof Error ? error.message : error}`
+      `Could not fetch the ${committeeId} Letter of Responsibility: ${error instanceof Error ? error.message : error}`
     );
-    return [];
   }
+  cache.set(committeeId, attachments);
+  return attachments;
 }
 
 async function sendMemberReminderEmail(
@@ -6007,7 +6019,7 @@ async function acceptPastApplicant(
    * out on belongs to a cycle they were turned down in, and landing an
    * acceptance at the bottom of it would read as an afterthought.
    */
-  const responsibilities = await getMemberResponsibilitiesAttachment();
+  const responsibilities = await getMemberResponsibilitiesAttachment(committee);
   const template = buildMemberAcceptanceEmail(person.fullName, committee, matchedSub, {
     responsibilitiesAttached: responsibilities.length > 0
   });
@@ -6054,8 +6066,8 @@ async function approveMemberFinalList(
   const joining: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }> = [];
   let approved = 0;
   let emailed = 0;
-  // Fetched once for the whole run, not once per person.
-  const responsibilities = await getMemberResponsibilitiesAttachment();
+  // Each committee's letter is fetched once for the whole run, not once per person.
+  const letters = new Map<string, EmailAttachment[]>();
 
   for (const rowIndex of wanted) {
     const row = await readMemberApplicationRow(token, rowIndex);
@@ -6086,6 +6098,10 @@ async function approveMemberFinalList(
       phone: String(row[6] ?? "").trim()
     });
 
+    const responsibilities = await getMemberResponsibilitiesAttachment(
+      String(row[9] ?? "").trim() || String(row[8] ?? "").trim(),
+      letters
+    );
     const template = buildMemberAcceptanceEmail(
       fullName,
       String(row[8] ?? "").trim(),
@@ -7689,8 +7705,8 @@ export function buildMemberAcceptanceEmail(
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
   const place = subCommittee ? `${committee} - ${subCommittee}` : committee;
   const responsibilitiesLine = options.responsibilitiesAttached === true
-    ? "Read the responsibilities document attached to this email, and confirm you accept them."
-    : "Confirm you accept the responsibilities of your role. The document setting them out follows in a separate email, and taking your place means accepting it.";
+    ? "Read the Letter of Responsibility attached to this email, and confirm you accept both parts of it."
+    : "Confirm you accept the responsibilities of your role. Your Letter of Responsibility follows in a separate email, and taking your place means accepting it.";
 
   const text = [
     `Hi ${firstName},`,
@@ -7712,7 +7728,7 @@ export function buildMemberAcceptanceEmail(
     "",
     "Reply to this email with the word CONFIRMED to confirm both. If you cannot make the opening, reply and tell us - it is better to know now than on the day.",
     "",
-    "Use your AUC account from here on - it is what our meetings, documents and shared drives are opened with. If you do not have one yet, tell your committee the moment you do.",
+    "Please note: this email confirms that you have been accepted, and nothing more. It is not proof of membership, volunteering or any work with Resala AUC, and cannot be used as one. Your work with Resala starts only once you have confirmed, attended the opening and been added to your committee.",
     "",
     "Be the first step toward someone's better life.",
     "",
@@ -7789,11 +7805,11 @@ export function buildMemberAcceptanceEmail(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 20px;">
                   <tr>
                     <td class="box" style="background:#f8fafc;border:1px solid #e6edf2;border-radius:14px;padding:16px;">
-                      <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:8px;">Use your AUC account</div>
-                      <div class="body-text" style="font-size:15px;line-height:1.65;color:#172033;">
-                        Our meetings, documents and shared drives are all opened with it, so sign in with your
-                        <strong>@aucegypt.edu</strong> account from here on. If you do not have one yet, tell your committee
-                        the moment you do and they will move you over.
+                      <div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:8px;">Please note</div>
+                      <div class="body-text" style="font-size:14px;line-height:1.6;color:#475569;">
+                        This email confirms that you have been accepted, and nothing more. It is <strong>not proof of
+                        membership, volunteering or any work</strong> with Resala AUC, and cannot be used as one. Your work
+                        with Resala starts only once you have confirmed, attended the opening and been added to your committee.
                       </div>
                     </td>
                   </tr>
