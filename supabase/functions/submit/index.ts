@@ -2806,6 +2806,17 @@ Deno.serve((request) =>
       });
     }
 
+    if ((payload as { mode?: string }).mode === "member-admin-pull-accepted") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const pullToken = await getGoogleAccessToken();
+      const pullAdmin = await requireRecruitmentAdmin(pullToken, String((payload as { email?: unknown }).email ?? ""));
+      const rowIndexes = (payload as unknown as { rowIndexes?: unknown }).rowIndexes;
+      return jsonResponse({
+        ok: true,
+        ...(await pullAcceptedIntoApprovals(pullToken, pullAdmin.email, Array.isArray(rowIndexes) ? rowIndexes : []))
+      });
+    }
+
     if ((payload as { mode?: string }).mode === "member-admin-move-accept") {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const moveToken = await getGoogleAccessToken();
@@ -4710,6 +4721,33 @@ function memberColumn(header: string): string {
 }
 
 /** Write one contiguous run of columns on a member's row. */
+/*
+ * People a committee marked Accepted but never sent up — decided after their
+ * list had already been approved, before the portal could send late decisions.
+ * The admin brings them into Approvals directly; only rows that really are
+ * accepted and not yet approved are touched.
+ */
+async function pullAcceptedIntoApprovals(
+  token: string,
+  adminEmail: string,
+  rowIndexes: unknown[]
+): Promise<{ pulled: number; names: string[] }> {
+  const at = new Date().toISOString();
+  const names: string[] = [];
+  for (const value of rowIndexes) {
+    const rowIndex = Number(value);
+    if (!Number.isInteger(rowIndex) || rowIndex < 2) continue;
+    const row = await readMemberApplicationRow(token, rowIndex);
+    if (String(row[17] ?? "").trim() !== "Accepted") continue;
+    if (String(row[28] ?? "").trim() || String(row[30] ?? "").trim()) continue;
+    await writeMemberCells(token, rowIndex, "Submitted For Approval At", [at, adminEmail]);
+    names.push(String(row[1] ?? "").trim());
+  }
+  if (!names.length) throw new Error("Nobody there is accepted and still waiting to be sent up.");
+  console.log(`${adminEmail} pulled ${names.length} accepted applicant(s) into approvals: ${names.join(", ")}`);
+  return { pulled: names.length, names };
+}
+
 /*
  * Correct an applicant's email after the fact — a typo is how an acceptance
  * ends up in nobody's inbox. The address is a key in three places, and all
@@ -7878,6 +7916,8 @@ async function submitMemberFinalList(
       alreadyApproved++;
       continue;
     }
+    // Already up and waiting: leave who sent it, and when, as it was.
+    if (applicant.submittedAt) continue;
     await writeMemberCells(token, Number(applicant.rowIndex), "Submitted For Approval At", [at, access.email]);
     submitted++;
   }

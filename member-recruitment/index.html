@@ -710,11 +710,35 @@ function renderSlots() {
  * emails, and it is the only place in the members cycle that does, so it
  * confirms with a count and names the people first.
  */
+/* Accepted by their committee but never sent up: invisible here otherwise. */
+function stuckAccepted() {
+  return (state.data?.applicants ?? []).filter(
+    (a) => a.status === "Accepted" && !a.submittedAt && !a.approvedAt
+  );
+}
+
+function stuckBanner() {
+  const stuck = stuckAccepted();
+  if (!stuck.length) return "";
+  return `
+    <div class="committee-group" style="border-left:5px solid #eac262;">
+      <div style="padding:14px 18px;">
+        <b>${stuck.length} accepted by their committee but never sent up for approval</b>
+        <div class="note" style="margin:4px 0 10px;">Nobody has been emailed. Bring them in and they join their committee's group below.</div>
+        <ul style="margin:0 0 12px;padding-left:18px;font-size:14px;">
+          ${stuck.map((a) => `<li>${esc(a.fullName)} · ${esc(committeeLabel(a))}${a.subCommittee ? ` · ${esc(a.subCommittee)}` : ""} <span class="note">${esc(a.aucEmail)}</span></li>`).join("")}
+        </ul>
+        <button class="btn btn-gold btn-sm" data-pull-stuck>Bring ${stuck.length} into Approvals</button>
+      </div>
+    </div>`;
+}
+
 function renderApprovals() {
   const el = document.getElementById("view-approvals");
   const rows = (state.data?.applicants ?? []).filter((a) => a.submittedAt);
   if (!rows.length) {
-    el.innerHTML = `<div class="committee-group"><div class="empty">No committee has sent a list up yet.</div></div>`;
+    el.innerHTML = stuckBanner() +
+      `<div class="committee-group"><div class="empty">No committee has sent a list up yet.</div></div>`;
     return;
   }
 
@@ -735,7 +759,7 @@ function renderApprovals() {
   state.approvalGroups = [...groups.entries()].sort(([x], [y]) => x.localeCompare(y));
 
   const outOf = (state.data?.scoreMax ?? 20);
-  el.innerHTML = state.approvalGroups.map(([label, people], groupIndex) => {
+  el.innerHTML = stuckBanner() + state.approvalGroups.map(([label, people], groupIndex) => {
     const pending = people.filter((a) => !a.approvedAt);
     const unsent = people.filter((a) => a.approvedAt && !a.acceptanceSentAt);
     const emailed = people.filter((a) => a.acceptanceSentAt).length;
@@ -839,6 +863,24 @@ document.getElementById("fix-email-form").addEventListener("submit", async (even
 });
 
 document.getElementById("view-approvals").addEventListener("click", async (event) => {
+  if (event.target.closest("[data-pull-stuck]")) {
+    const stuck = stuckAccepted();
+    if (!stuck.length) return;
+    if (!(await confirmDialog(
+      `Bring ${stuck.length} accepted applicant${stuck.length === 1 ? "" : "s"} into Approvals?\n\n` +
+      `${stuck.map((a) => `• ${a.fullName} — ${committeeLabel(a)}`).join("\n")}\n\n` +
+      "Nobody is emailed yet — they join their committee's group, and you approve them from there."
+    ))) return;
+    try {
+      const r = await api({ mode: "member-admin-pull-accepted", email: state.admin.email, rowIndexes: stuck.map((a) => a.rowIndex) });
+      await load(state.admin.email);
+      state.view = "approvals";
+      renderAll();
+      await noticeDialog(`${r.pulled} brought into Approvals: ${r.names.join(", ")}. Approve their group to send the acceptance.`);
+    } catch (error) { await noticeDialog(error.message); }
+    return;
+  }
+
   const fixRow = event.target.closest("[data-fix-email]")?.dataset.fixEmail;
   if (fixRow) {
     const a = (state.data?.applicants ?? []).find((x) => String(x.rowIndex) === String(fixRow));

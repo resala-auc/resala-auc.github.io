@@ -377,23 +377,37 @@ function finalListState(sub) {
   const accepted = people.filter((a) => a.status === "Accepted");
   return {
     accepted: accepted.length,
+    // Accepted but never sent up — including anyone decided after the list was approved.
+    notSent: accepted.filter((a) => !a.submittedAt && !a.approvedAt).length,
     submitted: accepted.filter((a) => a.submittedAt && !a.approvedAt).length,
     approved: accepted.filter((a) => a.approvedAt).length,
     told: accepted.filter((a) => a.acceptanceSentAt).length
   };
 }
 
+/*
+ * Every state that applies is shown, not just the first. The list used to stop
+ * at "approved": anybody accepted after the list went through had no button
+ * to send them up and sat under a label saying "approved · emailed" — which is
+ * how two accepted PR applicants were never told.
+ */
 function finalListControls(sub) {
   const s = finalListState(sub);
+  if (!s.accepted) return `<span class="count">Nobody accepted yet</span>`;
+  const parts = [];
   if (s.approved) {
-    return `<span class="state approved">${s.approved} approved${s.told ? ` · ${s.told} emailed` : " · not emailed yet"}</span>`;
+    parts.push(`<span class="state approved">${s.approved} approved${s.told ? ` · ${s.told} emailed` : " · not emailed yet"}</span>`);
   }
   if (s.submitted) {
-    return `<span class="state waiting">${s.submitted} waiting for approval</span>
-            <button class="btn btn-ghost btn-sm" data-withdraw="${esc(sub)}">Pull back</button>`;
+    parts.push(`<span class="state waiting">${s.submitted} waiting for approval</span>
+            <button class="btn btn-ghost btn-sm" data-withdraw="${esc(sub)}">Pull back</button>`);
   }
-  if (!s.accepted) return `<span class="count">Nobody accepted yet</span>`;
-  return `<button class="btn btn-gold btn-sm" data-submit="${esc(sub)}">Submit ${s.accepted} for approval</button>`;
+  if (s.notSent) {
+    parts.push(`<button class="btn btn-gold btn-sm" data-submit="${esc(sub)}">${
+      s.approved || s.submitted ? `Send ${s.notSent} more` : `Submit ${s.notSent}`
+    } for approval</button>`);
+  }
+  return parts.join(" ");
 }
 
 function renderGroups() {
@@ -907,7 +921,7 @@ document.getElementById("groups").addEventListener("click", async (event) => {
   if (submit) {
     const s = finalListState(submit);
     if (!(await confirmDialog(
-      `Send ${s.accepted} accepted applicant${s.accepted === 1 ? "" : "s"} from ${submit} up for approval?\n\n` +
+      `Send ${s.notSent} accepted applicant${s.notSent === 1 ? "" : "s"} from ${submit} up for approval?\n\n` +
       "Nobody is emailed by this. An admin approves the list and the acceptance emails go out from there.\n" +
       "You can pull it back until they do."
     ))) return;
