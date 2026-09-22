@@ -6366,7 +6366,14 @@ async function approveMemberFinalList(
       aucEmail,
       await memberCommitteeLeadersCc(token, String(row[9] ?? "").trim() || String(row[8] ?? "").trim(), aucEmail),
       template,
-      { threadId: String(row[25] ?? "").trim(), messageId: String(row[26] ?? "").trim() },
+      /*
+       * A fresh message, never a reply on their application confirmation:
+       * threaded there, it arrived as "Re: ..." folded under an email from
+       * weeks earlier, which is exactly how an acceptance goes unseen. The
+       * committee's directors and heads are copied, so Reply All still
+       * reaches the people who act on it.
+       */
+      { threadId: "", messageId: "" },
       responsibilities
     );
     if (sent) {
