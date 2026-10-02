@@ -156,6 +156,7 @@
       <button class="tab" data-view="applicants" aria-selected="true">Applicants</button>
       <button class="tab" data-view="approvals">Approvals</button>
       <button class="tab" data-view="past">Previous cycles</button>
+      <button class="tab" data-view="volunteers">Not accepted, not on team</button>
       <button class="tab" data-view="slots">Slots</button>
     </div>
 
@@ -192,6 +193,7 @@
 
     <div id="view-approvals" class="hidden"></div>
     <div id="view-past" class="hidden"></div>
+    <div id="view-volunteers" class="hidden"></div>
     <div id="view-slots" class="hidden"></div>
   </main>
 </div>
@@ -413,7 +415,8 @@ async function load(email) {
   state.data = {
     applicants: body.applicants ?? [],
     reservations: body.reservations ?? [],
-    scoreMax: body.scoreMax ?? 20
+    scoreMax: body.scoreMax ?? 20,
+    pool: body.pool ?? []
   };
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -1103,11 +1106,94 @@ document.getElementById("view-past").addEventListener("click", async (event) => 
   }
 });
 
+/*
+ * Everyone from either cycle who is neither accepted into a committee nor on
+ * the team roster right now — computed server-side on every load from the
+ * live roster, so a removal from the team board puts someone back on this
+ * list the next time this page refreshes rather than leaving them credited
+ * as a member, or as an already-emailed volunteer, forever. These are the
+ * people due the general-volunteer acceptance once there is a WhatsApp link
+ * to send them.
+ */
+function renderVolunteerPool() {
+  const el = document.getElementById("view-volunteers");
+  const pool = state.data?.pool ?? [];
+  if (!pool.length) {
+    el.innerHTML = `<div class="committee-group"><div class="empty">Nobody is waiting on this. Everyone from either cycle is either accepted and on the team, or already sent the general-volunteer email.</div></div>`;
+    return;
+  }
+
+  const noShows = pool.filter((p) => p.isNoShow);
+  const rest = pool.filter((p) => !p.isNoShow);
+
+  const rows = (list) => list.map((p) => `
+    <tr>
+      <td><b>${esc(p.fullName)}</b><div class="note">${esc(p.aucEmail)}</div>
+          <div class="note">${esc(p.cycle)}</div></td>
+      <td>${esc(p.committee) || "—"}</td>
+      <td><span class="pill ${p.isNoShow ? "bad" : "open"}">${esc(p.status) || "—"}</span></td>
+      <td><button class="btn btn-gold btn-sm" data-volunteer-accept="${esc(p.aucEmail)}" data-volunteer-source="${esc(p.source)}" data-volunteer-row="${p.rowIndex ?? ""}">Accept as general volunteer</button></td>
+    </tr>`).join("");
+
+  el.innerHTML = `
+    <div class="banner">Neither accepted into a committee nor on the team roster — whether they sat no interview
+      at all or simply were not taken further. Live against the team board: anyone removed from the team shows up
+      here again. "Accept as general volunteer" sends the same email every other general volunteer gets.</div>
+    ${rest.length ? `
+    <div class="committee-group">
+      <h2>Not accepted <span class="c">${rest.length}</span></h2>
+      <div class="wrap-x"><table>
+        <thead><tr><th>Applicant</th><th>Committee</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>${rows(rest)}</tbody>
+      </table></div>
+    </div>` : ""}
+    ${noShows.length ? `
+    <div class="committee-group">
+      <h2>No show <span class="c">${noShows.length}</span></h2>
+      <div class="wrap-x"><table>
+        <thead><tr><th>Applicant</th><th>Committee</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>${rows(noShows)}</tbody>
+      </table></div>
+    </div>` : ""}`;
+}
+
+document.getElementById("view-volunteers").addEventListener("click", async (event) => {
+  const btn = event.target.closest("[data-volunteer-accept]");
+  if (!btn) return;
+  const aucEmail = btn.dataset.volunteerAccept;
+  const source = btn.dataset.volunteerSource;
+  const rowIndex = Number(btn.dataset.volunteerRow);
+  const person = (state.data?.pool ?? []).find((p) => norm(p.aucEmail) === norm(aucEmail) && p.source === source);
+  if (!person) return;
+
+  if (!(await confirmDialog(
+    `Accept ${person.fullName} as a general volunteer?\n\nThis emails them that they are accepted as a general volunteer, not as a committee member. It cannot be undone from here.`
+  ))) return;
+
+  btn.disabled = true;
+  try {
+    const r = source === "member"
+      ? await api({ mode: "member-admin-general-volunteer", email: state.admin.email, rowIndex })
+      : await api({ mode: "member-admin-past-general-volunteer", email: state.admin.email, aucEmail });
+    state.msg = {
+      type: r.emailSent ? "ok" : "bad",
+      text: r.emailSent
+        ? `${r.fullName} accepted as a general volunteer and emailed.`
+        : `${r.fullName} marked as a general volunteer, but the email did not send — tell them yourself.`
+    };
+    await load(state.admin.email);
+  } catch (error) {
+    btn.disabled = false;
+    await noticeDialog(error.message);
+  }
+});
+
 function renderAll() {
   renderStats();
   renderApprovals();
   renderCommitteeGrid();
   renderApplicants();
+  renderVolunteerPool();
   renderSlots();
 }
 
@@ -1292,7 +1378,8 @@ async function autoRecoverStrayApplications(email) {
       state.data = {
         applicants: body.applicants ?? [],
         reservations: body.reservations ?? [],
-        scoreMax: body.scoreMax ?? 20
+        scoreMax: body.scoreMax ?? 20,
+        pool: body.pool ?? []
       };
       renderAll();
     }
@@ -1413,6 +1500,7 @@ document.getElementById("views").addEventListener("click", (e) => {
   document.getElementById("view-approvals").classList.toggle("hidden", state.view !== "approvals");
   document.getElementById("view-past").classList.toggle("hidden", state.view !== "past");
   if (state.view === "past" && !state.past) loadPast();
+  document.getElementById("view-volunteers").classList.toggle("hidden", state.view !== "volunteers");
   document.getElementById("view-slots").classList.toggle("hidden", state.view !== "slots");
 });
 

@@ -260,6 +260,7 @@
     <div class="scope" id="email-scope" role="radiogroup" aria-label="Who gets it">
       <button type="button" data-scope="everyone" aria-pressed="true">Everyone</button>
       <button type="button" data-scope="board" aria-pressed="false">Board only</button>
+      <button type="button" data-scope="directors" aria-pressed="false">Directors only</button>
       <button type="button" data-scope="members" aria-pressed="false">Members only</button>
     </div>
     <div class="recipients" id="email-recipients"></div>
@@ -787,6 +788,7 @@ function recipientsFor(audience, scope) {
     } else {
       if (audience.type === "committee" && norm(m.department) !== norm(audience.committee)) continue;
       if (scope === "board" && m.level !== "director" && m.level !== "head") continue;
+      if (scope === "directors" && m.level !== "director") continue;
       if (scope === "members" && m.level !== "member") continue;
     }
     if (!seen.has(norm(m.aucEmail))) seen.set(norm(m.aucEmail), m);
@@ -801,7 +803,7 @@ const ticked = (people) => people.filter((p) => !emailUnticked.has(norm(p.aucEma
 
 function audienceLabel(audience, people) {
   if (audience.type === "person") return people[0]?.name ?? audience.aucEmail;
-  const group = { everyone: "everyone", board: "the board", members: "the members" }[emailScope];
+  const group = { everyone: "everyone", board: "the board", directors: "the directors", members: "the members" }[emailScope];
   return audience.type === "committee" ? `${group} on ${audience.committee}` : `${group} of the club`;
 }
 

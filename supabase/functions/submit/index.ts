@@ -11,6 +11,14 @@ const MEMBER_APPLICATIONS_SHEET_NAME =
   Deno.env.get("MEMBER_APPLICATIONS_SHEET_NAME") ?? "Member Recruitment";
 const MEMBER_SLOT_RESERVATION_SHEET_NAME =
   Deno.env.get("MEMBER_RESERVATION_SHEET_NAME") ?? "Member Recruitment Interview Reservations";
+/*
+ * Everyone from the heads cycle already sent the general-volunteer email, so
+ * the volunteer pool stops counting them once sent. A separate tab rather
+ * than the heads sheet's own Status column, which already means something
+ * else (a head-role decision) and is not safe to repurpose.
+ */
+const HEADS_GENERAL_VOLUNTEER_SHEET_NAME =
+  Deno.env.get("HEADS_GENERAL_VOLUNTEER_SHEET_NAME") ?? "Heads Cycle General Volunteers";
 const GOOGLE_SERVICE_ACCOUNT_KEY = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_KEY") ?? "";
 const GOOGLE_CLIENT_EMAIL = Deno.env.get("GOOGLE_CLIENT_EMAIL") ?? "";
 const GOOGLE_PRIVATE_KEY = Deno.env.get("GOOGLE_PRIVATE_KEY") ?? "";
@@ -188,6 +196,8 @@ const MEMBER_APPLICATION_HEADERS = [
   "Assigned Sub-committee"
 ];
 const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full Name", "AUC Email"];
+
+const HEADS_GENERAL_VOLUNTEER_HEADERS = ["AUC Email", "Full Name", "Committee", "Emailed At", "Emailed By"];
 
 /**
  * Applications close at the end of 20 September 2026, Cairo time. Enforced
@@ -1406,8 +1416,8 @@ type CommitteeMemberSetMembershipPayload = {
   aucEmail: string;
   status: string;
 };
-/* Everyone, the board alone (directors and heads), or the members alone. */
-type TeamEmailScope = "everyone" | "board" | "members";
+/* Everyone, the board alone (directors and heads), directors alone, or the members alone. */
+type TeamEmailScope = "everyone" | "board" | "directors" | "members";
 type TeamEmailAudience =
   | { type: "all"; scope?: TeamEmailScope }
   | { type: "committee"; committee: string; scope?: TeamEmailScope }
@@ -1436,6 +1446,13 @@ type MemberAdminFixInterviewTimesPayload = {
   email: string;
   /** false (the default) only reports; true actually moves the invites. */
   apply?: boolean;
+};
+
+type MemberAdminVolunteerPoolPayload = { mode: "member-admin-volunteer-pool"; email: string };
+type MemberAdminPastGeneralVolunteerPayload = {
+  mode: "member-admin-past-general-volunteer";
+  email: string;
+  aucEmail: string;
 };
 
 type MemberAdminGeneralVolunteerPayload = {
@@ -1982,6 +1999,8 @@ type SubmissionPayload =
   | MemberAdminReschedulePayload
   | MemberAdminCancelInterviewPayload
   | MemberAdminGeneralVolunteerPayload
+  | MemberAdminVolunteerPoolPayload
+  | MemberAdminPastGeneralVolunteerPayload
   | MemberAdminFixInterviewTimesPayload
   | MemberSendRemindersPayload
   | TeamLoadPayload
@@ -2787,7 +2806,15 @@ Deno.serve((request) =>
       const adminToken = await getGoogleAccessToken();
       const admin = await requireRecruitmentAdmin(adminToken, payload.email);
       const data = await loadMemberAdmin(adminToken);
-      return jsonResponse({ ok: true, admin, ...data });
+      /*
+       * Never allowed to fail the load — the dashboard is more useful
+       * without the volunteer pool than not at all.
+       */
+      const volunteerPool = await loadVolunteerPool(adminToken).catch((error) => {
+        console.error(`Volunteer pool load failed: ${error instanceof Error ? error.message : error}`);
+        return { pool: [] as VolunteerPoolCandidate[] };
+      });
+      return jsonResponse({ ok: true, admin, ...data, ...volunteerPool });
     }
 
     if (
@@ -3070,6 +3097,21 @@ Deno.serve((request) =>
       });
     }
 
+    if (isMemberAdminVolunteerPoolPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      await requireRecruitmentAdmin(adminToken, payload.email);
+      return jsonResponse({ ok: true, ...(await loadVolunteerPool(adminToken)) });
+    }
+
+    if (isMemberAdminPastGeneralVolunteerPayload(payload)) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const adminToken = await getGoogleAccessToken();
+      const admin = await requireRecruitmentAdmin(adminToken, payload.email);
+      const accepted = await acceptPastApplicantAsGeneralVolunteer(adminToken, admin.email, payload.aucEmail);
+      return jsonResponse({ ok: true, ...accepted, ...(await loadVolunteerPool(adminToken)) });
+    }
+
     if (isMemberSubmitPayload(payload)) {
       return await handleMemberSubmit(payload);
     }
@@ -3293,6 +3335,18 @@ function isMemberAdminGeneralVolunteerPayload(
   payload: SubmissionPayload
 ): payload is MemberAdminGeneralVolunteerPayload {
   return (payload as MemberAdminGeneralVolunteerPayload).mode === "member-admin-general-volunteer";
+}
+
+function isMemberAdminVolunteerPoolPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminVolunteerPoolPayload {
+  return (payload as MemberAdminVolunteerPoolPayload).mode === "member-admin-volunteer-pool";
+}
+
+function isMemberAdminPastGeneralVolunteerPayload(
+  payload: SubmissionPayload
+): payload is MemberAdminPastGeneralVolunteerPayload {
+  return (payload as MemberAdminPastGeneralVolunteerPayload).mode === "member-admin-past-general-volunteer";
 }
 
 function isHeadsCommitteeLoadPayload(payload: SubmissionPayload): payload is HeadsCommitteeLoadPayload {
@@ -4647,6 +4701,13 @@ async function trySendMemberNoticeEmail(
  * it is a real place in Resala with a lighter commitment, and it is the only
  * email this person gets about the decision.
  */
+/*
+ * Set once there is a real invite link to send. Until then the email still
+ * goes out — it just promises the group without a link to join it yet,
+ * rather than failing or shipping a placeholder URL.
+ */
+const GENERAL_VOLUNTEER_WHATSAPP_LINK = Deno.env.get("GENERAL_VOLUNTEER_WHATSAPP_LINK") ?? "";
+
 export function buildGeneralVolunteerEmail(
   fullName: string,
   committee: string
@@ -4656,7 +4717,9 @@ export function buildGeneralVolunteerEmail(
     "Thank you for applying to Resala AUC. We would love to have you with us as a general volunteer.";
   const explain =
     "A general volunteer joins us for the events and initiatives you choose, without the weekly commitment a committee member carries. You come to what you can, and you are always welcome.";
-  const next = "We will add you to the volunteers group and let you know about upcoming activities there.";
+  const next = GENERAL_VOLUNTEER_WHATSAPP_LINK
+    ? "Join the volunteers WhatsApp group below to hear about upcoming activities."
+    : "We will add you to the volunteers group and let you know about upcoming activities there.";
 
   const text = [
     `Hi ${firstName},`,
@@ -4666,6 +4729,7 @@ export function buildGeneralVolunteerEmail(
     explain,
     "",
     next,
+    ...(GENERAL_VOLUNTEER_WHATSAPP_LINK ? ["", GENERAL_VOLUNTEER_WHATSAPP_LINK] : []),
     "",
     "— Resala AUC"
   ].join("\n");
@@ -4683,9 +4747,13 @@ export function buildGeneralVolunteerEmail(
                     <div style="font-size:15px;line-height:1.6;color:#172033;margin-top:10px;">${escapeHtml(explain)}</div>
                   </td></tr>
                 </table>
-                <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(next)}${
+                <p style="margin:0 0 ${GENERAL_VOLUNTEER_WHATSAPP_LINK ? "16" : "22"}px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(next)}${
                   committee ? ` You applied to ${escapeHtml(committee)} — if a place opens there later, we will come back to you.` : ""
-                }</p>`
+                }</p>${
+                  GENERAL_VOLUNTEER_WHATSAPP_LINK
+                    ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;"><tr><td style="border-radius:10px;background:#0d2b45;"><a href="${escapeHtml(GENERAL_VOLUNTEER_WHATSAPP_LINK)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Join the WhatsApp group</a></td></tr></table>`
+                    : ""
+                }`
   });
 
   return { subject: "Resala AUC — welcome as a general volunteer", text, html };
@@ -6262,6 +6330,184 @@ async function loadPastApplicants(token: string): Promise<{
   return { cycles: ["Heads 2026"], applicants, subCommitteesByCommittee };
 }
 
+type VolunteerPoolCandidate = {
+  /** Which application this row came from — the two cycles use different sheets. */
+  source: "member" | "heads";
+  /** Only present for a "member" row: the member sheet's own row-number actions key on. */
+  rowIndex?: number;
+  aucEmail: string;
+  fullName: string;
+  committee: string;
+  status: string;
+  /** Sat no interview, as opposed to sat one and was not taken further. */
+  isNoShow: boolean;
+  cycle: string;
+};
+
+/**
+ * Everyone from either application cycle who is neither on the team roster
+ * now nor already accepted into one: the people due the general-volunteer
+ * acceptance (the WhatsApp group link, once there is one to send), no-shows
+ * among them called out rather than hidden.
+ *
+ * Computed fresh from the roster and both sheets on every call, never cached
+ * — so a removal from the team roster puts someone back on this list on the
+ * next load instead of leaving them credited as a member, or as an
+ * already-handled volunteer, forever.
+ */
+async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCandidate[] }> {
+  const [{ entries }, memberResponse, headsResponse, reservationResponse, volunteeredResponse] = await Promise.all([
+    loadHierarchy(token, true),
+    sheetsFetch(
+      token,
+      "GET",
+      sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+    ),
+    (async () => {
+      await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+      await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+      return sheetsFetch(
+        token,
+        "GET",
+        sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+      );
+    })(),
+    sheetsFetch(token, "GET", sheetRange(RESERVATION_SHEET_NAME, "A2:N")).catch(() => null),
+    (async () => {
+      await ensureSheetTab(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME);
+      await ensureSheetHeaders(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME, HEADS_GENERAL_VOLUNTEER_HEADERS);
+      return sheetsFetch(token, "GET", sheetRange(HEADS_GENERAL_VOLUNTEER_SHEET_NAME, "A2:A"));
+    })()
+  ]);
+
+  // Live roster — anyone here is on the team right now, whatever an
+  // application sheet says. A removal shows up here on the very next load.
+  const onTeam = new Set<string>();
+  for (const entry of entries) {
+    const email = normalize(entry.aucEmail ?? "");
+    if (email) onTeam.add(email);
+  }
+
+  const pool: VolunteerPoolCandidate[] = [];
+  const memberEmails = new Set<string>();
+
+  const memberRows = ((await memberResponse.json()).values ?? []) as string[][];
+  memberRows.forEach((row, index) => {
+    const aucEmail = String(row[2] ?? "").trim();
+    if (!isValidAucEmail(aucEmail)) return;
+    memberEmails.add(normalize(aucEmail));
+    if (onTeam.has(normalize(aucEmail))) return; // on the team now — not this list's business
+
+    const status = String(row[17] ?? "").trim() || "New";
+    if (status === "Accepted") return; // in the approval pipeline, not turned down
+    if (status === MEMBER_GENERAL_VOLUNTEER_STATUS) return; // already sent this exact email
+
+    pool.push({
+      source: "member",
+      rowIndex: index + 2,
+      aucEmail,
+      fullName: String(row[1] ?? "").trim(),
+      committee: String(row[8] ?? "").trim(),
+      status,
+      isNoShow: normalize(status) === "no show",
+      cycle: "Member recruitment"
+    });
+  });
+
+  // The reservation row is where an interview's outcome is actually recorded;
+  // the copy on the heads application row is taken at submission and goes stale.
+  const interviewStatusByEmail = new Map<string, string>();
+  if (reservationResponse) {
+    for (const row of ((await reservationResponse.json()).values ?? []) as string[][]) {
+      const email = normalize(row[4] ?? "");
+      const status = String(row[8] ?? "").trim();
+      if (email && status) interviewStatusByEmail.set(email, status);
+    }
+  }
+
+  const alreadyVolunteered = new Set<string>();
+  if (volunteeredResponse) {
+    for (const row of ((await volunteeredResponse.json()).values ?? []) as string[][]) {
+      const email = normalize(row[0] ?? "");
+      if (email) alreadyVolunteered.add(email);
+    }
+  }
+
+  const headsRows = ((await headsResponse.json()).values ?? []) as string[][];
+  for (const row of headsRows) {
+    const aucEmail = String(row[2] ?? "").trim();
+    if (!isValidAucEmail(aucEmail)) continue;
+    const key = normalize(aucEmail);
+    if (onTeam.has(key)) continue; // on the team now
+    if (memberEmails.has(key)) continue; // already represented by their member application, above
+    if (alreadyVolunteered.has(key)) continue; // already sent this exact email
+    if (String(row[ACCEPTED_COLUMN] ?? "").trim() === "Yes") continue; // placed at the time
+
+    const interviewStatus = interviewStatusByEmail.get(key) ?? String(row[17] ?? "").trim();
+
+    pool.push({
+      source: "heads",
+      aucEmail,
+      fullName: String(row[1] ?? "").trim(),
+      committee: canonicalTeamName(String(row[7] ?? "").trim()),
+      status: String(row[18] ?? "").trim() || interviewStatus || "New",
+      isNoShow: normalize(interviewStatus) === "no show",
+      cycle: "Heads 2026"
+    });
+  }
+
+  pool.sort((a, b) => a.committee.localeCompare(b.committee) || a.fullName.localeCompare(b.fullName));
+
+  return { pool };
+}
+
+/**
+ * Sends a heads-cycle candidate who never ended up on the team the same
+ * general-volunteer acceptance a member-cycle applicant gets, and records it
+ * so the volunteer pool stops counting them once sent.
+ */
+async function acceptPastApplicantAsGeneralVolunteer(
+  token: string,
+  adminEmail: string,
+  aucEmail: string
+): Promise<{ fullName: string; emailSent: boolean }> {
+  const wanted = normalize(aucEmail);
+  if (!wanted) throw new Error("Which applicant?");
+
+  await ensureSheetTab(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME);
+  await ensureSheetHeaders(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME, HEADS_GENERAL_VOLUNTEER_HEADERS);
+  const existingResponse = await sheetsFetch(token, "GET", sheetRange(HEADS_GENERAL_VOLUNTEER_SHEET_NAME, "A2:A"));
+  const existing = ((await existingResponse.json()).values ?? []) as string[][];
+  if (existing.some((row) => normalize(row[0]) === wanted)) {
+    throw new Error("Already accepted as a general volunteer.");
+  }
+
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const row = rows.find((candidate) => normalize(String(candidate[2] ?? "")) === wanted);
+  if (!row) throw new Error("That applicant is no longer on the previous-cycles list.");
+
+  const fullName = String(row[1] ?? "").trim();
+  const committee = canonicalTeamName(String(row[7] ?? "").trim());
+
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(
+      HEADS_GENERAL_VOLUNTEER_SHEET_NAME,
+      `A1:${columnLetter(HEADS_GENERAL_VOLUNTEER_HEADERS.length)}1`
+    )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [[aucEmail, fullName, committee, new Date().toISOString(), adminEmail]] }
+  );
+
+  const emailSent = await trySendGeneralVolunteerEmail(aucEmail, fullName, committee);
+  return { fullName: fullName || aucEmail, emailSent };
+}
+
 /**
  * Takes somebody from an earlier cycle onto a committee, as a member.
  *
@@ -7081,6 +7327,7 @@ async function sendTeamEmail(
     if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
     if (audience.type === "committee" && committeeKey(member.department) !== committeeKey(audience.committee)) return false;
     if (scope === "board") return member.level === "director" || member.level === "head";
+    if (scope === "directors") return member.level === "director";
     if (scope === "members") return member.level === "member";
     return true;
   });
