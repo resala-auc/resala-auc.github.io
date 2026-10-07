@@ -199,6 +199,15 @@ const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full 
 
 const HEADS_GENERAL_VOLUNTEER_HEADERS = ["AUC Email", "Full Name", "Committee", "Emailed At", "Emailed By"];
 
+/*
+ * Admin-set values the recruitment portal edits, one key per row. Kept in the
+ * sheet rather than an environment variable so the person running recruitment
+ * can change them without a redeploy.
+ */
+const RECRUITMENT_SETTINGS_SHEET_NAME = Deno.env.get("RECRUITMENT_SETTINGS_SHEET_NAME") ?? "Recruitment Settings";
+const RECRUITMENT_SETTINGS_HEADERS = ["Key", "Value", "Updated At", "Updated By"];
+const WHATSAPP_LINK_SETTING = "general-volunteer-whatsapp-link";
+
 /**
  * Applications close at the end of 20 September 2026, Cairo time. Enforced
  * here as well as in the UI: the form hides itself after this, but a stale
@@ -1449,6 +1458,8 @@ type MemberAdminFixInterviewTimesPayload = {
 };
 
 type MemberAdminVolunteerPoolPayload = { mode: "member-admin-volunteer-pool"; email: string };
+type MemberAdminSetWhatsappLinkPayload = { mode: "member-admin-set-whatsapp-link"; email: string; link: string };
+type MemberAdminReconcileTeamPayload = { mode: "member-admin-reconcile-team"; email: string; apply?: boolean };
 type MemberAdminPastGeneralVolunteerPayload = {
   mode: "member-admin-past-general-volunteer";
   email: string;
@@ -2812,9 +2823,36 @@ Deno.serve((request) =>
        */
       const volunteerPool = await loadVolunteerPool(adminToken).catch((error) => {
         console.error(`Volunteer pool load failed: ${error instanceof Error ? error.message : error}`);
-        return { pool: [] as VolunteerPoolCandidate[] };
+        return { pool: [] as VolunteerPoolCandidate[], volunteers: [] as VolunteerSentCandidate[] };
       });
-      return jsonResponse({ ok: true, admin, ...data, ...volunteerPool });
+      const whatsappLink = await readRecruitmentSetting(adminToken, WHATSAPP_LINK_SETTING);
+      return jsonResponse({ ok: true, admin, ...data, ...volunteerPool, whatsappLink });
+    }
+
+    if ((payload as { mode?: string }).mode === "member-admin-set-whatsapp-link") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const linkToken = await getGoogleAccessToken();
+      const linkAdmin = await requireRecruitmentAdmin(linkToken, String((payload as { email?: unknown }).email ?? ""));
+      const link = String((payload as unknown as MemberAdminSetWhatsappLinkPayload).link ?? "").trim();
+      if (!validWhatsappLink(link)) {
+        throw new Error("That does not look like a WhatsApp group link. It should start with https://chat.whatsapp.com/");
+      }
+      await writeRecruitmentSetting(linkToken, WHATSAPP_LINK_SETTING, link, linkAdmin.email);
+      return jsonResponse({ ok: true, whatsappLink: link });
+    }
+
+    if ((payload as { mode?: string }).mode === "member-admin-reconcile-team") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const reconcileToken = await getGoogleAccessToken();
+      const reconcileAdmin = await requireRecruitmentAdmin(
+        reconcileToken,
+        String((payload as { email?: unknown }).email ?? "")
+      );
+      const apply = (payload as unknown as MemberAdminReconcileTeamPayload).apply === true;
+      return jsonResponse({
+        ok: true,
+        ...(await reconcileAcceptedMembersOnRoster(reconcileToken, reconcileAdmin.email, apply))
+      });
     }
 
     if (
@@ -4701,25 +4739,22 @@ async function trySendMemberNoticeEmail(
  * it is a real place in Resala with a lighter commitment, and it is the only
  * email this person gets about the decision.
  */
-/*
- * Set once there is a real invite link to send. Until then the email still
- * goes out — it just promises the group without a link to join it yet,
- * rather than failing or shipping a placeholder URL.
- */
-const GENERAL_VOLUNTEER_WHATSAPP_LINK = Deno.env.get("GENERAL_VOLUNTEER_WHATSAPP_LINK") ?? "";
-
 export function buildGeneralVolunteerEmail(
   fullName: string,
-  committee: string
+  committee: string,
+  whatsappLink = ""
 ): { subject: string; text: string; html: string } {
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
   const lead =
     "Thank you for applying to Resala AUC. We would love to have you with us as a general volunteer.";
   const explain =
     "A general volunteer joins us for the events and initiatives you choose, without the weekly commitment a committee member carries. You come to what you can, and you are always welcome.";
-  const next = GENERAL_VOLUNTEER_WHATSAPP_LINK
+  const next = whatsappLink
     ? "Join the volunteers WhatsApp group below to hear about upcoming activities."
     : "We will add you to the volunteers group and let you know about upcoming activities there.";
+  const committeeNote = committee
+    ? ` You applied to ${committee} — if a place opens there later, we will come back to you.`
+    : "";
 
   const text = [
     `Hi ${firstName},`,
@@ -4729,7 +4764,7 @@ export function buildGeneralVolunteerEmail(
     explain,
     "",
     next,
-    ...(GENERAL_VOLUNTEER_WHATSAPP_LINK ? ["", GENERAL_VOLUNTEER_WHATSAPP_LINK] : []),
+    ...(whatsappLink ? ["", whatsappLink] : []),
     "",
     "— Resala AUC"
   ].join("\n");
@@ -4747,11 +4782,10 @@ export function buildGeneralVolunteerEmail(
                     <div style="font-size:15px;line-height:1.6;color:#172033;margin-top:10px;">${escapeHtml(explain)}</div>
                   </td></tr>
                 </table>
-                <p style="margin:0 0 ${GENERAL_VOLUNTEER_WHATSAPP_LINK ? "16" : "22"}px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(next)}${
-                  committee ? ` You applied to ${escapeHtml(committee)} — if a place opens there later, we will come back to you.` : ""
-                }</p>${
-                  GENERAL_VOLUNTEER_WHATSAPP_LINK
-                    ? `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;"><tr><td style="border-radius:10px;background:#0d2b45;"><a href="${escapeHtml(GENERAL_VOLUNTEER_WHATSAPP_LINK)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Join the WhatsApp group</a></td></tr></table>`
+                <p style="margin:0 0 ${whatsappLink ? "16" : "22"}px;font-size:15px;line-height:1.6;color:#64748b;">${escapeHtml(next)}${escapeHtml(committeeNote)}</p>${
+                  whatsappLink
+                    ? `
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;"><tr><td style="border-radius:10px;background:#0d2b45;"><a href="${escapeHtml(whatsappLink)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:10px;">Join the WhatsApp group</a></td></tr></table>`
                     : ""
                 }`
   });
@@ -4759,8 +4793,63 @@ export function buildGeneralVolunteerEmail(
   return { subject: "Resala AUC — welcome as a general volunteer", text, html };
 }
 
-async function trySendGeneralVolunteerEmail(to: string, fullName: string, committee: string): Promise<boolean> {
-  const { subject, text, html } = buildGeneralVolunteerEmail(fullName, committee);
+async function readRecruitmentSetting(token: string, key: string): Promise<string> {
+  await ensureSheetTab(token, RECRUITMENT_SETTINGS_SHEET_NAME);
+  await ensureSheetHeaders(token, RECRUITMENT_SETTINGS_SHEET_NAME, RECRUITMENT_SETTINGS_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(RECRUITMENT_SETTINGS_SHEET_NAME, "A2:B"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const row = rows.find((candidate) => String(candidate[0] ?? "").trim() === key);
+  return String(row?.[1] ?? "").trim();
+}
+
+async function writeRecruitmentSetting(token: string, key: string, value: string, adminEmail: string): Promise<void> {
+  await ensureSheetTab(token, RECRUITMENT_SETTINGS_SHEET_NAME);
+  await ensureSheetHeaders(token, RECRUITMENT_SETTINGS_SHEET_NAME, RECRUITMENT_SETTINGS_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(RECRUITMENT_SETTINGS_SHEET_NAME, "A2:A"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const at = new Date().toISOString();
+  const index = rows.findIndex((row) => String(row[0] ?? "").trim() === key);
+  if (index === -1) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(RECRUITMENT_SETTINGS_SHEET_NAME, "A1:D1")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: [[key, value, at, adminEmail]] }
+    );
+    return;
+  }
+  const sheetRow = index + 2;
+  await sheetsFetch(
+    token,
+    "PUT",
+    `${sheetRange(RECRUITMENT_SETTINGS_SHEET_NAME, `A${sheetRow}:D${sheetRow}`)}?valueInputOption=RAW`,
+    { values: [[key, value, at, adminEmail]] }
+  );
+}
+
+/** Only a WhatsApp group or invite link, so the field cannot carry anything else into an email. */
+function validWhatsappLink(value: string): boolean {
+  return value === "" || /^https:\/\/(chat\.whatsapp\.com|wa\.me)\/\S+$/.test(value);
+}
+
+/*
+ * Refuses rather than sending a volunteer an email that promises a group
+ * without the link to join it. Read before anything is written, so a refused
+ * send leaves the applicant exactly as they were.
+ */
+async function readWhatsappLinkOrThrow(token: string): Promise<string> {
+  const link = await readRecruitmentSetting(token, WHATSAPP_LINK_SETTING);
+  if (!link) throw new Error("Set the WhatsApp group link on this page first — nobody was emailed or marked.");
+  return link;
+}
+
+async function trySendGeneralVolunteerEmail(
+  to: string,
+  fullName: string,
+  committee: string,
+  whatsappLink: string
+): Promise<boolean> {
+  const { subject, text, html } = buildGeneralVolunteerEmail(fullName, committee, whatsappLink);
   return sendMemberEmail(to, subject, text, html);
 }
 
@@ -5269,7 +5358,7 @@ async function getMemberResponsibilitiesAttachment(
 async function memberCommitteeLeadersCc(token: string, committee: string, excludeEmail = ""): Promise<string> {
   const wanted = committeeKey(MEMBER_COMMITTEE_HIERARCHY_NAMES[committee] ?? committee);
   if (!wanted) return "";
-  const { entries } = await loadHierarchy(token);
+  const { entries } = await loadHierarchy(token, true);
   const skip = normalize(excludeEmail);
   const leaders = new Map<string, string>();
   for (const entry of entries) {
@@ -5712,6 +5801,74 @@ async function addAcceptedMembersToRoster(
   );
   invalidateHierarchyCache();
   return rows.length;
+}
+
+/*
+ * Approved members who never reached the team board, and committees whose
+ * acceptance emails copy nobody because the board has no director or head for
+ * them. Previewed by default: nothing is written until an admin has seen who
+ * would be added.
+ */
+async function reconcileAcceptedMembersOnRoster(
+  token: string,
+  adminEmail: string,
+  apply: boolean
+): Promise<{
+  missing: Array<{ fullName: string; aucEmail: string; committee: string; subCommittee: string }>;
+  added: number;
+  committeesWithoutLeaders: string[];
+}> {
+  const response = await sheetsFetch(
+    token,
+    "GET",
+    sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+  );
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const { entries } = await loadHierarchy(token, true);
+  const onBoard = new Set(
+    entries.map((entry) => `${committeeKey(entry.department)}::${normalize(entry.aucEmail ?? "")}`)
+  );
+
+  const missing: Array<{ department: string; subCommittee: string; name: string; aucEmail: string; phone: string }> = [];
+  for (const row of rows) {
+    const aucEmail = String(row[2] ?? "").trim();
+    if (!isValidAucEmail(aucEmail)) continue;
+    if (!String(row[30] ?? "").trim()) continue; // never approved
+    if (String(row[17] ?? "").trim() === MEMBER_GENERAL_VOLUNTEER_STATUS) continue;
+    const department = canonicalTeamName(String(row[8] ?? "").trim());
+    if (!department) continue;
+    if (onBoard.has(`${committeeKey(department)}::${normalize(aucEmail)}`)) continue;
+    missing.push({
+      department,
+      subCommittee: String(row[33] ?? "").trim() || String(row[23] ?? "").trim(),
+      name: String(row[1] ?? "").trim(),
+      aucEmail,
+      phone: String(row[6] ?? "").trim()
+    });
+  }
+
+  const added = apply && missing.length ? await addAcceptedMembersToRoster(token, missing, adminEmail) : 0;
+  const board = apply ? (await loadHierarchy(token, true)).entries : entries;
+
+  const committeesWithoutLeaders = Object.values(MEMBER_COMMITTEE_HIERARCHY_NAMES).filter((hierarchyName) => {
+    const wanted = committeeKey(hierarchyName);
+    return !board.some(
+      (entry) =>
+        committeeKey(entry.department) === wanted && (entry.level === "director" || entry.level === "head")
+    );
+  });
+
+  if (added) console.log(`${adminEmail} added ${added} approved member(s) to the team board`);
+  return {
+    missing: missing.map((person) => ({
+      fullName: person.name,
+      aucEmail: person.aucEmail,
+      committee: person.department,
+      subCommittee: person.subCommittee
+    })),
+    added,
+    committeesWithoutLeaders
+  };
 }
 
 /*
@@ -6355,7 +6512,20 @@ type VolunteerPoolCandidate = {
  * next load instead of leaving them credited as a member, or as an
  * already-handled volunteer, forever.
  */
-async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCandidate[] }> {
+/** Someone already sent the general-volunteer email, listed so the list can be copied out. */
+type VolunteerSentCandidate = {
+  source: "member" | "heads";
+  aucEmail: string;
+  fullName: string;
+  committee: string;
+  /** Empty for a member-cycle row sent before the send time was recorded on the sheet. */
+  sentAt: string;
+  cycle: string;
+};
+
+async function loadVolunteerPool(
+  token: string
+): Promise<{ pool: VolunteerPoolCandidate[]; volunteers: VolunteerSentCandidate[] }> {
   const [{ entries }, memberResponse, headsResponse, reservationResponse, volunteeredResponse] = await Promise.all([
     loadHierarchy(token, true),
     sheetsFetch(
@@ -6376,7 +6546,7 @@ async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCa
     (async () => {
       await ensureSheetTab(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME);
       await ensureSheetHeaders(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME, HEADS_GENERAL_VOLUNTEER_HEADERS);
-      return sheetsFetch(token, "GET", sheetRange(HEADS_GENERAL_VOLUNTEER_SHEET_NAME, "A2:A"));
+      return sheetsFetch(token, "GET", sheetRange(HEADS_GENERAL_VOLUNTEER_SHEET_NAME, "A2:E"));
     })()
   ]);
 
@@ -6391,16 +6561,26 @@ async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCa
   const pool: VolunteerPoolCandidate[] = [];
   const memberEmails = new Set<string>();
 
+  const volunteers: VolunteerSentCandidate[] = [];
   const memberRows = ((await memberResponse.json()).values ?? []) as string[][];
   memberRows.forEach((row, index) => {
     const aucEmail = String(row[2] ?? "").trim();
     if (!isValidAucEmail(aucEmail)) return;
     memberEmails.add(normalize(aucEmail));
-    if (onTeam.has(normalize(aucEmail))) return; // on the team now — not this list's business
-
     const status = String(row[17] ?? "").trim() || "New";
+    if (status === MEMBER_GENERAL_VOLUNTEER_STATUS) {
+      volunteers.push({
+        source: "member",
+        aucEmail,
+        fullName: String(row[1] ?? "").trim(),
+        committee: String(row[8] ?? "").trim(),
+        sentAt: "",
+        cycle: "Member recruitment"
+      });
+      return;
+    }
+    if (onTeam.has(normalize(aucEmail))) return; // on the team now — not this list's business
     if (status === "Accepted") return; // in the approval pipeline, not turned down
-    if (status === MEMBER_GENERAL_VOLUNTEER_STATUS) return; // already sent this exact email
 
     pool.push({
       source: "member",
@@ -6429,7 +6609,16 @@ async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCa
   if (volunteeredResponse) {
     for (const row of ((await volunteeredResponse.json()).values ?? []) as string[][]) {
       const email = normalize(row[0] ?? "");
-      if (email) alreadyVolunteered.add(email);
+      if (!email) continue;
+      alreadyVolunteered.add(email);
+      volunteers.push({
+        source: "heads",
+        aucEmail: String(row[0]).trim(),
+        fullName: String(row[1] ?? "").trim(),
+        committee: String(row[2] ?? "").trim(),
+        sentAt: String(row[3] ?? "").trim(),
+        cycle: "Heads 2026"
+      });
     }
   }
 
@@ -6457,8 +6646,9 @@ async function loadVolunteerPool(token: string): Promise<{ pool: VolunteerPoolCa
   }
 
   pool.sort((a, b) => a.committee.localeCompare(b.committee) || a.fullName.localeCompare(b.fullName));
+  volunteers.sort((a, b) => a.committee.localeCompare(b.committee) || a.fullName.localeCompare(b.fullName));
 
-  return { pool };
+  return { pool, volunteers };
 }
 
 /**
@@ -6473,6 +6663,7 @@ async function acceptPastApplicantAsGeneralVolunteer(
 ): Promise<{ fullName: string; emailSent: boolean }> {
   const wanted = normalize(aucEmail);
   if (!wanted) throw new Error("Which applicant?");
+  const whatsappLink = await readWhatsappLinkOrThrow(token);
 
   await ensureSheetTab(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME);
   await ensureSheetHeaders(token, HEADS_GENERAL_VOLUNTEER_SHEET_NAME, HEADS_GENERAL_VOLUNTEER_HEADERS);
@@ -6504,7 +6695,7 @@ async function acceptPastApplicantAsGeneralVolunteer(
     { values: [[aucEmail, fullName, committee, new Date().toISOString(), adminEmail]] }
   );
 
-  const emailSent = await trySendGeneralVolunteerEmail(aucEmail, fullName, committee);
+  const emailSent = await trySendGeneralVolunteerEmail(aucEmail, fullName, committee, whatsappLink);
   return { fullName: fullName || aucEmail, emailSent };
 }
 
@@ -6899,6 +7090,7 @@ async function acceptMemberAsGeneralVolunteer(
   if (String(row[17] ?? "").trim() === MEMBER_GENERAL_VOLUNTEER_STATUS) {
     throw new Error(`${fullName || applicantEmail} was already accepted as a general volunteer.`);
   }
+  const whatsappLink = await readWhatsappLinkOrThrow(token);
 
   await releaseMemberReservation(token, applicantEmail);
   if (eventId) {
@@ -6911,7 +7103,7 @@ async function acceptMemberAsGeneralVolunteer(
   await setMemberApplicationStatus(token, rowIndex, MEMBER_GENERAL_VOLUNTEER_STATUS);
   await writeMemberCells(token, rowIndex, "Meet Link", ["", "", adminEmail, new Date().toISOString()]);
 
-  const emailSent = await trySendGeneralVolunteerEmail(applicantEmail, fullName, String(row[8] ?? ""));
+  const emailSent = await trySendGeneralVolunteerEmail(applicantEmail, fullName, String(row[8] ?? ""), whatsappLink);
   return { fullName: fullName || applicantEmail, emailSent };
 }
 

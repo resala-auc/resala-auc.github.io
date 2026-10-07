@@ -143,6 +143,7 @@
     <button id="check-meet">Check Meet access</button>
     <button id="send-reminders">Send due reminders</button>
     <button id="check-times">Check interview times</button>
+    <button id="reconcile-team">Sync accepted to team board</button>
     <button id="deep-audit">Deep audit</button>
     <button id="test-acceptance">Test acceptance email</button>
     <button id="refresh">Refresh</button>
@@ -416,7 +417,9 @@ async function load(email) {
     applicants: body.applicants ?? [],
     reservations: body.reservations ?? [],
     scoreMax: body.scoreMax ?? 20,
-    pool: body.pool ?? []
+    pool: body.pool ?? [],
+    volunteers: body.volunteers ?? [],
+    whatsappLink: body.whatsappLink ?? ""
   };
   document.getElementById("login").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -1118,13 +1121,46 @@ document.getElementById("view-past").addEventListener("click", async (event) => 
 function renderVolunteerPool() {
   const el = document.getElementById("view-volunteers");
   const pool = state.data?.pool ?? [];
+  const volunteers = state.data?.volunteers ?? [];
+  const link = state.data?.whatsappLink ?? "";
+  const linkPanel = `
+    <div class="committee-group">
+      <h2>WhatsApp group link <span class="c">${link ? "set — sent with every general-volunteer email" : "not set — general-volunteer emails are blocked until it is"}</span></h2>
+      <div class="row2">
+        <div><label for="volunteer-link-input">Group invite link</label>
+          <input type="url" id="volunteer-link-input" placeholder="https://chat.whatsapp.com/…" value="${esc(link)}"></div>
+        <div style="flex:0 0 auto;"><button class="btn btn-gold" id="volunteer-link-save">Save link</button></div>
+      </div>
+      <div class="note" style="margin-top:8px;">Stored in the sheet, so changing it here changes what the next volunteer receives.</div>
+    </div>`;
+
+  const sentRows = (list) => list.map((v) => `
+    <tr>
+      <td><b>${esc(v.fullName)}</b><div class="note">${esc(v.aucEmail)}</div></td>
+      <td>${esc(v.committee) || "—"}</td>
+      <td class="note">${esc(v.cycle)}</td>
+      <td class="note">${v.sentAt ? esc(new Date(v.sentAt).toLocaleDateString()) : "—"}</td>
+    </tr>`).join("");
+
+  const sentSection = `
+    <div class="committee-group">
+      <h2>General volunteers <span class="c">${volunteers.length} already emailed</span></h2>
+      ${volunteers.length ? `
+      <div class="actions" style="margin-bottom:10px;"><button class="btn btn-ghost btn-sm" id="volunteer-copy-emails">Copy all emails</button></div>
+      <div class="wrap-x"><table>
+        <thead><tr><th>Volunteer</th><th>Committee applied to</th><th>Cycle</th><th>Emailed</th></tr></thead>
+        <tbody>${sentRows(volunteers)}</tbody>
+      </table></div>` : `<div class="empty">Nobody has been emailed as a general volunteer yet.</div>`}
+    </div>`;
+
   if (!pool.length) {
-    el.innerHTML = `<div class="committee-group"><div class="empty">Nobody is waiting on this. Everyone from either cycle is either accepted and on the team, or already sent the general-volunteer email.</div></div>`;
+    el.innerHTML = linkPanel + `<div class="committee-group"><div class="empty">Nobody is waiting on this. Everyone from either cycle is either accepted and on the team, or already sent the general-volunteer email.</div></div>` + sentSection;
     return;
   }
 
   const noShows = pool.filter((p) => p.isNoShow);
   const rest = pool.filter((p) => !p.isNoShow);
+  const acceptDisabled = link ? "" : " disabled";
 
   const rows = (list) => list.map((p) => `
     <tr>
@@ -1132,13 +1168,13 @@ function renderVolunteerPool() {
           <div class="note">${esc(p.cycle)}</div></td>
       <td>${esc(p.committee) || "—"}</td>
       <td><span class="pill ${p.isNoShow ? "bad" : "open"}">${esc(p.status) || "—"}</span></td>
-      <td><button class="btn btn-gold btn-sm" data-volunteer-accept="${esc(p.aucEmail)}" data-volunteer-source="${esc(p.source)}" data-volunteer-row="${p.rowIndex ?? ""}">Accept as general volunteer</button></td>
+      <td><button class="btn btn-gold btn-sm" data-volunteer-accept="${esc(p.aucEmail)}" data-volunteer-source="${esc(p.source)}" data-volunteer-row="${p.rowIndex ?? ""}"${acceptDisabled}>Accept as general volunteer</button></td>
     </tr>`).join("");
 
-  el.innerHTML = `
-    <div class="banner">Neither accepted into a committee nor on the team roster — whether they sat no interview
+  el.innerHTML = linkPanel + `
+    <div class="banner">Neither accepted into a committee nor on the team roster right now — whether they sat no interview
       at all or simply were not taken further. Live against the team board: anyone removed from the team shows up
-      here again. "Accept as general volunteer" sends the same email every other general volunteer gets.</div>
+      here again.</div>
     ${rest.length ? `
     <div class="committee-group">
       <h2>Not accepted <span class="c">${rest.length}</span></h2>
@@ -1154,10 +1190,36 @@ function renderVolunteerPool() {
         <thead><tr><th>Applicant</th><th>Committee</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>${rows(noShows)}</tbody>
       </table></div>
-    </div>` : ""}`;
+    </div>` : ""}` + sentSection;
 }
 
 document.getElementById("view-volunteers").addEventListener("click", async (event) => {
+  if (event.target.closest("#volunteer-link-save")) {
+    const saveBtn = event.target.closest("#volunteer-link-save");
+    const link = document.getElementById("volunteer-link-input").value.trim();
+    saveBtn.disabled = true;
+    try {
+      await api({ mode: "member-admin-set-whatsapp-link", email: state.admin.email, link });
+      await load(state.admin.email);
+      await noticeDialog(link ? "WhatsApp group link saved. General-volunteer emails will carry it." : "WhatsApp group link cleared. General-volunteer emails are now blocked until it is set again.");
+    } catch (error) {
+      saveBtn.disabled = false;
+      await noticeDialog(error.message);
+    }
+    return;
+  }
+
+  if (event.target.closest("#volunteer-copy-emails")) {
+    const emails = (state.data?.volunteers ?? []).map((v) => v.aucEmail).join(", ");
+    try {
+      await navigator.clipboard.writeText(emails);
+      await noticeDialog(`${state.data.volunteers.length} general volunteer email addresses copied.`);
+    } catch {
+      await noticeDialog(emails);
+    }
+    return;
+  }
+
   const btn = event.target.closest("[data-volunteer-accept]");
   if (!btn) return;
   const aucEmail = btn.dataset.volunteerAccept;
@@ -1185,6 +1247,39 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
   } catch (error) {
     btn.disabled = false;
     await noticeDialog(error.message);
+  }
+});
+
+document.getElementById("reconcile-team").addEventListener("click", async (event) => {
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  try {
+    const preview = await api({ mode: "member-admin-reconcile-team", email: state.admin.email, apply: false });
+    const missing = preview.missing ?? [];
+    const gaps = preview.committeesWithoutLeaders ?? [];
+    if (!missing.length && !gaps.length) {
+      await noticeDialog("Every approved member is on the team board, and every committee has a director or head to copy.");
+      return;
+    }
+    const lines = [];
+    if (missing.length) {
+      lines.push(`${missing.length} approved member${missing.length === 1 ? " is" : "s are"} not on the team board:`,
+        ...missing.map((m) => `  • ${m.fullName} — ${m.committee}${m.subCommittee ? ` / ${m.subCommittee}` : ""}`));
+    }
+    if (gaps.length) {
+      lines.push("", `No director or head on the board for: ${gaps.join(", ")}. Acceptance emails for these committees copy nobody.`);
+    }
+    if (missing.length && await confirmDialog(`${lines.join("\n")}\n\nAdd the missing members to the team board now? They are added as Waiting. Nothing is emailed.`)) {
+      const r = await api({ mode: "member-admin-reconcile-team", email: state.admin.email, apply: true });
+      await load(state.admin.email);
+      await noticeDialog(`${r.added} member${r.added === 1 ? "" : "s"} added to the team board.`);
+    } else {
+      await noticeDialog(lines.join("\n"));
+    }
+  } catch (error) {
+    await noticeDialog(error.message);
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -1379,7 +1474,9 @@ async function autoRecoverStrayApplications(email) {
         applicants: body.applicants ?? [],
         reservations: body.reservations ?? [],
         scoreMax: body.scoreMax ?? 20,
-        pool: body.pool ?? []
+        pool: body.pool ?? [],
+        volunteers: body.volunteers ?? [],
+        whatsappLink: body.whatsappLink ?? ""
       };
       renderAll();
     }
