@@ -4960,12 +4960,12 @@ export function buildApplicantsThankYouEmail(
  * those also have to be on the committee they led. A rule that finds more
  * than one person stops the send rather than guessing who is meant.
  */
-const THANK_YOU_EXCLUSIONS: Array<{ label: string; words: string[]; committeeHint: string }> = [
-  { label: "Hamdy (former Tech director)", words: ["hamdy"], committeeHint: "tech" },
-  { label: "Fatima (former HR director)", words: ["fatima"], committeeHint: "hr" },
-  { label: "Dima Ramy (former Operations head)", words: ["dima", "ramy"], committeeHint: "" },
-  { label: "Jana Nabet (former Operations vice director)", words: ["jana", "nabet"], committeeHint: "" },
-  { label: "Tia Emad (former PR head)", words: ["tia", "emad"], committeeHint: "" }
+const THANK_YOU_EXCLUSIONS: Array<{ label: string; words: string[]; committeeHint: string[] }> = [
+  { label: "Hamdy (former Tech director)", words: ["hamdy"], committeeHint: ["tech"] },
+  { label: "Fatima (former HR director)", words: ["fatima"], committeeHint: ["hr", "human"] },
+  { label: "Dima Ramy (former Operations head)", words: ["dima", "ramy"], committeeHint: [] },
+  { label: "Jana Nabet (former Operations vice director)", words: ["jana", "nabet"], committeeHint: [] },
+  { label: "Tia Emad (former PR head)", words: ["tia", "emad"], committeeHint: [] }
 ];
 
 type ThankYouApplicant = { aucEmail: string; fullName: string; committees: string[] };
@@ -5022,19 +5022,21 @@ async function loadEveryApplicant(token: string): Promise<ThankYouApplicant[]> {
 function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
   included: ThankYouApplicant[];
   excluded: Array<{ label: string; fullName: string; aucEmail: string }>;
-  notFound: string[];
+  notFound: Array<{ label: string; similar: string[] }>;
 } {
   const skip = new Set<string>();
   const excluded: Array<{ label: string; fullName: string; aucEmail: string }> = [];
-  const notFound: string[] = [];
+  const notFound: Array<{ label: string; similar: string[] }> = [];
 
   for (const rule of THANK_YOU_EXCLUSIONS) {
     const matches = everyone.filter((person) => {
       const words = normalize(person.fullName).split(/[^a-z0-9]+/).filter(Boolean);
       if (!rule.words.every((word) => words.includes(word))) return false;
       return (
-        !rule.committeeHint ||
-        person.committees.some((committee) => normalize(committee).includes(rule.committeeHint))
+        !rule.committeeHint.length ||
+        person.committees.some((committee) =>
+          rule.committeeHint.some((hint) => normalize(committee).includes(hint))
+        )
       );
     });
     if (matches.length > 1) {
@@ -5045,7 +5047,15 @@ function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
       );
     }
     if (!matches.length) {
-      notFound.push(rule.label);
+      // Names are spelled however the applicant typed them, so show who is close.
+      const similar = everyone
+        .filter((person) => {
+          const words = normalize(person.fullName).split(/[^a-z0-9]+/).filter(Boolean);
+          return rule.words.some((word) => words.some((w) => w.startsWith(word.slice(0, 3))));
+        })
+        .slice(0, 6)
+        .map((person) => `${person.fullName} <${person.aucEmail}>${person.committees.length ? ` — ${person.committees[0]}` : ""}`);
+      notFound.push({ label: rule.label, similar });
       continue;
     }
     skip.add(normalize(matches[0].aucEmail));
@@ -5071,7 +5081,7 @@ async function thankAllApplicants(
   sent: number;
   failed: number;
   excluded: Array<{ label: string; fullName: string; aucEmail: string }>;
-  notFound: string[];
+  notFound: Array<{ label: string; similar: string[] }>;
 }> {
   await ensureSheetTab(token, APPLICANT_THANKS_SHEET_NAME);
   await ensureSheetHeaders(token, APPLICANT_THANKS_SHEET_NAME, APPLICANT_THANKS_HEADERS);

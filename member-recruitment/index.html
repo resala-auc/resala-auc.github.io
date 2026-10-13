@@ -1246,7 +1246,10 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
         (preview.excluded.length
           ? `\n\nLeft out because they have left the team:\n${preview.excluded.map((p) => `· ${p.fullName} (${p.aucEmail})`).join("\n")}`
           : "") +
-        (preview.notFound.length ? `\n\nNot found among applicants, so nothing to leave out: ${preview.notFound.join(", ")}.` : "") +
+        (preview.notFound.length
+          ? `\n\nNot found among applicants, so nothing to leave out:\n${preview.notFound.map((n) =>
+              `· ${n.label}` + (n.similar.length ? `\n   similar names: ${n.similar.join("; ")}` : "")).join("\n")}`
+          : "") +
         `\n\nEveryone is told they are part of Resala, whether or not they were placed on a committee. It cannot be undone.`
       ))) return;
 
