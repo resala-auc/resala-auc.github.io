@@ -4891,17 +4891,17 @@ export function buildApplicantsThankYouEmail(
 ): { subject: string; text: string; html: string } {
   const firstName = fullName.trim().split(/\s+/)[0] || "there";
   const thanks =
-    "Thank you for answering our call. From July to mid-September we ran separate recruitment campaigns for our directors, heads and members, and you applied to one of them.";
+    "Whether you applied as a director, a head or a member, you looked at someone else's problem and decided it was yours too. That is the heart of Resala, and it is what moved us most about you. Thank you for giving us your time, and a piece of your heart.";
   const welcome =
-    "Whether you are on a committee or joining as a general volunteer, you are part of Resala.";
+    "On a committee or as a general volunteer, you are part of Resala.";
   const fit =
     "We were never choosing the best, only the most suitable for each role. If you were not placed in yours, you may suit another role better, or the same role in a different setting. Either way, there is a place for you here.";
-  const next = "Join our WhatsApp group to hear about upcoming activities.";
+  const next = "Resala is a family, and it is warmer with you in it. Come and join us.";
 
   const text = [
     `Hi ${firstName},`,
     "",
-    "Welcome to Resala.",
+    "Thank you.",
     "",
     thanks,
     "",
@@ -4919,11 +4919,11 @@ export function buildApplicantsThankYouEmail(
   ].join("\n");
 
   const html = memberEmailShell({
-    heading: "Welcome to Resala",
-    subheading: "Thank you for answering our call",
+    heading: "Thank You",
+    subheading: "For answering our call",
     bodyHtml: `
                 <p class="body-text" style="margin:0 0 10px;font-size:17px;line-height:1.6;color:#1b1f23;">Hi ${escapeHtml(firstName)},</p>
-                <div class="hero" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:40px;line-height:1.05;font-weight:900;color:#0c2c80;letter-spacing:-1.5px;margin:0 0 18px;">You&rsquo;re part of Resala.</div>
+                <div class="hero" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:40px;line-height:1.05;font-weight:900;color:#0c2c80;letter-spacing:-1.5px;margin:0 0 18px;">Thank you.</div>
                 <p class="body-text" style="margin:0 0 16px;font-size:17px;line-height:1.65;color:#3f4650;">${escapeHtml(thanks)}</p>
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
@@ -4940,9 +4940,9 @@ export function buildApplicantsThankYouEmail(
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
                   <tr>
                     <td class="box" style="background:#0d2b45;border-radius:14px;padding:20px 22px;">
-                      <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:10px;">Stay in the loop</div>
+                      <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:10px;">Come join us</div>
                       <div class="body-text" style="font-size:16px;line-height:1.6;color:#ffffff;margin-bottom:14px;">${escapeHtml(next)}</div>
-                      <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="border-radius:10px;background:#f5a623;"><a href="${escapeHtml(whatsappLink)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#0d2b45;text-decoration:none;border-radius:10px;">Join the WhatsApp group</a></td></tr></table>
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="border-radius:10px;background:#f5a623;"><a href="${escapeHtml(whatsappLink)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#0d2b45;text-decoration:none;border-radius:10px;">Join the Resala family</a></td></tr></table>
                     </td>
                   </tr>
                 </table>
@@ -4950,7 +4950,7 @@ export function buildApplicantsThankYouEmail(
                 <p class="body-text" style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone&rsquo;s better life.</p>`
   });
 
-  return { subject: "Resala AUC — welcome, and thank you", text, html };
+  return { subject: "Resala AUC — thank you for applying", text, html };
 }
 
 /**

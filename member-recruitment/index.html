@@ -1138,7 +1138,8 @@ function renderVolunteerPool() {
     <div class="committee-group">
       <h2>Thank everyone who applied <span class="c">one email, every applicant from the director, heads and member cycles</span></h2>
       <div class="note" style="margin-bottom:10px;">Congratulates them on being part of Resala and thanks them for answering the recruitment call, whether they were placed on a committee or not. Everyone gets the WhatsApp group link. Anyone already sent it is skipped, so it is safe to run again. Former team members who resigned are left out.</div>
-      <div class="actions"><button class="btn btn-gold" id="thank-applicants">Send thank-you to all applicants</button></div>
+      <div class="actions"><button class="btn btn-gold" id="thank-applicants" disabled>Counting recipients…</button></div>
+      <div class="note" id="thank-count-note" style="margin-top:8px;"></div>
     </div>`;
 
   const sentRows = (list) => list.map((v) => `
@@ -1200,6 +1201,34 @@ function renderVolunteerPool() {
     </div>` : ""}` + sentSection;
 }
 
+let thanksCounting = false;
+function thanksLabel(preview) {
+  if (!preview.remaining) return "Everyone has been thanked";
+  return `Send thank-you to ${preview.remaining} applicant${preview.remaining === 1 ? "" : "s"}`;
+}
+async function refreshThanksCount() {
+  const btn = document.getElementById("thank-applicants");
+  const note = document.getElementById("thank-count-note");
+  if (!btn || thanksCounting) return;
+  thanksCounting = true;
+  try {
+    const preview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
+    const live = document.getElementById("thank-applicants");
+    if (!live) return;
+    live.textContent = thanksLabel(preview);
+    live.disabled = !preview.remaining;
+    document.getElementById("thank-count-note").textContent =
+      `${preview.total} applicants in all · ${preview.alreadySent} already thanked · ${preview.excluded.length} left out`;
+  } catch (error) {
+    const live = document.getElementById("thank-applicants");
+    if (live) live.textContent = "Could not count recipients";
+    const liveNote = document.getElementById("thank-count-note");
+    if (liveNote) liveNote.textContent = error.message;
+  } finally {
+    thanksCounting = false;
+  }
+}
+
 document.getElementById("view-volunteers").addEventListener("click", async (event) => {
   const thankBtn = event.target.closest("#thank-applicants");
   if (thankBtn) {
@@ -1208,6 +1237,7 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
       const preview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
       if (!preview.remaining) {
         await noticeDialog(`All ${preview.total} applicants have already been sent the thank-you.`);
+        await refreshThanksCount();
         return;
       }
       if (!(await confirmDialog(
@@ -1239,8 +1269,7 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
     } catch (error) {
       await noticeDialog(error.message);
     } finally {
-      thankBtn.disabled = false;
-      thankBtn.textContent = "Send thank-you to all applicants";
+      await refreshThanksCount();
     }
     return;
   }
@@ -1340,6 +1369,7 @@ function renderAll() {
   renderCommitteeGrid();
   renderApplicants();
   renderVolunteerPool();
+  refreshThanksCount();
   renderSlots();
 }
 
