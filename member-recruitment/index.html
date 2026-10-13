@@ -1134,6 +1134,13 @@ function renderVolunteerPool() {
       <div class="note" style="margin-top:8px;">Stored in the sheet, so changing it here changes what the next volunteer receives.</div>
     </div>`;
 
+  const thanksPanel = `
+    <div class="committee-group">
+      <h2>Thank everyone who applied <span class="c">one email, every applicant from the director, heads and member cycles</span></h2>
+      <div class="note" style="margin-bottom:10px;">Congratulates them on being part of Resala and thanks them for answering the recruitment call, whether they were placed on a committee or not. Everyone gets the WhatsApp group link. Anyone already sent it is skipped, so it is safe to run again. Former team members who resigned are left out.</div>
+      <div class="actions"><button class="btn btn-gold" id="thank-applicants">Send thank-you to all applicants</button></div>
+    </div>`;
+
   const sentRows = (list) => list.map((v) => `
     <tr>
       <td><b>${esc(v.fullName)}</b><div class="note">${esc(v.aucEmail)}</div></td>
@@ -1154,7 +1161,7 @@ function renderVolunteerPool() {
     </div>`;
 
   if (!pool.length) {
-    el.innerHTML = linkPanel + `<div class="committee-group"><div class="empty">Nobody is waiting on this. Everyone from either cycle is either accepted and on the team, or already sent the general-volunteer email.</div></div>` + sentSection;
+    el.innerHTML = thanksPanel + linkPanel + `<div class="committee-group"><div class="empty">Nobody is waiting on this. Everyone from either cycle is either accepted and on the team, or already sent the general-volunteer email.</div></div>` + sentSection;
     return;
   }
 
@@ -1171,7 +1178,7 @@ function renderVolunteerPool() {
       <td><button class="btn btn-gold btn-sm" data-volunteer-accept="${esc(p.aucEmail)}" data-volunteer-source="${esc(p.source)}" data-volunteer-row="${p.rowIndex ?? ""}"${acceptDisabled}>Accept as general volunteer</button></td>
     </tr>`).join("");
 
-  el.innerHTML = linkPanel + `
+  el.innerHTML = thanksPanel + linkPanel + `
     <div class="banner">Neither accepted into a committee nor on the team roster right now — whether they sat no interview
       at all or simply were not taken further. Live against the team board: anyone removed from the team shows up
       here again.</div>
@@ -1194,6 +1201,50 @@ function renderVolunteerPool() {
 }
 
 document.getElementById("view-volunteers").addEventListener("click", async (event) => {
+  const thankBtn = event.target.closest("#thank-applicants");
+  if (thankBtn) {
+    thankBtn.disabled = true;
+    try {
+      const preview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
+      if (!preview.remaining) {
+        await noticeDialog(`All ${preview.total} applicants have already been sent the thank-you.`);
+        return;
+      }
+      if (!(await confirmDialog(
+        `Email the thank-you to ${preview.remaining} applicant${preview.remaining === 1 ? "" : "s"}?` +
+        (preview.alreadySent ? `\n\n${preview.alreadySent} already received it and are skipped.` : "") +
+        (preview.excluded.length
+          ? `\n\nLeft out because they have left the team:\n${preview.excluded.map((p) => `· ${p.fullName} (${p.aucEmail})`).join("\n")}`
+          : "") +
+        (preview.notFound.length ? `\n\nNot found among applicants, so nothing to leave out: ${preview.notFound.join(", ")}.` : "") +
+        `\n\nEveryone is told they are part of Resala, whether or not they were placed on a committee. It cannot be undone.`
+      ))) return;
+
+      let sent = 0;
+      let failed = 0;
+      let remaining = preview.remaining;
+      while (remaining > 0) {
+        thankBtn.textContent = `Sending… ${sent} of ${preview.remaining}`;
+        const r = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: true });
+        sent += r.sent;
+        failed = r.failed;
+        remaining = r.remaining;
+        if (!r.sent) break; // nothing went in this round, so another would only repeat it
+      }
+      await noticeDialog(
+        remaining
+          ? `Sent to ${sent}. ${remaining} did not send, so run it again to retry them.`
+          : `Thank-you sent to ${sent} applicant${sent === 1 ? "" : "s"}.`
+      );
+    } catch (error) {
+      await noticeDialog(error.message);
+    } finally {
+      thankBtn.disabled = false;
+      thankBtn.textContent = "Send thank-you to all applicants";
+    }
+    return;
+  }
+
   if (event.target.closest("#volunteer-link-save")) {
     const saveBtn = event.target.closest("#volunteer-link-save");
     const link = document.getElementById("volunteer-link-input").value.trim();

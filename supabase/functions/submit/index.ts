@@ -200,6 +200,18 @@ const MEMBER_RESERVATION_HEADERS = ["Timestamp", "Slot Id", "Slot Label", "Full 
 const HEADS_GENERAL_VOLUNTEER_HEADERS = ["AUC Email", "Full Name", "Committee", "Emailed At", "Emailed By"];
 
 /*
+ * Who has been sent the all-applicants thank-you, so pressing the button again
+ * (or finishing a send that was cut short) never emails anyone twice.
+ */
+const APPLICANT_THANKS_SHEET_NAME =
+  Deno.env.get("APPLICANT_THANKS_SHEET_NAME") ?? "Applicant Thank-You Log";
+const APPLICANT_THANKS_HEADERS = ["AUC Email", "Full Name", "Sent At", "Sent By"];
+/** Emails per request: each is a Gmail call, and a request has to finish inside the function's time limit. */
+const APPLICANT_THANKS_BATCH = 20;
+/** Used until an admin saves a link on the portal; the thank-you is the one email that is never blocked on it. */
+const DEFAULT_COMMUNITY_WHATSAPP_LINK = "https://chat.whatsapp.com/Cavf9Pf9ncXAlDMmkXzXvM?s=cl&p=i&ilr=4&iam=0";
+
+/*
  * Admin-set values the recruitment portal edits, one key per row. Kept in the
  * sheet rather than an environment variable so the person running recruitment
  * can change them without a redeploy.
@@ -1458,6 +1470,12 @@ type MemberAdminFixInterviewTimesPayload = {
 };
 
 type MemberAdminVolunteerPoolPayload = { mode: "member-admin-volunteer-pool"; email: string };
+type MemberAdminThankApplicantsPayload = {
+  mode: "member-admin-thank-applicants";
+  email: string;
+  /** false (the default) only counts who would be emailed; true sends one batch. */
+  apply?: boolean;
+};
 type MemberAdminSetWhatsappLinkPayload = { mode: "member-admin-set-whatsapp-link"; email: string; link: string };
 type MemberAdminReconcileTeamPayload = { mode: "member-admin-reconcile-team"; email: string; apply?: boolean };
 type MemberAdminPastGeneralVolunteerPayload = {
@@ -2827,6 +2845,14 @@ Deno.serve((request) =>
       });
       const whatsappLink = await readRecruitmentSetting(adminToken, WHATSAPP_LINK_SETTING);
       return jsonResponse({ ok: true, admin, ...data, ...volunteerPool, whatsappLink });
+    }
+
+    if ((payload as { mode?: string }).mode === "member-admin-thank-applicants") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const thanksToken = await getGoogleAccessToken();
+      const thanksAdmin = await requireRecruitmentAdmin(thanksToken, String((payload as { email?: unknown }).email ?? ""));
+      const apply = (payload as unknown as MemberAdminThankApplicantsPayload).apply === true;
+      return jsonResponse({ ok: true, ...(await thankAllApplicants(thanksToken, thanksAdmin.email, apply)) });
     }
 
     if ((payload as { mode?: string }).mode === "member-admin-set-whatsapp-link") {
@@ -4851,6 +4877,248 @@ async function trySendGeneralVolunteerEmail(
 ): Promise<boolean> {
   const { subject, text, html } = buildGeneralVolunteerEmail(fullName, committee, whatsappLink);
   return sendMemberEmail(to, subject, text, html);
+}
+
+/**
+ * The thank-you to everyone who applied in the July to mid-September
+ * campaign, whatever came of it. Written so nobody reads it as a verdict: it
+ * says the same warm thing to a member, a general volunteer and someone not
+ * placed, and the one line about selection is about fit, not rank.
+ */
+export function buildApplicantsThankYouEmail(
+  fullName: string,
+  whatsappLink: string
+): { subject: string; text: string; html: string } {
+  const firstName = fullName.trim().split(/\s+/)[0] || "there";
+  const thanks =
+    "Thank you for answering our call. From July to mid-September we ran separate recruitment campaigns for our directors, heads and members, and you applied to one of them.";
+  const welcome =
+    "Whether you are on a committee or joining as a general volunteer, you are part of Resala.";
+  const fit =
+    "We were never choosing the best, only the most suitable for each role. If you were not placed in yours, you may suit another role better, or the same role in a different setting. Either way, there is a place for you here.";
+  const next = "Join our WhatsApp group to hear about upcoming activities.";
+
+  const text = [
+    `Hi ${firstName},`,
+    "",
+    "Welcome to Resala.",
+    "",
+    thanks,
+    "",
+    welcome,
+    "",
+    fit,
+    "",
+    next,
+    whatsappLink,
+    "",
+    "Be the first step toward someone's better life.",
+    "",
+    "Best,",
+    "Resala AUC"
+  ].join("\n");
+
+  const html = memberEmailShell({
+    heading: "Welcome to Resala",
+    subheading: "Thank you for answering our call",
+    bodyHtml: `
+                <p class="body-text" style="margin:0 0 10px;font-size:17px;line-height:1.6;color:#1b1f23;">Hi ${escapeHtml(firstName)},</p>
+                <div class="hero" style="font-family:Arial Black,Arial Bold,Arial,sans-serif;font-size:40px;line-height:1.05;font-weight:900;color:#0c2c80;letter-spacing:-1.5px;margin:0 0 18px;">You&rsquo;re part of Resala.</div>
+                <p class="body-text" style="margin:0 0 16px;font-size:17px;line-height:1.65;color:#3f4650;">${escapeHtml(thanks)}</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td class="box" style="background:#fff7e8;border:1px solid #f0d7a5;border-left:5px solid #f5a623;border-radius:14px;padding:18px;">
+                      <div style="font-size:12px;color:#8a4706;text-transform:uppercase;letter-spacing:1.4px;font-weight:bold;margin-bottom:7px;">However you applied</div>
+                      <div class="body-text" style="font-size:16px;line-height:1.6;color:#0d2b45;">${escapeHtml(welcome)}</div>
+                    </td>
+                  </tr>
+                </table>
+
+                <p class="body-text" style="margin:0 0 24px;font-size:16px;line-height:1.65;color:#3f4650;">${escapeHtml(fit)}</p>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:0 0 24px;">
+                  <tr>
+                    <td class="box" style="background:#0d2b45;border-radius:14px;padding:20px 22px;">
+                      <div style="font-size:12px;color:#f5c46b;text-transform:uppercase;letter-spacing:1.6px;font-weight:bold;margin-bottom:10px;">Stay in the loop</div>
+                      <div class="body-text" style="font-size:16px;line-height:1.6;color:#ffffff;margin-bottom:14px;">${escapeHtml(next)}</div>
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td style="border-radius:10px;background:#f5a623;"><a href="${escapeHtml(whatsappLink)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:bold;color:#0d2b45;text-decoration:none;border-radius:10px;">Join the WhatsApp group</a></td></tr></table>
+                    </td>
+                  </tr>
+                </table>
+
+                <p class="body-text" style="margin:0 0 4px;font-size:16px;line-height:1.6;color:#172033;font-weight:bold;">Be the first step toward someone&rsquo;s better life.</p>`
+  });
+
+  return { subject: "Resala AUC — welcome, and thank you", text, html };
+}
+
+/**
+ * People who applied and have since left the team, so the thank-you must not
+ * reach them. Matched by name because the sheets are keyed by address and
+ * nobody wrote theirs down: a first name alone is not enough to be sure, so
+ * those also have to be on the committee they led. A rule that finds more
+ * than one person stops the send rather than guessing who is meant.
+ */
+const THANK_YOU_EXCLUSIONS: Array<{ label: string; words: string[]; committeeHint: string }> = [
+  { label: "Hamdy (former Tech director)", words: ["hamdy"], committeeHint: "tech" },
+  { label: "Fatima (former HR director)", words: ["fatima"], committeeHint: "hr" },
+  { label: "Dima Ramy (former Operations head)", words: ["dima", "ramy"], committeeHint: "" },
+  { label: "Jana Nabet (former Operations vice director)", words: ["jana", "nabet"], committeeHint: "" },
+  { label: "Tia Emad (former PR head)", words: ["tia", "emad"], committeeHint: "" }
+];
+
+type ThankYouApplicant = { aucEmail: string; fullName: string; committees: string[] };
+
+/**
+ * Everyone who applied in any of the three cycles, once each: the director
+ * cycle's tab, the heads tab and the member-recruitment tab share people, and
+ * an address is what makes two rows the same person.
+ */
+async function loadEveryApplicant(token: string): Promise<ThankYouApplicant[]> {
+  const [directorResponse, memberResponse, headsResponse] = await Promise.all([
+    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch(() => null),
+    sheetsFetch(
+      token,
+      "GET",
+      sheetRange(MEMBER_APPLICATIONS_SHEET_NAME, `A2:${columnLetter(MEMBER_APPLICATION_HEADERS.length)}`)
+    ),
+    (async () => {
+      await ensureSheetTab(token, HEADS_APPLICATION_SHEET_NAME);
+      await ensureSheetHeaders(token, HEADS_APPLICATION_SHEET_NAME, HEADS_APPLICATION_HEADERS);
+      return sheetsFetch(
+        token,
+        "GET",
+        sheetRange(HEADS_APPLICATION_SHEET_NAME, `A2:${columnLetter(HEADS_APPLICATION_HEADERS.length)}`)
+      );
+    })()
+  ]);
+
+  const byEmail = new Map<string, ThankYouApplicant>();
+  const sources: Array<[Response | null, number]> = [
+    [directorResponse, 7], // the director cycle's tab keeps the role applied for in column H
+    [headsResponse, 7],
+    [memberResponse, 8]
+  ];
+  for (const [response, committeeColumn] of sources) {
+    if (!response) continue;
+    for (const row of ((await response.json()).values ?? []) as string[][]) {
+      const aucEmail = String(row[2] ?? "").trim();
+      if (!isValidContactEmail(aucEmail)) continue;
+      const key = normalize(aucEmail);
+      const committee = String(row[committeeColumn] ?? "").trim();
+      const existing = byEmail.get(key);
+      if (existing) {
+        if (committee) existing.committees.push(committee);
+        continue;
+      }
+      byEmail.set(key, { aucEmail, fullName: String(row[1] ?? "").trim(), committees: committee ? [committee] : [] });
+    }
+  }
+  return [...byEmail.values()];
+}
+
+/** Splits everyone into who gets the thank-you and who is held back, and says who was held back. */
+function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
+  included: ThankYouApplicant[];
+  excluded: Array<{ label: string; fullName: string; aucEmail: string }>;
+  notFound: string[];
+} {
+  const skip = new Set<string>();
+  const excluded: Array<{ label: string; fullName: string; aucEmail: string }> = [];
+  const notFound: string[] = [];
+
+  for (const rule of THANK_YOU_EXCLUSIONS) {
+    const matches = everyone.filter((person) => {
+      const words = normalize(person.fullName).split(/[^a-z0-9]+/).filter(Boolean);
+      if (!rule.words.every((word) => words.includes(word))) return false;
+      return (
+        !rule.committeeHint ||
+        person.committees.some((committee) => normalize(committee).includes(rule.committeeHint))
+      );
+    });
+    if (matches.length > 1) {
+      throw new Error(
+        `More than one applicant matches ${rule.label}: ${matches
+          .map((person) => `${person.fullName} <${person.aucEmail}>`)
+          .join(", ")}. Nobody was emailed — tell me which address is theirs.`
+      );
+    }
+    if (!matches.length) {
+      notFound.push(rule.label);
+      continue;
+    }
+    skip.add(normalize(matches[0].aucEmail));
+    excluded.push({ label: rule.label, fullName: matches[0].fullName, aucEmail: matches[0].aucEmail });
+  }
+
+  return { included: everyone.filter((person) => !skip.has(normalize(person.aucEmail))), excluded, notFound };
+}
+
+/**
+ * apply=false counts who is still to be emailed. apply=true emails the next
+ * batch and logs each address that went, so the portal calls it until nothing
+ * remains, and a send that is interrupted resumes instead of repeating.
+ */
+async function thankAllApplicants(
+  token: string,
+  adminEmail: string,
+  apply: boolean
+): Promise<{
+  total: number;
+  alreadySent: number;
+  remaining: number;
+  sent: number;
+  failed: number;
+  excluded: Array<{ label: string; fullName: string; aucEmail: string }>;
+  notFound: string[];
+}> {
+  await ensureSheetTab(token, APPLICANT_THANKS_SHEET_NAME);
+  await ensureSheetHeaders(token, APPLICANT_THANKS_SHEET_NAME, APPLICANT_THANKS_HEADERS);
+
+  const { included: everyone, excluded, notFound } = applyThankYouExclusions(await loadEveryApplicant(token));
+  const logResponse = await sheetsFetch(token, "GET", sheetRange(APPLICANT_THANKS_SHEET_NAME, "A2:A"));
+  const done = new Set((((await logResponse.json()).values ?? []) as string[][]).map((row) => normalize(row[0])));
+  const todo = everyone.filter((person) => !done.has(normalize(person.aucEmail)));
+  const status = { total: everyone.length, alreadySent: everyone.length - todo.length, excluded, notFound };
+
+  if (!apply) return { ...status, remaining: todo.length, sent: 0, failed: 0 };
+
+  const whatsappLink =
+    (await readRecruitmentSetting(token, WHATSAPP_LINK_SETTING)) || DEFAULT_COMMUNITY_WHATSAPP_LINK;
+
+  const batch = todo.slice(0, APPLICANT_THANKS_BATCH);
+  const logged: string[][] = [];
+  let failed = 0;
+  for (const person of batch) {
+    const { subject, text, html } = buildApplicantsThankYouEmail(person.fullName, whatsappLink);
+    if (await sendMemberEmail(person.aucEmail, subject, text, html)) {
+      logged.push([person.aucEmail, person.fullName, new Date().toISOString(), adminEmail]);
+    } else {
+      failed++;
+    }
+  }
+
+  if (logged.length) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(
+        APPLICANT_THANKS_SHEET_NAME,
+        `A1:${columnLetter(APPLICANT_THANKS_HEADERS.length)}1`
+      )}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: logged }
+    );
+  }
+
+  console.log(`${adminEmail} sent the applicant thank-you to ${logged.length} people (${failed} failed)`);
+  return {
+    ...status,
+    alreadySent: status.alreadySent + logged.length,
+    remaining: todo.length - logged.length,
+    sent: logged.length,
+    failed
+  };
 }
 
 /** One member's row, read back by sheet row number. */

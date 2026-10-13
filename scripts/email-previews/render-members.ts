@@ -15,6 +15,7 @@
  * Deno, not Node: these builders live in the edge function.
  */
 import {
+  buildApplicantsThankYouEmail,
   buildGeneralVolunteerEmail,
   buildMemberConfirmationEmail,
   buildMemberInterviewIcs,
@@ -134,6 +135,12 @@ await write(
   "general-volunteer",
   "General volunteer · accepted, but not onto a committee",
   buildGeneralVolunteerEmail(applicant.fullName, "Tech Team")
+);
+
+await write(
+  "applicants-thank-you",
+  "Thank-you · one email to every applicant, placed or not",
+  buildApplicantsThankYouEmail(applicant.fullName, "https://chat.whatsapp.com/Cavf9Pf9ncXAlDMmkXzXvM?s=cl&p=i&ilr=4&iam=0")
 );
 
 /* The .ics rides on the confirmation. It is what actually puts the interview
