@@ -1218,7 +1218,10 @@ async function refreshThanksCount() {
     live.textContent = thanksLabel(preview);
     live.disabled = !preview.remaining;
     document.getElementById("thank-count-note").textContent =
-      `${preview.total} applicants in all · ${preview.alreadySent} already thanked · ${preview.excluded.length} left out`;
+      `${preview.total} applicants in all · ${preview.alreadySent} already thanked · ${preview.excluded.length} left out` +
+      " · " + preview.sources.map((s) =>
+        `${s.source}: ${s.error ? "could not be read (" + s.error + ")" : `${s.rows} rows, ${s.added} new` +
+        (s.alsoInEarlier ? `, ${s.alsoInEarlier} already counted` : "") + (s.badEmail ? `, ${s.badEmail} bad email` : "")}`).join(" · ");
   } catch (error) {
     const live = document.getElementById("thank-applicants");
     if (live) live.textContent = "Could not count recipients";

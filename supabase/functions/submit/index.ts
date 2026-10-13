@@ -4975,9 +4975,13 @@ type ThankYouApplicant = { aucEmail: string; fullName: string; committees: strin
  * cycle's tab, the heads tab and the member-recruitment tab share people, and
  * an address is what makes two rows the same person.
  */
-async function loadEveryApplicant(token: string): Promise<ThankYouApplicant[]> {
+type ThankYouSourceCount = { source: string; rows: number; badEmail: number; alsoInEarlier: number; added: number; error: string };
+
+async function loadEveryApplicant(
+  token: string
+): Promise<{ everyone: ThankYouApplicant[]; sources: ThankYouSourceCount[] }> {
   const [directorResponse, memberResponse, headsResponse] = await Promise.all([
-    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch(() => null),
+    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch((error) => error as Error),
     sheetsFetch(
       token,
       "GET",
@@ -4995,27 +4999,40 @@ async function loadEveryApplicant(token: string): Promise<ThankYouApplicant[]> {
   ]);
 
   const byEmail = new Map<string, ThankYouApplicant>();
-  const sources: Array<[Response | null, number]> = [
-    [directorResponse, 7], // the director cycle's tab keeps the role applied for in column H
-    [headsResponse, 7],
-    [memberResponse, 8]
+  const sources: ThankYouSourceCount[] = [];
+  const inputs: Array<[string, Response | Error, number]> = [
+    ["Director cycle", directorResponse, 7], // the director cycle's tab keeps the role applied for in column H
+    ["Heads cycle", headsResponse, 7],
+    ["Member cycle", memberResponse, 8]
   ];
-  for (const [response, committeeColumn] of sources) {
-    if (!response) continue;
+  for (const [source, response, committeeColumn] of inputs) {
+    const count: ThankYouSourceCount = { source, rows: 0, badEmail: 0, alsoInEarlier: 0, added: 0, error: "" };
+    sources.push(count);
+    if (response instanceof Error) {
+      count.error = response.message.slice(0, 160);
+      continue;
+    }
     for (const row of ((await response.json()).values ?? []) as string[][]) {
+      if (!String(row[1] ?? "").trim() && !String(row[2] ?? "").trim()) continue;
+      count.rows++;
       const aucEmail = String(row[2] ?? "").trim();
-      if (!isValidContactEmail(aucEmail)) continue;
+      if (!isValidContactEmail(aucEmail)) {
+        count.badEmail++;
+        continue;
+      }
       const key = normalize(aucEmail);
       const committee = String(row[committeeColumn] ?? "").trim();
       const existing = byEmail.get(key);
       if (existing) {
+        count.alsoInEarlier++;
         if (committee) existing.committees.push(committee);
         continue;
       }
+      count.added++;
       byEmail.set(key, { aucEmail, fullName: String(row[1] ?? "").trim(), committees: committee ? [committee] : [] });
     }
   }
-  return [...byEmail.values()];
+  return { everyone: [...byEmail.values()], sources };
 }
 
 /** Splits everyone into who gets the thank-you and who is held back, and says who was held back. */
@@ -5062,7 +5079,7 @@ function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
     excluded.push({ label: rule.label, fullName: matches[0].fullName, aucEmail: matches[0].aucEmail });
   }
 
-  return { included: everyone.filter((person) => !skip.has(normalize(person.aucEmail))), excluded, notFound };
+  return { included: everyone.filter((person) => !skip.has(normalize(person.aucEmail))), excluded, notFound, sources: loaded.sources };
 }
 
 /**
@@ -5082,11 +5099,13 @@ async function thankAllApplicants(
   failed: number;
   excluded: Array<{ label: string; fullName: string; aucEmail: string }>;
   notFound: Array<{ label: string; similar: string[] }>;
+  sources: ThankYouSourceCount[];
 }> {
   await ensureSheetTab(token, APPLICANT_THANKS_SHEET_NAME);
   await ensureSheetHeaders(token, APPLICANT_THANKS_SHEET_NAME, APPLICANT_THANKS_HEADERS);
 
-  const { included: everyone, excluded, notFound } = applyThankYouExclusions(await loadEveryApplicant(token));
+  const loaded = await loadEveryApplicant(token);
+  const { included: everyone, excluded, notFound } = applyThankYouExclusions(loaded.everyone);
   const logResponse = await sheetsFetch(token, "GET", sheetRange(APPLICANT_THANKS_SHEET_NAME, "A2:A"));
   const done = new Set((((await logResponse.json()).values ?? []) as string[][]).map((row) => normalize(row[0])));
   const todo = everyone.filter((person) => !done.has(normalize(person.aucEmail)));
