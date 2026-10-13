@@ -5079,7 +5079,7 @@ function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
     excluded.push({ label: rule.label, fullName: matches[0].fullName, aucEmail: matches[0].aucEmail });
   }
 
-  return { included: everyone.filter((person) => !skip.has(normalize(person.aucEmail))), excluded, notFound, sources: loaded.sources };
+  return { included: everyone.filter((person) => !skip.has(normalize(person.aucEmail))), excluded, notFound };
 }
 
 /**
@@ -5109,7 +5109,7 @@ async function thankAllApplicants(
   const logResponse = await sheetsFetch(token, "GET", sheetRange(APPLICANT_THANKS_SHEET_NAME, "A2:A"));
   const done = new Set((((await logResponse.json()).values ?? []) as string[][]).map((row) => normalize(row[0])));
   const todo = everyone.filter((person) => !done.has(normalize(person.aucEmail)));
-  const status = { total: everyone.length, alreadySent: everyone.length - todo.length, excluded, notFound };
+  const status = { total: everyone.length, alreadySent: everyone.length - todo.length, excluded, notFound, sources: loaded.sources };
 
   if (!apply) return { ...status, remaining: todo.length, sent: 0, failed: 0 };
 
