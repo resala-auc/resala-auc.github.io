@@ -4981,7 +4981,11 @@ async function loadEveryApplicant(
   token: string
 ): Promise<{ everyone: ThankYouApplicant[]; sources: ThankYouSourceCount[] }> {
   const [directorResponse, memberResponse, headsResponse] = await Promise.all([
-    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch((error) => error as Error),
+    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch(async (error) => {
+      // The usual cause is a tab that was renamed, so say which tabs there are.
+      const titles = await getSpreadsheetSheetTitles(token).catch(() => new Set<string>());
+      return new Error(`There is no tab called "${SHEET_NAME}". Tabs: ${[...titles].join(" | ")}`);
+    }),
     sheetsFetch(
       token,
       "GET",
@@ -5009,7 +5013,7 @@ async function loadEveryApplicant(
     const count: ThankYouSourceCount = { source, rows: 0, badEmail: 0, alsoInEarlier: 0, added: 0, error: "" };
     sources.push(count);
     if (response instanceof Error) {
-      count.error = response.message.slice(0, 160);
+      count.error = response.message.slice(0, 700);
       continue;
     }
     for (const row of ((await response.json()).values ?? []) as string[][]) {
