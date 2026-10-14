@@ -1201,46 +1201,71 @@ function renderVolunteerPool() {
     </div>` : ""}` + sentSection;
 }
 
+/*
+ * Counting recipients reads several sheets, and Google allows 60 reads a
+ * minute for everything this page does. So it runs once, the answer is kept,
+ * and every re-render just repaints it; only a send (or the retry link)
+ * counts again.
+ */
 let thanksCounting = false;
+let thanksPreview = null;
+let thanksError = "";
 function thanksLabel(preview) {
   if (!preview.remaining) return "Everyone has been thanked";
   return `Send thank-you to ${preview.remaining} applicant${preview.remaining === 1 ? "" : "s"}`;
 }
-async function refreshThanksCount() {
+function paintThanksCount() {
   const btn = document.getElementById("thank-applicants");
   const note = document.getElementById("thank-count-note");
-  if (!btn || thanksCounting) return;
-  thanksCounting = true;
-  try {
-    const preview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
-    const live = document.getElementById("thank-applicants");
-    if (!live) return;
-    live.textContent = thanksLabel(preview);
-    live.disabled = !preview.remaining;
-    document.getElementById("thank-count-note").textContent =
+  if (!btn || !note) return;
+  if (thanksPreview) {
+    const preview = thanksPreview;
+    btn.textContent = thanksLabel(preview);
+    btn.disabled = !preview.remaining;
+    note.textContent =
       `${preview.total} applicants in all · ${preview.alreadySent} already thanked · ${preview.excluded.length} left out` +
       " · " + preview.sources.map((s) =>
         `${s.source}: ${s.error ? "could not be read (" + s.error + ")" : `${s.rows} rows, ${s.added} new` +
         (s.alsoInEarlier ? `, ${s.alsoInEarlier} already counted` : "") + (s.badEmail ? `, ${s.badEmail} bad email` : "")}`).join(" · ");
+  } else if (thanksError) {
+    btn.textContent = "Count recipients";
+    btn.disabled = false;
+    note.textContent = `Could not count: ${thanksError.slice(0, 200)}`;
+  } else {
+    btn.textContent = "Counting recipients…";
+    btn.disabled = true;
+  }
+}
+async function refreshThanksCount(force = false) {
+  if (thanksCounting) return;
+  if (!force && (thanksPreview || thanksError)) {
+    paintThanksCount();
+    return;
+  }
+  thanksCounting = true;
+  thanksPreview = null;
+  thanksError = "";
+  paintThanksCount();
+  try {
+    thanksPreview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
   } catch (error) {
-    const live = document.getElementById("thank-applicants");
-    if (live) live.textContent = "Could not count recipients";
-    const liveNote = document.getElementById("thank-count-note");
-    if (liveNote) liveNote.textContent = error.message;
+    thanksError = error.message;
   } finally {
     thanksCounting = false;
+    paintThanksCount();
   }
 }
 
 document.getElementById("view-volunteers").addEventListener("click", async (event) => {
   const thankBtn = event.target.closest("#thank-applicants");
   if (thankBtn) {
+    if (!thanksPreview) { await refreshThanksCount(true); return; }
     thankBtn.disabled = true;
+    let didSend = false;
     try {
-      const preview = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: false });
+      const preview = thanksPreview;
       if (!preview.remaining) {
         await noticeDialog(`All ${preview.total} applicants have already been sent the thank-you.`);
-        await refreshThanksCount();
         return;
       }
       if (!(await confirmDialog(
@@ -1256,12 +1281,24 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
         `\n\nEveryone is told they are part of Resala, whether or not they were placed on a committee. It cannot be undone.`
       ))) return;
 
+      didSend = true;
       let sent = 0;
       let failed = 0;
       let remaining = preview.remaining;
       while (remaining > 0) {
         thankBtn.textContent = `Sending… ${sent} of ${preview.remaining}`;
-        const r = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: true });
+        // Google caps reads per minute; if a round trips it, wait it out and go again rather than stopping half way.
+        let r;
+        for (let attempt = 0; ; attempt++) {
+          try {
+            r = await api({ mode: "member-admin-thank-applicants", email: state.admin.email, apply: true });
+            break;
+          } catch (error) {
+            if (attempt >= 3 || !/quota|429|RATE_LIMIT/i.test(error.message)) throw error;
+            thankBtn.textContent = `Waiting a moment… ${sent} of ${preview.remaining}`;
+            await new Promise((resolve) => setTimeout(resolve, 30000));
+          }
+        }
         sent += r.sent;
         failed = r.failed;
         remaining = r.remaining;
@@ -1275,7 +1312,7 @@ document.getElementById("view-volunteers").addEventListener("click", async (even
     } catch (error) {
       await noticeDialog(error.message);
     } finally {
-      await refreshThanksCount();
+      if (didSend) await refreshThanksCount(true); else paintThanksCount();
     }
     return;
   }

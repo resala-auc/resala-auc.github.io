@@ -209,7 +209,7 @@ const APPLICANT_THANKS_SHEET_NAME =
 const DIRECTOR_CYCLE_SHEET_NAME = Deno.env.get("DIRECTOR_CYCLE_SHEET_NAME") ?? "Director Cycle";
 const APPLICANT_THANKS_HEADERS = ["AUC Email", "Full Name", "Sent At", "Sent By"];
 /** Emails per request: each is a Gmail call, and a request has to finish inside the function's time limit. */
-const APPLICANT_THANKS_BATCH = 20;
+const APPLICANT_THANKS_BATCH = 40;
 /** Used until an admin saves a link on the portal; the thank-you is the one email that is never blocked on it. */
 const DEFAULT_COMMUNITY_WHATSAPP_LINK = "https://chat.whatsapp.com/Cavf9Pf9ncXAlDMmkXzXvM?s=cl&p=i&ilr=4&iam=0";
 
