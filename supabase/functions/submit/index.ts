@@ -205,6 +205,8 @@ const HEADS_GENERAL_VOLUNTEER_HEADERS = ["AUC Email", "Full Name", "Committee", 
  */
 const APPLICANT_THANKS_SHEET_NAME =
   Deno.env.get("APPLICANT_THANKS_SHEET_NAME") ?? "Applicant Thank-You Log";
+/** The director cycle's applications, kept under its own name now that the old Applications tab is gone. */
+const DIRECTOR_CYCLE_SHEET_NAME = Deno.env.get("DIRECTOR_CYCLE_SHEET_NAME") ?? "Director Cycle";
 const APPLICANT_THANKS_HEADERS = ["AUC Email", "Full Name", "Sent At", "Sent By"];
 /** Emails per request: each is a Gmail call, and a request has to finish inside the function's time limit. */
 const APPLICANT_THANKS_BATCH = 20;
@@ -4981,10 +4983,10 @@ async function loadEveryApplicant(
   token: string
 ): Promise<{ everyone: ThankYouApplicant[]; sources: ThankYouSourceCount[] }> {
   const [directorResponse, memberResponse, headsResponse] = await Promise.all([
-    sheetsFetch(token, "GET", sheetRange(SHEET_NAME, "A2:H")).catch(async (error) => {
+    sheetsFetch(token, "GET", sheetRange(DIRECTOR_CYCLE_SHEET_NAME, "A2:H")).catch(async (error) => {
       // The usual cause is a tab that was renamed, so say which tabs there are.
       const titles = await getSpreadsheetSheetTitles(token).catch(() => new Set<string>());
-      return new Error(`There is no tab called "${SHEET_NAME}". Tabs: ${[...titles].join(" | ")}`);
+      return new Error(`There is no tab called "${DIRECTOR_CYCLE_SHEET_NAME}". Tabs: ${[...titles].join(" | ")}`);
     }),
     sheetsFetch(
       token,
