@@ -4960,10 +4960,10 @@ export function buildApplicantsThankYouEmail(
  * those also have to be on the committee they led. A rule that finds more
  * than one person stops the send rather than guessing who is meant.
  */
-const THANK_YOU_EXCLUSIONS: Array<{ label: string; words: string[]; committeeHint: string[] }> = [
+const THANK_YOU_EXCLUSIONS: Array<{ label: string; words: string[]; anyOf?: string[]; committeeHint: string[] }> = [
   { label: "Hamdy (former Tech director)", words: ["hamdy"], committeeHint: ["tech"] },
   { label: "Fatima (former HR director)", words: ["fatima"], committeeHint: ["hr", "human"] },
-  { label: "Dima Ramy (former Operations head)", words: ["dima", "ramy"], committeeHint: [] },
+  { label: "Deema Ramy (former Operations head)", words: ["ramy"], anyOf: ["deema", "dima"], committeeHint: [] },
   { label: "Jana Nabet (former Operations vice director)", words: ["jana", "nabet"], committeeHint: [] },
   { label: "Tia Emad (former PR head)", words: ["tia", "emad"], committeeHint: [] }
 ];
@@ -5053,6 +5053,7 @@ function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
     const matches = everyone.filter((person) => {
       const words = normalize(person.fullName).split(/[^a-z0-9]+/).filter(Boolean);
       if (!rule.words.every((word) => words.includes(word))) return false;
+      if (rule.anyOf && !rule.anyOf.some((word) => words.includes(word))) return false;
       return (
         !rule.committeeHint.length ||
         person.committees.some((committee) =>
@@ -5072,7 +5073,7 @@ function applyThankYouExclusions(everyone: ThankYouApplicant[]): {
       const similar = everyone
         .filter((person) => {
           const words = normalize(person.fullName).split(/[^a-z0-9]+/).filter(Boolean);
-          return rule.words.some((word) => words.some((w) => w.startsWith(word.slice(0, 3))));
+          return [...rule.words, ...(rule.anyOf ?? [])].some((word) => words.some((w) => w.startsWith(word.slice(0, 3))));
         })
         .slice(0, 6)
         .map((person) => `${person.fullName} <${person.aucEmail}>${person.committees.length ? ` — ${person.committees[0]}` : ""}`);
