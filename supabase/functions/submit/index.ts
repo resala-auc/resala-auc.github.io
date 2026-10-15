@@ -1440,7 +1440,8 @@ type CommitteeMemberSetMembershipPayload = {
   status: string;
 };
 /* Everyone, the board alone (directors and heads), directors alone, or the members alone. */
-type TeamEmailScope = "everyone" | "board" | "directors" | "members";
+/* "directors-cc-board" is one email To the directors with the rest of the board on cc. */
+type TeamEmailScope = "everyone" | "board" | "directors" | "directors-cc-board" | "members";
 type TeamEmailAudience =
   | { type: "all"; scope?: TeamEmailScope }
   | { type: "committee"; committee: string; scope?: TeamEmailScope }
@@ -1455,6 +1456,8 @@ type TeamSendEmailPayload = {
   greeting?: string;
   /** Closing lines, e.g. "Warmly,\nYoussef". Blank means "Best,\nResala AUC". */
   signature?: string;
+  /** A full custom HTML body. When set, message/greeting/signature are ignored; {{firstName}} is filled in per person. */
+  html?: string;
   /* People unticked on the page. Only ever narrows the roster-resolved list. */
   exclude?: string[];
 };
@@ -7812,11 +7815,16 @@ async function sendTeamEmail(
   if (!gmailConfigured()) throw new Error("Email sending is not configured on the server.");
 
   const subject = String(payload.subject ?? "").replace(/[\r\n]+/g, " ").trim();
-  const message = String(payload.message ?? "").replace(/\r\n?/g, "\n").trim();
+  const customHtml = String(payload.html ?? "").trim();
+  const message = customHtml ? "" : String(payload.message ?? "").replace(/\r\n?/g, "\n").trim();
   if (!subject) throw new Error("Write a subject before sending.");
   if (subject.length > 200) throw new Error("Keep the subject under 200 characters.");
-  if (!message) throw new Error("Write a message before sending.");
-  if (message.length > 10000) throw new Error("Keep the message under 10,000 characters.");
+  if (customHtml) {
+    if (customHtml.length > 200000) throw new Error("Keep the HTML under 200,000 characters.");
+  } else {
+    if (!message) throw new Error("Write a message before sending.");
+    if (message.length > 10000) throw new Error("Keep the message under 10,000 characters.");
+  }
   const greeting = String(payload.greeting ?? "").replace(/[\r\n]+/g, " ").trim() || "Hi";
   const signature = String(payload.signature ?? "").replace(/\r\n?/g, "\n").trim() || "Best,\nResala AUC";
   if (greeting.length > 40) throw new Error("Keep the greeting under 40 characters.");
@@ -7830,7 +7838,7 @@ async function sendTeamEmail(
     if (excluded.has(normalize(member.aucEmail))) return false;
     if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
     if (audience.type === "committee" && committeeKey(member.department) !== committeeKey(audience.committee)) return false;
-    if (scope === "board") return member.level === "director" || member.level === "head";
+    if (scope === "board" || scope === "directors-cc-board") return member.level === "director" || member.level === "head";
     if (scope === "directors") return member.level === "director";
     if (scope === "members") return member.level === "member";
     return true;
@@ -7850,6 +7858,54 @@ async function sendTeamEmail(
   const failed: Array<{ name: string; aucEmail: string; error: string }> = [];
   let sent = 0;
 
+  const bodiesFor = (firstName: string, fullName: string) =>
+    customHtml
+      ? {
+          html: customHtml
+            .replace(/\{\{\s*firstName\s*\}\}/gi, escapeHtml(firstName))
+            .replace(/\{\{\s*name\s*\}\}/gi, escapeHtml(fullName)),
+          text: `${htmlToPlainText(customHtml.replace(/\{\{\s*firstName\s*\}\}/gi, firstName).replace(/\{\{\s*name\s*\}\}/gi, fullName))}\n\nSent by ${senderEmail} from the Resala AUC team board.`
+        }
+      : {
+          html: buildTeamEmailHtml({ firstName, subject, message, senderEmail, greeting, signature }),
+          text: `${greeting} ${firstName},\n\n${message}\n\n${signature}\n\nSent by ${senderEmail} from the Resala AUC team board.`
+        };
+
+  if (scope === "directors-cc-board" && audience.type !== "person") {
+    const directorKeys = new Set(
+      chosen.filter((member) => member.level === "director").map((member) => normalize(member.aucEmail))
+    );
+    const to = recipients.filter((r) => directorKeys.has(normalize(r.aucEmail)));
+    const cc = recipients.filter((r) => !directorKeys.has(normalize(r.aucEmail)));
+    if (!to.length) throw new Error("No director is ticked, so there is nobody to send it to.");
+    const names = to.map((r) => r.name.split(/\s+/)[0] || "there");
+    const firstName = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+    try {
+      const raw = buildRawEmailMessage({
+        from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
+        to: to.map((r) => r.aucEmail).join(", "),
+        cc: cc.map((r) => r.aucEmail).join(", ") || undefined,
+        subject,
+        ...bodiesFor(firstName, names.length > 1 ? firstName : to[0].name)
+      });
+      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ raw })
+      });
+      if (!response.ok) throw new Error(`Gmail refused it: ${(await response.text()).slice(0, 200)}`);
+      console.log(`Team email "${subject}" by ${senderEmail}: to ${to.length} directors, cc ${cc.length}.`);
+      return { recipients: recipients.length, sent: recipients.length, failed };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        recipients: recipients.length,
+        sent: 0,
+        failed: recipients.map((r) => ({ name: r.name, aucEmail: r.aucEmail, error: reason }))
+      };
+    }
+  }
+
   // A few at a time: fast enough for the whole team, gentle enough on Gmail's rate limit.
   for (let index = 0; index < recipients.length; index += 5) {
     await Promise.all(
@@ -7860,8 +7916,7 @@ async function sendTeamEmail(
             from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
             to: recipient.aucEmail,
             subject,
-            text: `${greeting} ${firstName},\n\n${message}\n\n${signature}\n\nSent by ${senderEmail} from the Resala AUC team board.`,
-            html: buildTeamEmailHtml({ firstName, subject, message, senderEmail, greeting, signature })
+            ...bodiesFor(firstName, recipient.name)
           });
           const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
             method: "POST",
@@ -7883,6 +7938,23 @@ async function sendTeamEmail(
 
   console.log(`Team email "${subject}" by ${senderEmail}: ${sent}/${recipients.length} sent.`);
   return { recipients: recipients.length, sent, failed };
+}
+
+/** A readable text alternative for a custom HTML email. */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<(style|script|head)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<a\s[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, "$2 ($1)")
+    .replace(/<br\s*\/?>|<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildTeamEmailHtml({

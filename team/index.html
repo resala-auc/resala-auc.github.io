@@ -20,7 +20,7 @@
          font: 15px/1.6 "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   button, input, textarea, select { font: inherit; }
   button { cursor: pointer; }
-  .hidden { display: none !important; }
+  .hidden, [hidden] { display: none !important; }
   a { color: var(--blue); }
 
   .login { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
@@ -264,6 +264,7 @@
       <button type="button" data-scope="everyone" aria-pressed="true">Everyone</button>
       <button type="button" data-scope="board" aria-pressed="false">Board only</button>
       <button type="button" data-scope="directors" aria-pressed="false">Directors only</button>
+      <button type="button" data-scope="directors-cc-board" aria-pressed="false">Directors, cc board</button>
       <button type="button" data-scope="members" aria-pressed="false">Members only</button>
     </div>
     <div class="recipients" id="email-recipients"></div>
@@ -271,17 +272,28 @@
       <label for="e-subject">Subject</label>
       <input type="text" id="e-subject" maxlength="200" required>
     </div>
-    <div class="field">
+    <div class="scope" id="email-mode" role="radiogroup" aria-label="Email style">
+      <button type="button" data-mode="standard" aria-pressed="true">Standard</button>
+      <button type="button" data-mode="html" aria-pressed="false">Custom HTML</button>
+    </div>
+    <div class="field" id="html-field" hidden>
+      <label for="e-html">HTML</label>
+      <textarea id="e-html" rows="14" spellcheck="false" style="font-family:ui-monospace,Menlo,monospace;font-size:12.5px;" placeholder="<!doctype html>&#10;<html>...</html>"></textarea>
+      <div class="note" style="margin-top:6px;">Sent exactly as written, with no Resala wrapper. Use <code>{{firstName}}</code> or <code>{{name}}</code> to personalise. Use inline styles and hosted image links, since email apps strip most other CSS.</div>
+      <button type="button" class="btn btn-ghost btn-sm" id="html-preview" style="margin-top:8px;">Preview</button>
+      <iframe id="html-frame" sandbox title="Preview" hidden style="width:100%;height:360px;border:1px solid var(--line,#ddd);border-radius:8px;margin-top:8px;background:#fff;"></iframe>
+    </div>
+    <div class="field" data-standard>
       <label for="e-greeting">Greeting word</label>
       <input type="text" id="e-greeting" maxlength="40" placeholder="Hi" autocomplete="off">
       <div class="note" style="margin-top:6px;">Goes before their first name, e.g. "Dear Sara,". Blank means "Hi".</div>
     </div>
-    <div class="field">
+    <div class="field" data-standard>
       <label for="e-message">Message</label>
-      <textarea id="e-message" rows="9" maxlength="10000" required></textarea>
+      <textarea id="e-message" rows="9" maxlength="10000"></textarea>
       <div class="note" style="margin-top:6px;">Links become clickable.</div>
     </div>
-    <div class="field">
+    <div class="field" data-standard>
       <label for="e-signature">Signature</label>
       <textarea id="e-signature" rows="3" maxlength="500" placeholder="Best,&#10;Resala AUC"></textarea>
       <div class="note" style="margin-top:6px;">Blank means "Best, Resala AUC".</div>
@@ -819,7 +831,7 @@ function recipientsFor(audience, scope) {
       if (norm(m.aucEmail) !== norm(audience.aucEmail)) continue;
     } else {
       if (audience.type === "committee" && norm(m.department) !== norm(audience.committee)) continue;
-      if (scope === "board" && m.level !== "director" && m.level !== "head") continue;
+      if ((scope === "board" || scope === "directors-cc-board") && m.level !== "director" && m.level !== "head") continue;
       if (scope === "directors" && m.level !== "director") continue;
       if (scope === "members" && m.level !== "member") continue;
     }
@@ -835,7 +847,7 @@ const ticked = (people) => people.filter((p) => !emailUnticked.has(norm(p.aucEma
 
 function audienceLabel(audience, people) {
   if (audience.type === "person") return people[0]?.name ?? audience.aucEmail;
-  const group = { everyone: "everyone", board: "the board", directors: "the directors", members: "the members" }[emailScope];
+  const group = { everyone: "everyone", board: "the board", directors: "the directors", "directors-cc-board": "the directors, cc the board", members: "the members" }[emailScope];
   return audience.type === "committee" ? `${group} on ${audience.committee}` : `${group} of the club`;
 }
 
@@ -862,7 +874,9 @@ function renderRecipients() {
   const going = ticked(people).length;
   box.innerHTML = `
     <div class="pick-head">
-      <span>To <b>${going} of ${people.length}</b></span>
+      <span>${emailScope === "directors-cc-board"
+        ? `To <b>${ticked(people).filter((p) => p.level === "director").length} directors</b>, cc <b>${ticked(people).filter((p) => p.level !== "director").length}</b>`
+        : `To <b>${going} of ${people.length}</b>`}</span>
       <span class="links"><button type="button" data-pick="all">Tick all</button> · <button type="button" data-pick="none">Untick all</button></span>
     </div>
     <ul class="pick">
@@ -879,6 +893,7 @@ function renderRecipients() {
 
 function openEmailDialog(audience) {
   emailAudience = audience;
+  setEmailMode("standard");
   emailScope = "everyone";
   // Somebody who has said they are not joining is left out unless ticked back in.
   emailUnticked = new Set(
@@ -895,6 +910,25 @@ function openEmailDialog(audience) {
   if (!dlg.open) dlg.showModal();
   document.getElementById("e-subject").focus();
 }
+
+let emailMode = "standard";
+function setEmailMode(mode) {
+  emailMode = mode;
+  for (const b of document.querySelectorAll("#email-mode button")) b.setAttribute("aria-pressed", String(b.dataset.mode === mode));
+  document.getElementById("html-field").hidden = mode !== "html";
+  for (const el of document.querySelectorAll("[data-standard]")) el.hidden = mode === "html";
+}
+document.getElementById("email-mode").addEventListener("click", (event) => {
+  const mode = event.target.closest("[data-mode]")?.dataset.mode;
+  if (mode) setEmailMode(mode);
+});
+document.getElementById("html-preview").addEventListener("click", () => {
+  const html = document.getElementById("e-html").value
+    .replace(/\{\{\s*firstName\s*\}\}/gi, "Sara").replace(/\{\{\s*name\s*\}\}/gi, "Sara Ahmed");
+  const frame = document.getElementById("html-frame");
+  frame.hidden = false;
+  frame.srcdoc = html;
+});
 
 document.getElementById("email-scope").addEventListener("click", (event) => {
   const scope = event.target.closest("[data-scope]")?.dataset.scope;
@@ -926,11 +960,12 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
   event.preventDefault();
   const subject = document.getElementById("e-subject").value.trim();
   const message = document.getElementById("e-message").value.trim();
+  const html = emailMode === "html" ? document.getElementById("e-html").value.trim() : "";
   const msg = document.getElementById("email-msg");
   const send = document.getElementById("email-send");
-  if (!subject || !message) {
+  if (!subject || !(html || (emailMode === "standard" && message))) {
     msg.className = "msg bad";
-    msg.textContent = "Write both a subject and a message.";
+    msg.textContent = emailMode === "html" ? "Write both a subject and the HTML." : "Write both a subject and a message.";
     return;
   }
 
@@ -957,12 +992,14 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
       exclude: emailAudience.type === "person" ? [] : people.filter((p) => emailUnticked.has(norm(p.aucEmail))).map((p) => p.aucEmail),
       subject,
       message,
+      html,
       greeting: document.getElementById("e-greeting").value.trim(),
       signature: document.getElementById("e-signature").value.trim()
     });
     document.getElementById("email-dialog").close();
     document.getElementById("e-subject").value = "";
     document.getElementById("e-message").value = "";
+    document.getElementById("e-html").value = "";
     await noticeDialog(
       `Sent to ${result.sent} of ${result.recipients}.` +
         (result.failed.length
