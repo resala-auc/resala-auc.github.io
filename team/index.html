@@ -272,9 +272,19 @@
       <input type="text" id="e-subject" maxlength="200" required>
     </div>
     <div class="field">
+      <label for="e-greeting">Greeting word</label>
+      <input type="text" id="e-greeting" maxlength="40" placeholder="Hi" autocomplete="off">
+      <div class="note" style="margin-top:6px;">Goes before their first name, e.g. "Dear Sara,". Blank means "Hi".</div>
+    </div>
+    <div class="field">
       <label for="e-message">Message</label>
       <textarea id="e-message" rows="9" maxlength="10000" required></textarea>
-      <div class="note" style="margin-top:6px;">Opens with "Hi" and their first name, and closes with "Best, Resala AUC". Links become clickable.</div>
+      <div class="note" style="margin-top:6px;">Links become clickable.</div>
+    </div>
+    <div class="field">
+      <label for="e-signature">Signature</label>
+      <textarea id="e-signature" rows="3" maxlength="500" placeholder="Best,&#10;Resala AUC"></textarea>
+      <div class="note" style="margin-top:6px;">Blank means "Best, Resala AUC".</div>
     </div>
     <div class="msg" id="email-msg"></div>
     <div class="dlg-actions">
@@ -946,7 +956,9 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
       audience: emailAudience.type === "person" ? emailAudience : { ...emailAudience, scope: emailScope },
       exclude: emailAudience.type === "person" ? [] : people.filter((p) => emailUnticked.has(norm(p.aucEmail))).map((p) => p.aucEmail),
       subject,
-      message
+      message,
+      greeting: document.getElementById("e-greeting").value.trim(),
+      signature: document.getElementById("e-signature").value.trim()
     });
     document.getElementById("email-dialog").close();
     document.getElementById("e-subject").value = "";

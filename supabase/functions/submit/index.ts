@@ -1451,6 +1451,10 @@ type TeamSendEmailPayload = {
   audience: TeamEmailAudience;
   subject: string;
   message: string;
+  /** Opening word, e.g. "Dear". Blank means "Hi". */
+  greeting?: string;
+  /** Closing lines, e.g. "Warmly,\nYoussef". Blank means "Best,\nResala AUC". */
+  signature?: string;
   /* People unticked on the page. Only ever narrows the roster-resolved list. */
   exclude?: string[];
 };
@@ -7813,6 +7817,10 @@ async function sendTeamEmail(
   if (subject.length > 200) throw new Error("Keep the subject under 200 characters.");
   if (!message) throw new Error("Write a message before sending.");
   if (message.length > 10000) throw new Error("Keep the message under 10,000 characters.");
+  const greeting = String(payload.greeting ?? "").replace(/[\r\n]+/g, " ").trim() || "Hi";
+  const signature = String(payload.signature ?? "").replace(/\r\n?/g, "\n").trim() || "Best,\nResala AUC";
+  if (greeting.length > 40) throw new Error("Keep the greeting under 40 characters.");
+  if (signature.length > 500) throw new Error("Keep the signature under 500 characters.");
 
   const { members } = await loadTeamBoard(token);
   const audience: TeamEmailAudience = payload.audience ?? { type: "all" };
@@ -7852,8 +7860,8 @@ async function sendTeamEmail(
             from: `${GMAIL_SENDER_NAME} <${GMAIL_SENDER_EMAIL}>`,
             to: recipient.aucEmail,
             subject,
-            text: `Hi ${firstName},\n\n${message}\n\nBest,\nResala AUC\n\nSent by ${senderEmail} from the Resala AUC team board.`,
-            html: buildTeamEmailHtml({ firstName, subject, message, senderEmail })
+            text: `${greeting} ${firstName},\n\n${message}\n\n${signature}\n\nSent by ${senderEmail} from the Resala AUC team board.`,
+            html: buildTeamEmailHtml({ firstName, subject, message, senderEmail, greeting, signature })
           });
           const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
             method: "POST",
@@ -7881,12 +7889,16 @@ function buildTeamEmailHtml({
   firstName,
   subject,
   message,
-  senderEmail
+  senderEmail,
+  greeting,
+  signature
 }: {
   firstName: string;
   subject: string;
   message: string;
   senderEmail: string;
+  greeting: string;
+  signature: string;
 }): string {
   const paragraphs = message
     .split(/\n{2,}/)
@@ -7913,9 +7925,9 @@ function buildTeamEmailHtml({
             </tr>
             <tr>
               <td style="padding:26px 28px 8px;">
-                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">Hi ${escapeHtml(firstName)},</p>
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">${escapeHtml(greeting)} ${escapeHtml(firstName)},</p>
                 ${paragraphs}
-                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Best,<br>Resala AUC</p>
+                <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">${escapeHtml(signature).replace(/\n/g, "<br>")}</p>
               </td>
             </tr>
             <tr>
