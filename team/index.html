@@ -298,6 +298,10 @@
       <textarea id="e-signature" rows="3" maxlength="500" placeholder="Best,&#10;Resala AUC"></textarea>
       <div class="note" style="margin-top:6px;">Blank means "Best, Resala AUC".</div>
     </div>
+    <details id="e-only-box" style="margin:0 0 10px;">
+      <summary style="cursor:pointer;font-size:13px;">Send only to specific addresses (optional)</summary>
+      <textarea id="e-only" rows="3" placeholder="Paste addresses to resend to just them. Leave empty to send to everyone ticked." style="margin-top:6px;"></textarea>
+    </details>
     <div class="msg" id="email-msg"></div>
     <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" id="email-cancel">Cancel</button>
@@ -894,6 +898,8 @@ function renderRecipients() {
 function openEmailDialog(audience) {
   emailAudience = audience;
   setEmailMode("standard");
+  document.getElementById("e-only").value = "";
+  document.getElementById("e-only-box").open = false;
   emailScope = "everyone";
   // Somebody who has said they are not joining is left out unless ticked back in.
   emailUnticked = new Set(
@@ -970,7 +976,9 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
   }
 
   const people = recipientsFor(emailAudience, emailScope);
-  const going = emailAudience.type === "person" ? people : ticked(people);
+  const onlyList = (document.getElementById("e-only").value.toLowerCase().match(/[^\s,;<>"']+@[^\s,;<>"']+/g) ?? []).map(norm);
+  const going = (emailAudience.type === "person" ? people : ticked(people))
+    .filter((p) => !onlyList.length || onlyList.includes(norm(p.aucEmail)));
   if (!going.length) {
     msg.className = "msg bad";
     msg.textContent = "Nobody is ticked.";
@@ -985,7 +993,7 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
   msg.className = "msg";
   msg.textContent = `Sending to ${who}…`;
   try {
-    const result = await api({
+    const base = {
       mode: "team-send-email",
       email: state.admin.email,
       audience: emailAudience.type === "person" ? emailAudience : { ...emailAudience, scope: emailScope },
@@ -995,11 +1003,63 @@ document.getElementById("email-form").addEventListener("submit", async (event) =
       html,
       greeting: document.getElementById("e-greeting").value.trim(),
       signature: document.getElementById("e-signature").value.trim()
-    });
-    document.getElementById("email-dialog").close();
-    document.getElementById("e-subject").value = "";
-    document.getElementById("e-message").value = "";
-    document.getElementById("e-html").value = "";
+    };
+    // Gmail caps sends per minute, so a big list goes out in small batches with a pause between them,
+    // and anyone Gmail turns away is retried after the limit has had time to reset, until everyone has it.
+    // One email to the directors with the board on cc is a single send and never needs batching.
+    const BATCH = 25;
+    const PAUSE_MS = 25000;
+    const RETRY_WAIT_MS = 65000;
+    const MAX_ROUNDS = 4;
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const result = { recipients: 0, sent: 0, failed: [] };
+    const batched = emailAudience.type !== "person" && emailScope !== "directors-cc-board" && going.length > BATCH;
+    if (!batched) {
+      const r = await api({ ...base, only: onlyList.length ? going.map((p) => p.aucEmail) : undefined });
+      result.recipients = r.recipients; result.sent = r.sent; result.failed = r.failed;
+    } else {
+      result.recipients = going.length;
+      let pending = going.map((p) => p.aucEmail);
+      const names = new Map(going.map((p) => [norm(p.aucEmail), p.name]));
+      let lastFailed = [];
+      for (let round = 1; round <= MAX_ROUNDS && pending.length; round++) {
+        if (round > 1) {
+          for (let left = Math.round(RETRY_WAIT_MS / 1000); left > 0; left--) {
+            msg.textContent = `${pending.length} still waiting on Gmail's sending limit. Retrying in ${left}s (${result.sent} sent so far)…`;
+            await wait(1000);
+          }
+        }
+        lastFailed = [];
+        const total = Math.ceil(pending.length / BATCH);
+        for (let k = 0; k < total; k++) {
+          const slice = pending.slice(k * BATCH, (k + 1) * BATCH);
+          msg.textContent = `Sending batch ${k + 1} of ${total}${round > 1 ? ` (retry ${round - 1})` : ""} — ${result.sent} of ${going.length} sent. Keep this page open.`;
+          try {
+            const r = await api({ ...base, only: slice });
+            result.sent += r.sent;
+            lastFailed.push(...r.failed);
+          } catch (error) {
+            lastFailed.push(...slice.map((aucEmail) => ({ name: names.get(norm(aucEmail)) ?? aucEmail, aucEmail, error: error.message })));
+          }
+          if (k < total - 1) await wait(PAUSE_MS);
+        }
+        pending = lastFailed.map((f) => f.aucEmail);
+      }
+      result.failed = lastFailed;
+    }
+    if (!result.failed.length) {
+      document.getElementById("email-dialog").close();
+      document.getElementById("e-subject").value = "";
+      document.getElementById("e-message").value = "";
+      document.getElementById("e-html").value = "";
+      document.getElementById("e-only").value = "";
+    } else {
+      // Keep the email, and aim the next send at just the people who missed it.
+      document.getElementById("e-only").value = result.failed.map((f) => f.aucEmail).join("\n");
+      document.getElementById("e-only-box").open = true;
+      msg.className = "msg bad";
+      msg.textContent = `${result.failed.length} did not get it. Press Send again to resend to just them.`;
+    }
     await noticeDialog(
       `Sent to ${result.sent} of ${result.recipients}.` +
         (result.failed.length

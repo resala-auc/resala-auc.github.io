@@ -1458,6 +1458,8 @@ type TeamSendEmailPayload = {
   signature?: string;
   /** A full custom HTML body. When set, message/greeting/signature are ignored; {{firstName}} is filled in per person. */
   html?: string;
+  /** When given, only these addresses are mailed (still narrowed by the roster). Lets the page send in batches and resend to the people who missed one. */
+  only?: string[];
   /* People unticked on the page. Only ever narrows the roster-resolved list. */
   exclude?: string[];
 };
@@ -7834,8 +7836,10 @@ async function sendTeamEmail(
   const audience: TeamEmailAudience = payload.audience ?? { type: "all" };
   const scope: TeamEmailScope = audience.type === "person" ? "everyone" : audience.scope ?? "everyone";
   const excluded = new Set((Array.isArray(payload.exclude) ? payload.exclude : []).map((email) => normalize(email)));
+  const only = new Set((Array.isArray(payload.only) ? payload.only : []).map((email) => normalize(email)));
   const chosen = members.filter((member) => {
     if (excluded.has(normalize(member.aucEmail))) return false;
+    if (only.size && !only.has(normalize(member.aucEmail))) return false;
     if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
     if (audience.type === "committee" && committeeKey(member.department) !== committeeKey(audience.committee)) return false;
     if (scope === "board" || scope === "directors-cc-board") return member.level === "director" || member.level === "head";
@@ -7918,12 +7922,26 @@ async function sendTeamEmail(
             subject,
             ...bodiesFor(firstName, recipient.name)
           });
-          const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ raw })
-          });
-          if (!response.ok) throw new Error(`Gmail refused it: ${(await response.text()).slice(0, 200)}`);
+          // Gmail caps sends per minute. When it says so, wait for the window to reopen and try again.
+          let response: Response;
+          for (let attempt = 0; ; attempt++) {
+            response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ raw })
+            });
+            if (response.ok || (response.status !== 403 && response.status !== 429) || attempt >= 3) break;
+            await response.text();
+            await new Promise((resolve) => setTimeout(resolve, 8000 * (attempt + 1) + Math.random() * 2000));
+          }
+          if (!response.ok) {
+            const body = await response.text();
+            throw new Error(
+              /quota|rate/i.test(body)
+                ? "Gmail's per-minute sending limit was hit. Resend this one in a minute."
+                : `Gmail refused it: ${body.slice(0, 200)}`
+            );
+          }
           sent++;
         } catch (error) {
           failed.push({
