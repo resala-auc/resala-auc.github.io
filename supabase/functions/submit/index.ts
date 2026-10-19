@@ -1445,6 +1445,8 @@ type TeamEmailScope = "everyone" | "board" | "directors" | "directors-cc-board" 
 type TeamEmailAudience =
   | { type: "all"; scope?: TeamEmailScope }
   | { type: "committee"; committee: string; scope?: TeamEmailScope }
+  /* One email To a head of the sub-committee, with its other head(s) and members on cc. */
+  | { type: "subcommittee"; committee: string; subCommittee: string }
   | { type: "person"; aucEmail: string };
 type TeamSendEmailPayload = {
   mode: "team-send-email";
@@ -7834,14 +7836,18 @@ async function sendTeamEmail(
 
   const { members } = await loadTeamBoard(token);
   const audience: TeamEmailAudience = payload.audience ?? { type: "all" };
-  const scope: TeamEmailScope = audience.type === "person" ? "everyone" : audience.scope ?? "everyone";
+  const scope: TeamEmailScope = audience.type === "person" || audience.type === "subcommittee" ? "everyone" : audience.scope ?? "everyone";
   const excluded = new Set((Array.isArray(payload.exclude) ? payload.exclude : []).map((email) => normalize(email)));
   const only = new Set((Array.isArray(payload.only) ? payload.only : []).map((email) => normalize(email)));
   const chosen = members.filter((member) => {
     if (excluded.has(normalize(member.aucEmail))) return false;
     if (only.size && !only.has(normalize(member.aucEmail))) return false;
     if (audience.type === "person") return normalize(member.aucEmail) === normalize(audience.aucEmail);
-    if (audience.type === "committee" && committeeKey(member.department) !== committeeKey(audience.committee)) return false;
+    if (
+      (audience.type === "committee" || audience.type === "subcommittee") &&
+      committeeKey(member.department) !== committeeKey(audience.committee)
+    ) return false;
+    if (audience.type === "subcommittee") return normalize(member.subCommittee) === normalize(audience.subCommittee);
     if (scope === "board" || scope === "directors-cc-board") return member.level === "director" || member.level === "head";
     if (scope === "directors") return member.level === "director";
     if (scope === "members") return member.level === "member";
@@ -7875,13 +7881,28 @@ async function sendTeamEmail(
           text: `${greeting} ${firstName},\n\n${message}\n\n${signature}\n\nSent by ${senderEmail} from the Resala AUC team board.`
         };
 
-  if (scope === "directors-cc-board" && audience.type !== "person") {
-    const directorKeys = new Set(
-      chosen.filter((member) => member.level === "director").map((member) => normalize(member.aucEmail))
+  if (audience.type === "subcommittee" || (scope === "directors-cc-board" && audience.type !== "person")) {
+    // One email, not one per person. A sub-committee's first head is the one it is addressed to, and
+    // everybody else in it (the other head, the members) is copied; the board mails the directors
+    // and copies the rest of the board.
+    const toLevel = audience.type === "subcommittee" ? "head" : "director";
+    const toKeys = new Set(
+      chosen
+        .filter((member) => member.level === toLevel)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((member) => normalize(member.aucEmail))
     );
-    const to = recipients.filter((r) => directorKeys.has(normalize(r.aucEmail)));
-    const cc = recipients.filter((r) => !directorKeys.has(normalize(r.aucEmail)));
-    if (!to.length) throw new Error("No director is ticked, so there is nobody to send it to.");
+    const wanted = recipients.filter((r) => toKeys.has(normalize(r.aucEmail)));
+    const to = audience.type === "subcommittee" ? wanted.slice(0, 1) : wanted;
+    const toSet = new Set(to.map((r) => normalize(r.aucEmail)));
+    const cc = recipients.filter((r) => !toSet.has(normalize(r.aucEmail)));
+    if (!to.length) {
+      throw new Error(
+        audience.type === "subcommittee"
+          ? "This sub-committee has no head ticked, so there is nobody to address it to."
+          : "No director is ticked, so there is nobody to send it to."
+      );
+    }
     const names = to.map((r) => r.name.split(/\s+/)[0] || "there");
     const firstName = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
     try {
@@ -7898,7 +7919,7 @@ async function sendTeamEmail(
         body: JSON.stringify({ raw })
       });
       if (!response.ok) throw new Error(`Gmail refused it: ${(await response.text()).slice(0, 200)}`);
-      console.log(`Team email "${subject}" by ${senderEmail}: to ${to.length} directors, cc ${cc.length}.`);
+      console.log(`Team email "${subject}" by ${senderEmail}: to ${to.map((r) => r.aucEmail).join(", ")}, cc ${cc.length}.`);
       return { recipients: recipients.length, sent: recipients.length, failed };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
