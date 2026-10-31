@@ -356,14 +356,42 @@ function membershipPill(status) {
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const norm = (v) => String(v ?? "").trim().toLowerCase();
-/* Keep committee grouping tolerant to slash/spacing variants like
-   "PR / Fundraising" vs "PR/Fundraising" and "Branding / Media" vs "Branding/Media". */
-const committeeKey = (v) => String(v ?? "")
-  .trim()
-  .toLowerCase()
-  .replaceAll("/", " ")
-  .replaceAll("\u2019", "'")
-  .replace(/\s+/g, " ");
+/* Keep committee grouping tolerant to ids and punctuation variants like
+   "pr-fundraising", "PR / Fundraising", "PR & Fundraising" and
+   "branding-media", "Branding / Media", "Branding & Media". */
+const COMMITTEE_ALIASES = {
+  "tech": "tech",
+  "tech team": "tech",
+  "tech director": "tech",
+  "operations": "operations",
+  "branding media": "branding-media",
+  "branding and media": "branding-media",
+  "branding-media": "branding-media",
+  "hr": "hr",
+  "pr": "pr-fundraising",
+  "fundraising": "pr-fundraising",
+  "pr fundraising": "pr-fundraising",
+  "pr and fundraising": "pr-fundraising",
+  "pr-fundraising": "pr-fundraising",
+  "visits": "visits",
+  "childrens day": "childrens-day",
+  "children day": "childrens-day",
+  "children day director": "childrens-day",
+  "childrens-day": "childrens-day",
+  "initiatives": "initiatives",
+  "initiatives director": "initiatives"
+};
+const committeeKey = (v) => {
+  const flat = String(v ?? "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("\u2019", "'")
+    .replaceAll("'", "")
+    .replaceAll("&", " and ")
+    .replaceAll("/", " ")
+    .replace(/\s+/g, " ");
+  return COMMITTEE_ALIASES[flat] ?? flat;
+};
 
 let state = { admin: null, committees: [], members: [], unseeded: [], subsByCommittee: {}, search: "", editing: null };
 
@@ -470,7 +498,7 @@ async function load(email) {
 /* Only this committee's sub-committees. Picking Branding must not offer PR's. */
 function subsFor(committee) {
   return state.subsByCommittee[committee] ?? state.subsByCommittee[
-    Object.keys(state.subsByCommittee).find((c) => norm(c) === norm(committee)) ?? ""
+    Object.keys(state.subsByCommittee).find((c) => committeeKey(c) === committeeKey(committee)) ?? ""
   ] ?? [];
 }
 
