@@ -356,6 +356,14 @@ function membershipPill(status) {
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const norm = (v) => String(v ?? "").trim().toLowerCase();
+/* Keep committee grouping tolerant to slash/spacing variants like
+   "PR / Fundraising" vs "PR/Fundraising" and "Branding / Media" vs "Branding/Media". */
+const committeeKey = (v) => String(v ?? "")
+  .trim()
+  .toLowerCase()
+  .replaceAll("/", " ")
+  .replaceAll("\u2019", "'")
+  .replace(/\s+/g, " ");
 
 let state = { admin: null, committees: [], members: [], unseeded: [], subsByCommittee: {}, search: "", editing: null };
 
@@ -602,7 +610,7 @@ function renderTeams() {
   }
 
   el.innerHTML = state.committees.map((committee) => {
-    const onTeam = state.members.filter((m) => norm(m.department) === norm(committee));
+    const onTeam = state.members.filter((m) => committeeKey(m.department) === committeeKey(committee));
     const people = onTeam.filter(matches);
     const total = onTeam.length;
     const counts = LEVELS.map((l) => onTeam.filter((m) => m.level === l.key).length);
