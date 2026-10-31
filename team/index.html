@@ -513,15 +513,23 @@ function positionOptions(current) {
 
 function renderStats() {
   const admins = state.members.filter((m) => m.isAdmin).length;
+  const membersOnly = state.members.filter((m) => m.level === "member");
+  const boardOnly = state.members.filter((m) => m.level !== "member");
   const accepted = state.members.filter(tracked);
   const count = (status) => accepted.filter((m) => statusOf(m) === status).length;
+  const inClub = count(IN_CLUB);
+  const confirmed = count(CONFIRMED);
+  const waiting = count(WAITING);
+  const notJoining = count(NOT_JOINING);
   const cards = [
-    ["People on the board", state.members.length],
-    ["Teams", state.committees.length],
-    ["Accepted members", accepted.length],
-    ["Waiting on them", count(WAITING)],
-    ["Confirmed by email", count(CONFIRMED)],
-    ["In the club", count(IN_CLUB)],
+    ["Total people on team board", state.members.length],
+    ["Board leaders (directors + heads)", boardOnly.length],
+    ["Committee members (all)", membersOnly.length],
+    ["Members currently in the club", inClub],
+    ["Members confirmed by email", confirmed],
+    ["Members waiting for confirmation", waiting],
+    ["Members not joining", notJoining],
+    ["Committees", state.committees.length],
     ["With dashboard access", admins]
   ];
   document.getElementById("stats").innerHTML = cards
