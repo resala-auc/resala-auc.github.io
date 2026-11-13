@@ -1,2 +1,5 @@
 [functions.submit]
 verify_jwt = false
+
+[functions.forms-api]
+verify_jwt = false

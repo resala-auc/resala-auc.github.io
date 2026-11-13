@@ -135,6 +135,43 @@ supabase functions deploy submit --project-ref upnmxdgqdkvgzfwqaicb --no-verify-
 supabase functions deploy send-interview-reminders --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api
 ```
 
+## Email API (for trusted outside developers)
+
+`supabase/functions/forms-api/` lets a trusted developer's server send email
+from the Resala Gmail account: recipients, subject, body, and when to send
+(now, after a delay, or at a time). Developer docs: `docs/forms-api.md`.
+
+Setup, once:
+
+1. Run the three files in `supabase/migrations/` in order in the SQL editor.
+2. `supabase functions deploy forms-api --project-ref upnmxdgqdkvgzfwqaicb --no-verify-jwt --use-api`
+   (reuses the `GMAIL_*` and `REMINDER_JOB_SECRET` secrets).
+3. Schedule the sender:
+
+```sql
+select cron.schedule(
+  'forms-api-worker-every-5-minutes',
+  '*/5 * * * *',
+  $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/forms-api/internal/run',
+    headers := jsonb_build_object(
+      'Content-type', 'application/json',
+      'x-reminder-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminder_job_secret')
+    ),
+    body := '{}'::jsonb
+  ) as request_id;
+  $$
+);
+```
+
+Per developer: `node scripts/forms-api-key.mjs "<who it is for>" [reply-to@address]`
+prints a key and the SQL that registers it. Whoever holds a key can send any
+email as Resala, so give keys only to developers you trust. Caps are columns on
+`forms_api_clients`; every email is logged in `forms_api_messages`. Revoke with
+`update forms_api_clients set active = false where key_prefix = '…'`; set the
+`FORMS_API_DISABLED=true` secret to switch the whole API off.
+
 ## Notes
 
 - The landing page links directly to `/apply/`.
