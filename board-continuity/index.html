@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Board Continuity &amp; Commitment | Resala AUC</title>
-    <meta name="description" content="Resala AUC Board Continuity & Commitment Form, Fall 2026 – Spring 2027: a letter from the President, and a reflection on your semester and your intentions for the next one.">
+    <meta name="description" content="Resala AUC Board Continuity & Commitment Form, Fall 2026 – Spring 2027: a letter to the hearts behind Resala, and a reflection on your semester and your intentions for the next one.">
     <meta name="theme-color" content="#0c2c80">
     <meta name="robots" content="noindex">
     <link rel="icon" type="image/png" href="../favicon.png">
@@ -94,8 +94,10 @@
       }
       .wrap { width: min(100% - 32px, 820px); margin: 0 auto; position: relative; z-index: 1; }
       .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 44px; }
-      .logo { position: relative; display: block; width: 60px; height: 60px; overflow: hidden; background: var(--white); border-radius: 12px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); }
-      .logo img { position: absolute; top: 50%; left: 50%; width: 540px; max-width: none; height: auto; transform: translate(-50%, -50%); }
+      /* The badge is a 217px circle at (851, 431) on the 1920x1080 logo canvas;
+         scale the canvas so that circle exactly fills the frame. */
+      .logo { --logo: 64px; position: relative; display: block; width: var(--logo); height: var(--logo); overflow: hidden; border-radius: 50%; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
+      .logo img { position: absolute; left: calc(var(--logo) * -851 / 217); top: calc(var(--logo) * -431 / 217); width: calc(var(--logo) * 1920 / 217); max-width: none; height: auto; }
       .term-pill {
         font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
         border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 999px; padding: 6px 12px; color: var(--sky-pale);
@@ -306,8 +308,7 @@
         body { font-size: 16px; }
         .hero { padding-bottom: 40px; }
         .topbar { margin-bottom: 30px; }
-        .logo { width: 50px; height: 50px; }
-        .logo img { width: 450px; }
+        .logo { --logo: 52px; }
         .term-pill { font-size: 11.5px; padding: 5px 10px; }
         .page { margin-top: 18px; }
         .factors, .grid-2, .choices.inline { grid-template-columns: 1fr; }
@@ -334,7 +335,7 @@
       <div class="wrap">
         <div class="topbar">
           <a class="logo" href="../" aria-label="Resala AUC home">
-            <img src="../The brand System/logos/Resala Logo - source.svg" alt="Resala AUC" width="480" height="270">
+            <img src="../The brand System/assets/Resala Logo - source.png" alt="Resala AUC" width="1920" height="1080">
           </a>
           <span class="term-pill">Fall 2026 – Spring 2027</span>
         </div>
@@ -347,7 +348,7 @@
       <div class="progress-inner">
         <div style="flex:1;min-width:0;">
           <ol class="steps" aria-label="Form progress">
-            <li id="step-1" aria-current="step"><span class="step-chip"><span class="dot">1</span><span class="label"><span class="long">A Letter from the President</span><span class="short">The Letter</span></span></span></li>
+            <li id="step-1" aria-current="step"><span class="step-chip"><span class="dot">1</span><span class="label"><span class="long">To the Hearts Behind Resala</span><span class="short">From the Heart</span></span></span></li>
             <li id="step-2"><span class="step-chip"><span class="dot">2</span><span class="label"><span class="long">Information &amp; Reflection</span><span class="short">Reflection</span></span></span></li>
           </ol>
           <div class="bar" aria-hidden="true"><span id="bar-fill"></span></div>
@@ -361,7 +362,7 @@
       <section class="page fade-in" id="page-1" tabindex="-1" aria-labelledby="letter-title">
         <article class="card letter">
           <p class="letter-kicker">Page 1 of 2</p>
-          <h2 id="letter-title">A Letter from the President</h2>
+          <h2 id="letter-title">To the Hearts Behind Resala</h2>
           <div class="letter-body">
             <p class="salutation">Dear Resala Family,</p>
             <p>From being a member to becoming Resala’s President, this organization has been one of the biggest journeys of my life. I have sacrificed a lot, but gained even more.</p>
