@@ -2782,6 +2782,12 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, ...(await loadHeadsOnboardingStatus(token, payload.applicantEmail)) });
     }
 
+    if ((payload as { mode?: string }).mode === "board-continuity-submit") {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      return jsonResponse({ ok: true, ...(await submitBoardContinuity(token, payload as unknown as BoardContinuityPayload)) });
+    }
+
     if (isHeadsOnboardingSubmitPayload(payload)) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -14709,6 +14715,98 @@ async function loadHeadsOnboardingStatus(
  * actually present in the payload gets written — a blank notes field on a
  * role-confirm-only save must never wipe out notes sent in earlier.
  */
+/*
+ * The Board Continuity & Commitment Form (/board-continuity/): every current
+ * Board member reflects on the semester and says whether they want to carry
+ * on. Public like the other self-filled forms, so it can only ever append —
+ * one row per submission, never an edit. A second submission from the same
+ * email is a new row; the Presidential Team reads the latest by Timestamp.
+ */
+const BOARD_CONTINUITY_SHEET_NAME = "Board Continuity";
+const BOARD_CONTINUITY_FIELDS: Array<{ key: keyof BoardContinuityPayload; header: string; required: boolean; max: number }> = [
+  { key: "fullName", header: "Full Name", required: true, max: 120 },
+  { key: "aucEmail", header: "AUC Email", required: true, max: 160 },
+  { key: "position", header: "Current Board Position & Team", required: true, max: 200 },
+  { key: "bestFit", header: "Why I Am the Best Fit", required: true, max: 5000 },
+  { key: "shortcomings", header: "Biggest Shortcomings", required: true, max: 5000 },
+  { key: "negativeFactors", header: "Factors That Negatively Impacted Me", required: true, max: 5000 },
+  { key: "learned", header: "What I Learned", required: true, max: 5000 },
+  { key: "stillFit", header: "Still a Good Fit? Why", required: true, max: 5000 },
+  { key: "messages", header: "Messages to Resala", required: false, max: 5000 },
+  { key: "recommendations", header: "Recommendations for Next Semester", required: false, max: 5000 },
+  { key: "continueJourney", header: "Continue With Resala Next Semester", required: true, max: 10 },
+  { key: "boardConsideration", header: "Board Position Next Semester", required: true, max: 120 },
+  { key: "otherConsiderations", header: "Anything Else to Consider", required: false, max: 5000 }
+];
+const BOARD_CONTINUITY_HEADERS = ["Timestamp", ...BOARD_CONTINUITY_FIELDS.map((field) => field.header)];
+const BOARD_CONTINUITY_CONTINUE_OPTIONS = ["Yes", "No"];
+const BOARD_CONTINUITY_CONSIDERATION_OPTIONS = [
+  "Yes, in my current position",
+  "Yes, but I am open to a different position",
+  "No, I would prefer to continue as a Resala member rather than a Board member",
+  "No, I do not wish to continue with Resala"
+];
+
+type BoardContinuityPayload = {
+  mode: "board-continuity-submit";
+  fullName: string;
+  aucEmail: string;
+  position: string;
+  bestFit: string;
+  shortcomings: string;
+  negativeFactors: string;
+  learned: string;
+  stillFit: string;
+  messages?: string;
+  recommendations?: string;
+  continueJourney: string;
+  boardConsideration: string;
+  otherConsiderations?: string;
+};
+
+async function submitBoardContinuity(
+  token: string,
+  payload: BoardContinuityPayload
+): Promise<{ saved: true; submittedAt: string }> {
+  const values: Record<string, string> = {};
+  for (const field of BOARD_CONTINUITY_FIELDS) {
+    const value = String(payload[field.key] ?? "").trim();
+    if (field.required && !value) throw new Error(`Please answer: ${field.header}.`);
+    if (value.length > field.max) throw new Error(`"${field.header}" is too long (${field.max} characters at most).`);
+    values[field.key] = value;
+  }
+
+  values.aucEmail = values.aucEmail.toLowerCase();
+  if (!/^[^\s@]+@aucegypt\.edu$/.test(values.aucEmail)) {
+    throw new Error("Please use your AUC email address (ending in @aucegypt.edu).");
+  }
+  if (!BOARD_CONTINUITY_CONTINUE_OPTIONS.includes(values.continueJourney)) {
+    throw new Error("Please choose Yes or No for continuing with Resala.");
+  }
+  if (!BOARD_CONTINUITY_CONSIDERATION_OPTIONS.includes(values.boardConsideration)) {
+    throw new Error("Please choose one of the Board position options.");
+  }
+  // The page enforces this too; a crafted request must not record both.
+  if (values.continueJourney === "No" && values.boardConsideration !== BOARD_CONTINUITY_CONSIDERATION_OPTIONS[3]) {
+    throw new Error("You said you will not continue with Resala, so the Board position answer must match.");
+  }
+
+  await ensureSheetTab(token, BOARD_CONTINUITY_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_CONTINUITY_SHEET_NAME, BOARD_CONTINUITY_HEADERS);
+
+  const submittedAt = new Date().toISOString();
+  const row = [submittedAt, ...BOARD_CONTINUITY_FIELDS.map((field) => values[field.key])];
+  // RAW keeps an answer that starts with "=" as text instead of a formula.
+  await sheetsFetch(
+    token,
+    "POST",
+    `${sheetRange(BOARD_CONTINUITY_SHEET_NAME, `A:${columnLetter(BOARD_CONTINUITY_HEADERS.length)}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { values: [row] }
+  );
+
+  return { saved: true, submittedAt };
+}
+
 async function submitHeadsOnboarding(
   token: string,
   payload: HeadsOnboardingSubmitPayload

@@ -31,6 +31,8 @@ await cp("task-files", "dist/task-files", { recursive: true });
 await cp("onboarding", "dist/onboarding", { recursive: true });
 // The post-acceptance checklist a newly accepted head fills in themselves.
 await cp("heads-onboarding", "dist/heads-onboarding", { recursive: true });
+// Every current Board member's end-of-semester reflection and continuity answer.
+await cp("board-continuity", "dist/board-continuity", { recursive: true });
 // Where applicants hand in a task their committee collects before the interview.
 await cp("tasks", "dist/tasks", { recursive: true });
 // The page used to live at /task/, and emails carrying that address are already
