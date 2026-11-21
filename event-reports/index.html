@@ -81,10 +81,16 @@
       <!-- Sign in -->
       <section class="page fade-in" id="view-signin" aria-labelledby="signin-title">
         <div class="card">
-          <h2 id="signin-title">Sign in with your AUC account</h2>
-          <p>This portal is for each committee's Director and Vice-Director. We'll find your committee from the Board Hierarchy, so you only see and edit your own committee's reports.</p>
-          <div class="signin-box" id="google-signin"></div>
-          <p class="form-alert" id="signin-error" role="alert" hidden></p>
+          <h2 id="signin-title">Open your committee's reports</h2>
+          <p>For each committee's Director and Vice-Director. Enter your AUC email and we'll open your committee's reports from the Board Hierarchy.</p>
+          <form id="email-form" novalidate>
+            <div class="field" data-field="email" style="margin-bottom:14px;">
+              <label class="field-label" for="email">AUC email</label>
+              <input type="email" id="email" autocomplete="email" inputmode="email" placeholder="name@aucegypt.edu" maxlength="160" required>
+            </div>
+            <p class="form-alert" id="signin-error" role="alert" hidden></p>
+            <button type="submit" class="btn btn-navy" id="email-btn">Open my committee</button>
+          </form>
         </div>
       </section>
 
@@ -243,9 +249,11 @@
     <footer class="footer">Resala AUC · Event Reports</footer>
 
     <script type="module">
-      import { mountSignIn, currentSession, sessionToken, signOut, signedOutGuard, isSignInError } from "../admin-auth.js";
       const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
       const isPreview = new URLSearchParams(location.search).get("preview") === "1";
+      const EMAIL_KEY = "resala-event-reports-email";
+      let writerEmail = "";
+      try { writerEmail = localStorage.getItem(EMAIL_KEY) || ""; } catch {}
       const $ = (id) => document.getElementById(id);
       const norm = (v) => String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
       const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -272,9 +280,9 @@
 
       async function api(payload) {
         if (isPreview) return previewApi(payload);
-        const res = await fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...payload, session: sessionToken() }) });
+        const res = await fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...payload, email: writerEmail }) });
         let body; try { body = await res.json(); } catch { throw new Error(`The server answered ${res.status} with no detail.`); }
-        if (!res.ok || body.ok === false) throw signedOutGuard(new Error(body.error || `The server answered ${res.status} with no detail.`));
+        if (!res.ok || body.ok === false) throw new Error(body.error || `The server answered ${res.status} with no detail.`);
         return body;
       }
 
@@ -421,13 +429,29 @@
         openEditor(t.dataset.event, t.dataset.other);
       });
       ["back", "back-bottom"].forEach((id) => $(id).addEventListener("click", () => { renderList(); show("list"); }));
-      $("signout").addEventListener("click", () => { signOut(); location.reload(); });
+      $("signout").addEventListener("click", () => { try { localStorage.removeItem(EMAIL_KEY); } catch {} location.reload(); });
 
       async function load() {
         absorb(await api({ mode: "event-report-portal" }));
         renderList(); show("list");
       }
-      function signInError(error) { const el = $("signin-error"); el.textContent = error.message; el.hidden = false; }
+      function signInError(error) { const el = $("signin-error"); el.textContent = error.message; el.hidden = false; show("signin"); }
+
+      $("email-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const value = $("email").value.trim().toLowerCase();
+        if (!/^[^\s@]+@aucegypt\.edu$/.test(value)) { signInError(new Error("Enter your AUC email (ending in @aucegypt.edu).")); return; }
+        const btn = $("email-btn"); btn.disabled = true; btn.innerHTML = '<span class="spinner" aria-hidden="true"></span> Opening…';
+        writerEmail = value;
+        try {
+          await load();
+          $("signin-error").hidden = true;
+          try { localStorage.setItem(EMAIL_KEY, value); } catch {}
+        } catch (error) {
+          writerEmail = "";
+          signInError(error);
+        } finally { btn.disabled = false; btn.textContent = "Open my committee"; }
+      });
 
       /* ?preview=1: stand-in committee and reports, nothing read or saved. */
       function previewApi(payload) {
@@ -456,8 +480,8 @@
         // &open=<event> jumps straight to that event's editor, for checking layouts.
         load().then(() => { const o = new URLSearchParams(location.search).get("open"); if (o) openEditor(o, ""); });
       } else {
-        mountSignIn({ endpoint: ENDPOINT, container: $("google-signin"), onSignedIn: () => { $("signin-error").hidden = true; return load(); }, onError: signInError });
-        if (currentSession()) load().catch((error) => { if (!isSignInError(error)) signInError(error); });
+        // Remembered on this device: open straight to the committee.
+        if (writerEmail) { $("email").value = writerEmail; load().catch((error) => { try { localStorage.removeItem(EMAIL_KEY); } catch {} writerEmail = ""; signInError(error); }); }
       }
     </script>
   </body>

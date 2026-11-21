@@ -2793,7 +2793,7 @@ Deno.serve((request) =>
       const mode = (payload as { mode?: string }).mode;
       try {
         if (mode === "event-report-portal") {
-          return jsonResponse({ ok: true, ...(await loadEventReportPortal(token)) });
+          return jsonResponse({ ok: true, ...(await loadEventReportPortal(token, (payload as { email?: unknown }).email)) });
         }
         if (mode === "event-report-save") {
           return jsonResponse({ ok: true, ...(await saveEventReport(token, payload as unknown as EventReportSavePayload)) });
@@ -14991,8 +14991,21 @@ async function readEventReportRows(token: string): Promise<string[][]> {
   return ((await response.json()).values ?? []) as string[][];
 }
 
-async function eventReportWriter(token: string) {
-  const access = await requireCommitteeAccess(token, signedInEmail());
+/*
+ * The portal opens on a typed email, no Google sign-in (the President's call,
+ * for speed): any address that is a Director / Vice-Director row in Board
+ * Hierarchy gets that committee. A Google session, when present, still wins.
+ * The dashboard that reads every committee's reports stays behind sign-in.
+ */
+async function eventReportWriter(token: string, typedEmail: unknown) {
+  const email = requestIdentity.getStore()?.email || normalize(typedEmail);
+  if (!email) throw new ReportError("Enter your AUC email.");
+  let access: CommitteeAccess;
+  try {
+    access = await requireCommitteeAccess(token, email);
+  } catch {
+    throw new ReportError("This email isn't a Director or Vice-Director in the Board Hierarchy. Use the AUC email the Board has on file, or ask HR to add you.");
+  }
   const committee = cleanCommittee(access.department);
   const kind = committeeKind(access.department);
   return { ...access, committee, kind, roleQuestion: ROLE_QUESTIONS[kind] };
@@ -15007,8 +15020,8 @@ function eventReportOptions() {
   };
 }
 
-async function loadEventReportPortal(token: string) {
-  const writer = await eventReportWriter(token);
+async function loadEventReportPortal(token: string, typedEmail: unknown) {
+  const writer = await eventReportWriter(token, typedEmail);
   const year = academicYear(new Date());
   const mine = normalizeName(writer.committee);
   const reports = (await readEventReportRows(token))
@@ -15024,7 +15037,7 @@ async function loadEventReportPortal(token: string) {
 }
 
 async function saveEventReport(token: string, payload: EventReportSavePayload) {
-  const writer = await eventReportWriter(token);
+  const writer = await eventReportWriter(token, payload.email);
   const clean = validateReport(payload);
   const year = academicYear(new Date());
   const key = reportKey(year, clean.event, clean.eventOther, writer.committee);
