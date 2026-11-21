@@ -28,6 +28,11 @@ const GOOGLE_SIGNIN_CLIENT_ID = Deno.env.get("GOOGLE_SIGNIN_CLIENT_ID") ?? "";
 // Signs dashboard sessions. Changing it signs everybody out.
 const SESSION_SIGNING_SECRET = Deno.env.get("SESSION_SIGNING_SECRET") ?? "";
 import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  academicYear, cleanCommittee, committeeKind, EVENT_REPORT_EVENTS, EVENT_REPORT_HEADERS,
+  normalizeName, planUpsert, PREP_ENOUGH_OPTIONS, PREP_START_OPTIONS, REPEATED_EVENTS, reportFromRow, reportKey,
+  ReportError, ROLE_QUESTIONS, rowFromReport, validateReport, type StoredReport
+} from "./event-reports.ts";
 const requestIdentity = new AsyncLocalStorage<RequestIdentity>();
 const GMAIL_CLIENT_SECRET = Deno.env.get("GMAIL_CLIENT_SECRET") ?? "";
 const GMAIL_REFRESH_TOKEN = Deno.env.get("GMAIL_REFRESH_TOKEN") ?? "";
@@ -2782,13 +2787,36 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, ...(await loadHeadsOnboardingStatus(token, payload.applicantEmail)) });
     }
 
+    if (String((payload as { mode?: string }).mode ?? "").startsWith("event-report-")) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      const mode = (payload as { mode?: string }).mode;
+      try {
+        if (mode === "event-report-portal") {
+          return jsonResponse({ ok: true, ...(await loadEventReportPortal(token)) });
+        }
+        if (mode === "event-report-save") {
+          return jsonResponse({ ok: true, ...(await saveEventReport(token, payload as unknown as EventReportSavePayload)) });
+        }
+        if (mode === "event-report-load") {
+          const viewer = requireViewer(EVENT_REPORTS_VIEWER_EMAILS, "Event Reports");
+          return jsonResponse({ ok: true, viewer, ...(await loadEventReportsDashboard(token)) });
+        }
+      } catch (error) {
+        // A rule broken by the writer is their message to read, not a server fault.
+        if (error instanceof ReportError) return jsonResponse({ ok: false, error: error.message }, 400);
+        throw error;
+      }
+      throw new Error("Unknown event report action.");
+    }
+
     if (
       (payload as { mode?: string }).mode === "board-continuity-load" ||
       (payload as { mode?: string }).mode === "board-continuity-decide"
     ) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
-      const viewer = await requireBoardContinuityViewer();
+      const viewer = requireViewer(BOARD_CONTINUITY_VIEWER_EMAILS, "Board Continuity");
       if ((payload as { mode?: string }).mode === "board-continuity-decide") {
         await saveBoardContinuityDecision(token, viewer, payload as unknown as BoardContinuityDecisionPayload);
       }
@@ -14827,10 +14855,24 @@ async function submitBoardContinuity(
  * edit access could add themselves to. BOARD_CONTINUITY_VIEWER_EMAILS can
  * override the list without a code change.
  */
-const BOARD_CONTINUITY_VIEWER_EMAILS = (Deno.env.get("BOARD_CONTINUITY_VIEWER_EMAILS") ?? "resala@aucegypt.edu,youssefalaref@aucegypt.edu")
-  .split(/[,;\s]+/)
-  .map((value) => normalize(value))
-  .filter(Boolean);
+const LEADERSHIP_DEFAULT_VIEWERS = "resala@aucegypt.edu,youssefalaref@aucegypt.edu";
+function viewerList(envName: string): string[] {
+  return (Deno.env.get(envName) ?? LEADERSHIP_DEFAULT_VIEWERS)
+    .split(/[,;\s]+/)
+    .map((value) => normalize(value))
+    .filter(Boolean);
+}
+/* Two lists on purpose: Event Reports may be widened (next year's President)
+   without also showing anyone the candid continuity answers. */
+const BOARD_CONTINUITY_VIEWER_EMAILS = viewerList("BOARD_CONTINUITY_VIEWER_EMAILS");
+const EVENT_REPORTS_VIEWER_EMAILS = viewerList("EVENT_REPORTS_VIEWER_EMAILS");
+
+/** The signed-in caller must be on `allowed`; one check for every leadership dashboard. */
+function requireViewer(allowed: string[], dashboard: string): { name: string; email: string } {
+  const email = signedInEmail();
+  if (allowed.includes(normalize(email))) return { name: "", email: email.trim() };
+  throw new Error(`This account cannot open the ${dashboard} dashboard. Sign in with the Resala account.`);
+}
 const BOARD_CONTINUITY_DECISIONS_SHEET_NAME = "Board Continuity Decisions";
 const BOARD_CONTINUITY_DECISIONS_HEADERS = ["AUC Email", "Status", "Proposed Role", "Notes", "Updated By", "Updated At"];
 const BOARD_CONTINUITY_STATUSES = ["Undecided", "Keep in role", "Move to new role", "Continue as member", "Not continuing"];
@@ -14842,12 +14884,6 @@ type BoardContinuityDecisionPayload = {
   proposedRole?: string;
   notes?: string;
 };
-
-async function requireBoardContinuityViewer(): Promise<{ name: string; email: string }> {
-  const email = signedInEmail();
-  if (BOARD_CONTINUITY_VIEWER_EMAILS.includes(normalize(email))) return { name: "", email: email.trim() };
-  throw new Error("This account cannot open the Board Continuity dashboard. Sign in with the Resala account.");
-}
 
 async function loadBoardContinuity(token: string): Promise<{
   questions: Array<{ key: string; header: string }>;
@@ -14931,6 +14967,134 @@ async function saveBoardContinuityDecision(
       { values }
     );
   }
+}
+
+/*
+ * Event Reports (/event-reports/ portal, /event-reports-dashboard/). The rules
+ * live in event-reports.ts; this is the sheet and access plumbing around them.
+ * Writers are a committee's Director / Vice-Director in Board Hierarchy, so the
+ * committee comes from the sheet, never from the request.
+ */
+const EVENT_REPORTS_SHEET_NAME = "Event Reports";
+
+type EventReportSavePayload = {
+  mode: "event-report-save";
+  version?: number;
+  [key: string]: unknown;
+};
+
+async function readEventReportRows(token: string): Promise<string[][]> {
+  await ensureSheetTab(token, EVENT_REPORTS_SHEET_NAME);
+  await ensureSheetHeaders(token, EVENT_REPORTS_SHEET_NAME, EVENT_REPORT_HEADERS);
+  const width = columnLetter(EVENT_REPORT_HEADERS.length);
+  const response = await sheetsFetch(token, "GET", sheetRange(EVENT_REPORTS_SHEET_NAME, `A2:${width}`));
+  return ((await response.json()).values ?? []) as string[][];
+}
+
+async function eventReportWriter(token: string) {
+  const access = await requireCommitteeAccess(token, signedInEmail());
+  const committee = cleanCommittee(access.department);
+  const kind = committeeKind(access.department);
+  return { ...access, committee, kind, roleQuestion: ROLE_QUESTIONS[kind] };
+}
+
+function eventReportOptions() {
+  return {
+    events: EVENT_REPORT_EVENTS,
+    repeatedEvents: REPEATED_EVENTS,
+    prepStartOptions: PREP_START_OPTIONS,
+    prepEnoughOptions: PREP_ENOUGH_OPTIONS
+  };
+}
+
+async function loadEventReportPortal(token: string) {
+  const writer = await eventReportWriter(token);
+  const year = academicYear(new Date());
+  const mine = normalizeName(writer.committee);
+  const reports = (await readEventReportRows(token))
+    .map(reportFromRow)
+    .filter((r) => r.academicYear === year && normalizeName(r.committee) === mine);
+  return {
+    writer: { name: writer.name, email: writer.email, positionType: writer.positionType, committee: writer.committee, kind: writer.kind },
+    roleQuestion: writer.roleQuestion,
+    academicYear: year,
+    reports,
+    ...eventReportOptions()
+  };
+}
+
+async function saveEventReport(token: string, payload: EventReportSavePayload) {
+  const writer = await eventReportWriter(token);
+  const clean = validateReport(payload);
+  const year = academicYear(new Date());
+  const key = reportKey(year, clean.event, clean.eventOther, writer.committee);
+  const rows = await readEventReportRows(token);
+  const plan = planUpsert(rows, key, Number(payload.version) || 0);
+  const now = new Date().toISOString();
+  const existing = plan.index === -1 ? null : reportFromRow(rows[plan.index]);
+
+  const stored: StoredReport = {
+    ...clean,
+    key,
+    academicYear: year,
+    committee: writer.committee,
+    roleQuestion: writer.roleQuestion,
+    createdBy: existing?.createdBy || writer.email,
+    createdAt: existing?.createdAt || now,
+    updatedBy: writer.email,
+    updatedAt: now,
+    version: String(plan.version)
+  };
+  const row = rowFromReport(stored);
+  const width = columnLetter(EVENT_REPORT_HEADERS.length);
+
+  // RAW keeps an answer that starts with "=" as text instead of a formula.
+  if (plan.index === -1) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(EVENT_REPORTS_SHEET_NAME, `A:${width}`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values: [row] }
+    );
+  } else {
+    const line = plan.index + 2;
+    await sheetsFetch(token, "PUT", `${sheetRange(EVENT_REPORTS_SHEET_NAME, `A${line}:${width}${line}`)}?valueInputOption=RAW`, {
+      values: [row]
+    });
+  }
+  return { saved: true, report: reportFromRow(row) };
+}
+
+async function loadEventReportsDashboard(token: string) {
+  const reports = (await readEventReportRows(token)).map(reportFromRow).filter((r) => r.key);
+
+  // Every committee that has a Director, so the grid shows who has NOT reported
+  // too, with whom to remind.
+  const { entries } = await loadHierarchy(token);
+  const committees = new Map<string, { committee: string; kind: string; directors: Array<{ name: string; email: string; positionType: string }> }>();
+  for (const entry of entries) {
+    if (!entry.department || (entry.positionType !== "Director" && entry.positionType !== "Vice-Director")) continue;
+    const name = cleanCommittee(entry.department);
+    const k = normalizeName(name);
+    if (!committees.has(k)) committees.set(k, { committee: name, kind: committeeKind(entry.department), directors: [] });
+    committees.get(k)!.directors.push({
+      name: String(entry.name ?? "").trim(),
+      email: String(entry.aucEmail ?? "").trim(),
+      positionType: entry.positionType
+    });
+  }
+  // A committee that reported but has since left the hierarchy still shows.
+  for (const r of reports) {
+    const k = normalizeName(r.committee);
+    if (!committees.has(k)) committees.set(k, { committee: r.committee, kind: committeeKind(r.committee), directors: [] });
+  }
+
+  return {
+    currentYear: academicYear(new Date()),
+    reports,
+    committees: [...committees.values()].sort((a, b) => a.committee.localeCompare(b.committee)),
+    ...eventReportOptions()
+  };
 }
 
 async function submitHeadsOnboarding(

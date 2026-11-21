@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Event Reports Dashboard | Resala AUC</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0c2c80">
+<link rel="icon" type="image/png" href="../favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../dashboard.css">
+<style>
+  .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .bar select { min-height: 38px; padding: 6px 30px 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3); background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23ffffff' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 10px center; color: var(--white); font-weight: 700; -webkit-appearance: none; appearance: none; cursor: pointer; }
+  .bar select option { color: var(--ink); }
+  .panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--line-soft); }
+  .panel-head h2 { margin: 0; font-size: 1.1rem; font-weight: 900; color: var(--navy); }
+  .panel-head p { margin: 0; color: var(--muted); font-size: 14px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); margin-left: auto; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  .grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.cov { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 720px; font-size: 14px; }
+  .cov th, .cov td { border-bottom: 1px solid var(--line-soft); padding: 8px; text-align: center; }
+  .cov thead th { position: sticky; top: 0; background: #fafbfd; font-size: 12.5px; font-weight: 800; color: var(--muted); vertical-align: bottom; line-height: 1.25; min-width: 82px; }
+  .cov th.ev { text-align: left; position: sticky; left: 0; background: var(--white); z-index: 1; min-width: 180px; }
+  .cov thead th.ev { background: #fafbfd; z-index: 2; }
+  .cov th.ev button { all: unset; cursor: pointer; font-weight: 800; color: var(--navy); font-size: 14.5px; }
+  .cov th.ev button:hover { text-decoration: underline; }
+  .cov th.ev button:focus-visible { outline: 3px solid rgba(12,44,128,0.3); border-radius: 4px; }
+  .cov th.ev .n { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+  .cell { display: inline-grid; place-items: center; width: 40px; height: 34px; border-radius: 8px; font-weight: 900; font-variant-numeric: tabular-nums; border: 0; cursor: pointer; font-size: 15px; }
+  .cell:focus-visible { outline: 3px solid rgba(12,44,128,0.3); outline-offset: 1px; }
+  .r1, .r2 { background: var(--red-soft); color: var(--red); }
+  .r3 { background: var(--amber-soft); color: var(--amber); }
+  .r4, .r5 { background: var(--green-soft); color: var(--green); }
+  .cell.cell-missing { background: transparent; color: #a4abb5; font-weight: 600; border: 1.5px dashed #d5dbe5; }
+  .cell.cell-missing:hover { border-color: var(--navy); color: var(--navy); }
+  .swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  .ev-view .head { padding: 20px 22px 16px; border-bottom: 1px solid var(--line-soft); }
+  .ev-view h2 { margin: 6px 0 2px; font-size: 1.6rem; font-weight: 900; color: var(--navy); line-height: 1.2; }
+  .ev-view .meta { color: var(--muted); font-size: 14.5px; }
+  .ev-view .tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; background: var(--white); padding: 8px 14px; font-weight: 700; font-size: 14px; color: var(--muted); cursor: pointer; min-height: 38px; }
+  .seg button[aria-pressed="true"] { background: var(--navy); color: var(--white); }
+  .committee-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .missing { margin-top: 10px; font-size: 13.5px; color: var(--amber); }
+  .ev-body { padding: 6px 22px 24px; }
+  .q-block { padding: 18px 0; border-bottom: 1px solid var(--line-soft); }
+  .q-block:last-child { border-bottom: 0; }
+  .q-block h3 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 800; color: var(--navy); }
+  .q-block.key h3 { color: var(--red); }
+  .q-block.next h3 { color: var(--green); }
+  .ans { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 16px; padding: 8px 0; }
+  .ans + .ans { border-top: 1px dashed var(--line-soft); }
+  .ans .who { font-weight: 800; font-size: 14px; color: var(--ink); }
+  .ans .who small { display: block; font-weight: 600; color: var(--muted); font-size: 12.5px; }
+  .ans .txt { white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: 15px; }
+  .ans .txt.none { color: #8a9098; font-style: italic; }
+  .ans .txt a { color: var(--navy); }
+  .rep { padding: 18px 0; border-bottom: 2px solid var(--line); }
+  .rep:last-child { border-bottom: 0; }
+  .rep h3 { margin: 0 0 4px; font-size: 1.2rem; font-weight: 900; color: var(--navy); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .rep .by { font-size: 13.5px; color: var(--muted); margin-bottom: 8px; }
+  .rep dl { margin: 0; }
+  .rep dt { margin-top: 12px; font-size: 13px; font-weight: 800; color: var(--navy); }
+  .rep dd { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  .back-link { display: inline-flex; }
+
+  @media (max-width: 860px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) {
+    .bar { flex-wrap: wrap; row-gap: 8px; }
+    .bar .spacer { flex: 1 0 100%; height: 0; }
+    .bar-sub { display: none; }
+    .cov th.ev { min-width: 140px; }
+    .ans { grid-template-columns: 1fr; }
+    .ev-view .head, .ev-body { padding-left: 16px; padding-right: 16px; }
+  }
+  @media print {
+    body { background: #fff; font-size: 12pt; }
+    .bar, .stats, #view-home, .tools, .back-link, .toast, .print-hide { display: none !important; }
+    main { width: 100%; margin: 0; }
+    .panel { border: 0; }
+    .q-block, .rep, .ans { break-inside: avoid; }
+    .print-only { display: block !important; }
+  }
+  .print-only { display: none; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="login-card">
+    <div class="badge"><img src="../The brand System/assets/Resala Logo - source.png" alt="Resala AUC" width="1920" height="1080"></div>
+    <h1>Event Reports</h1>
+    <p>Every committee's report on every event, for review and next year's handover. Sign in with the Resala account.</p>
+    <div id="google-signin" style="display:flex;justify-content:center;min-height:44px;"></div>
+    <div class="error hidden" id="login-error"></div>
+  </div>
+</div>
+
+<div class="hidden" id="app">
+  <header class="bar">
+    <div class="badge"><img src="../The brand System/assets/Resala Logo - source.png" alt="" width="1920" height="1080"></div>
+    <div>
+      <div class="bar-title">Event Reports</div>
+      <div class="bar-sub" id="bar-sub"></div>
+    </div>
+    <span class="spacer"></span>
+    <select id="year" aria-label="Academic year"></select>
+    <button class="btn btn-bar" id="refresh" type="button" title="Reload reports">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg>
+      <span class="btn-text">Refresh</span>
+    </button>
+    <button class="btn btn-bar" id="export" type="button" title="Download this year as CSV">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+      <span class="btn-text">Export CSV</span>
+    </button>
+    <button class="btn btn-bar" id="signout" type="button">Sign out</button>
+  </header>
+
+  <main>
+    <section class="stats" id="stats" aria-label="Summary"></section>
+
+    <section id="view-home">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Coverage</h2>
+          <p>Rating each committee gave its own part. Click a number to read, an empty box to copy a reminder.</p>
+          <div class="legend" aria-hidden="true">
+            <span><i class="swatch r5"></i>4–5</span><span><i class="swatch r3"></i>3</span><span><i class="swatch r1"></i>1–2</span><span><i class="swatch" style="border:1.5px dashed #d5dbe5"></i>Not written</span>
+          </div>
+        </div>
+        <div class="grid-wrap"><table class="cov" id="grid"></table></div>
+      </div>
+    </section>
+
+    <section id="view-event" class="panel ev-view hidden" aria-live="polite"></section>
+  </main>
+</div>
+
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script type="module">
+import { mountSignIn, currentSession, sessionToken, signOut, signedOutGuard, isSignInError } from "../admin-auth.js";
+const ENDPOINT = "https://upnmxdgqdkvgzfwqaicb.supabase.co/functions/v1/submit";
+const PORTAL_URL = "https://resala-auc.github.io/event-reports/";
+const isPreview = new URLSearchParams(location.search).get("preview") === "1";
+const $ = (id) => document.getElementById(id);
+const norm = (v) => String(v ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }); };
+const linkify = (text) => esc(text).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
+
+/* The order an event page reads in: what they owned, what went wrong and why,
+   then what next year should do. Same order as the writer's form. */
+const QUESTIONS = [
+  { key: "responsibilities", title: "What each committee was responsible for" },
+  { key: "wentWell", title: "What went well" },
+  { key: "problems", title: "Problems & mistakes", cls: "key" },
+  { key: "causes", title: "Why they happened", cls: "key" },
+  { key: "handling", title: "How they handled them" },
+  { key: "roleAnswer", title: "Committee-specific question", showQuestion: true },
+  { key: "collaboration", title: "Working with other committees", extra: (r) => r.workedWith ? `Worked with: ${r.workedWith}` : "" },
+  { key: "prep", title: "Preparation", value: (r) => [r.prepStart && `Started ${r.prepStart.toLowerCase()}`, r.prepEnough && `Enough time: ${r.prepEnough}`].filter(Boolean).join(" · ") },
+  { key: "nextYear", title: "What next year should do differently", cls: "next" },
+  { key: "numbers", title: "Key numbers" },
+  { key: "links", title: "Files & links", links: true },
+  { key: "occurrences", title: "Dates" }
+];
+
+let state = { viewer: null, reports: [], committees: [], events: [], year: "", currentYear: "", open: null, mode: "question" };
+
+async function api(payload) {
+  if (isPreview) return previewApi();
+  const res = await fetch(ENDPOINT, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ ...payload, session: sessionToken() }) });
+  let body; try { body = await res.json(); } catch { throw new Error(`The server answered ${res.status} with no detail.`); }
+  if (!res.ok || body.ok === false) throw signedOutGuard(new Error(body.error || `The server answered ${res.status} with no detail.`));
+  return body;
+}
+
+function absorb(body) {
+  state.viewer = body.viewer; state.reports = body.reports || []; state.committees = body.committees || [];
+  state.events = (body.events || []).filter((e) => e !== "Other"); state.currentYear = body.currentYear;
+  const years = [...new Set([body.currentYear, ...state.reports.map((r) => r.academicYear)])].filter(Boolean).sort().reverse();
+  if (!state.year || !years.includes(state.year)) state.year = body.currentYear;
+  $("year").innerHTML = years.map((y) => `<option ${y === state.year ? "selected" : ""}>${esc(y)}</option>`).join("");
+}
+
+const yearReports = () => state.reports.filter((r) => r.academicYear === state.year);
+/* Listed events first, then every "Other" event someone reported this year. */
+function eventRows() {
+  const others = [...new Map(yearReports().filter((r) => r.event === "Other").map((r) => [norm(r.eventLabel), r.eventLabel])).values()].sort();
+  return [...state.events, ...others];
+}
+const reportsFor = (label) => yearReports().filter((r) => norm(r.eventLabel) === norm(label));
+const committeeOf = (r) => state.committees.find((c) => norm(c.committee) === norm(r.committee));
+
+function renderStats() {
+  const rs = yearReports();
+  const covered = new Set(rs.map((r) => norm(r.eventLabel))).size;
+  const reporting = new Set(rs.map((r) => norm(r.committee))).size;
+  const avg = rs.length ? (rs.reduce((s, r) => s + Number(r.rating || 0), 0) / rs.length).toFixed(1) : "–";
+  const items = [["Reports", rs.length], ["Events covered", `${covered}`], ["Committees reporting", `${reporting} / ${state.committees.length}`], ["Average rating", avg]];
+  $("stats").innerHTML = items.map(([k, v]) => `<div class="stat"><div class="v">${esc(v)}</div><div class="k">${esc(k)}</div></div>`).join("");
+}
+
+function renderGrid() {
+  const cols = state.committees;
+  const head = `<thead><tr><th class="ev" scope="col">Event</th>${cols.map((c) => `<th scope="col">${esc(c.committee)}</th>`).join("")}</tr></thead>`;
+  const body = eventRows().map((label) => {
+    const rs = reportsFor(label);
+    const cells = cols.map((c) => {
+      const r = rs.find((x) => norm(x.committee) === norm(c.committee));
+      if (r) return `<td><button class="cell r${esc(r.rating)}" data-open="${esc(label)}" data-committee="${esc(c.committee)}" title="${esc(c.committee)}: rated ${esc(r.rating)}/5. Open">${esc(r.rating)}</button></td>`;
+      return `<td><button class="cell cell-missing" data-remind="${esc(label)}" data-committee="${esc(c.committee)}" title="Copy a reminder for ${esc(c.committee)}" aria-label="${esc(c.committee)} has not written ${esc(label)}. Copy reminder">+</button></td>`;
+    }).join("");
+    return `<tr><th class="ev" scope="row"><button data-open="${esc(label)}">${esc(label)}</button><span class="n">${rs.length ? `${rs.length} report${rs.length > 1 ? "s" : ""}` : "No reports yet"}</span></th>${cells}</tr>`;
+  }).join("");
+  $("grid").innerHTML = head + `<tbody>${body}</tbody>`;
+}
+
+function answerValue(q, r) { return q.value ? q.value(r) : r[q.key] || ""; }
+
+function renderEvent() {
+  const label = state.open;
+  const rs = reportsFor(label).sort((a, b) => a.committee.localeCompare(b.committee));
+  const missing = state.committees.filter((c) => !rs.some((r) => norm(r.committee) === norm(c.committee))).map((c) => c.committee);
+  const avg = rs.length ? (rs.reduce((s, r) => s + Number(r.rating || 0), 0) / rs.length).toFixed(1) : "–";
+  const tags = rs.map((r) => `<span class="tag ${Number(r.rating) >= 4 ? "green" : Number(r.rating) === 3 ? "amber" : "red"}">${esc(r.committee)} · ${esc(r.rating)}/5</span>`).join("");
+
+  let body;
+  if (!rs.length) {
+    body = `<div class="empty"><strong>No reports for this event yet</strong>Use the coverage grid to send reminders.</div>`;
+  } else if (state.mode === "question") {
+    body = QUESTIONS.map((q) => {
+      const rows = rs.map((r) => {
+        const v = answerValue(q, r); const extra = q.extra ? q.extra(r) : "";
+        if (!v && !extra && q.key !== "problems") return "";
+        const txt = [extra, v].filter(Boolean).join("\n");
+        return `<div class="ans"><div class="who">${esc(r.committee)}${q.showQuestion ? `<small>${esc(r.roleQuestion)}</small>` : ""}</div><div class="txt ${txt ? "" : "none"}">${txt ? (q.links ? linkify(txt) : esc(txt)) : "No answer"}</div></div>`;
+      }).join("");
+      return rows ? `<div class="q-block ${q.cls || ""}"><h3>${esc(q.title)}</h3>${rows}</div>` : "";
+    }).join("");
+  } else {
+    body = rs.map((r) => `<article class="rep" id="rep-${esc(norm(r.committee).replace(/[^a-z0-9]+/g, "-"))}">
+      <h3>${esc(r.committee)} <span class="tag ${Number(r.rating) >= 4 ? "green" : Number(r.rating) === 3 ? "amber" : "red"}">${esc(r.rating)}/5</span></h3>
+      <div class="by">Written by ${esc(r.createdBy)}${r.updatedBy && r.updatedBy !== r.createdBy ? `, last edited by ${esc(r.updatedBy)}` : ""} · ${esc(fmt(r.updatedAt))}</div>
+      <dl>${QUESTIONS.map((q) => { const v = [q.extra ? q.extra(r) : "", answerValue(q, r)].filter(Boolean).join("\n"); return v ? `<dt>${esc(q.showQuestion ? r.roleQuestion : q.title)}</dt><dd>${q.links ? linkify(v) : esc(v)}</dd>` : ""; }).join("")}</dl>
+    </article>`).join("");
+  }
+
+  $("view-event").innerHTML = `
+    <div class="head">
+      <button class="btn back-link" id="back" type="button">← All events</button>
+      <p class="print-only">Resala AUC · Event Reports · ${esc(state.year)} · printed ${esc(fmt(new Date().toISOString()))}</p>
+      <h2>${esc(label)}</h2>
+      <div class="meta">${esc(state.year)} · ${rs.length} committee report${rs.length === 1 ? "" : "s"} · average rating ${esc(avg)}</div>
+      <div class="committee-tags">${tags}</div>
+      ${missing.length && rs.length ? `<div class="missing print-hide">No report yet from: ${esc(missing.join(", "))}</div>` : ""}
+      <div class="tools">
+        <div class="seg" role="group" aria-label="Layout">
+          <button type="button" data-mode="question" aria-pressed="${state.mode === "question"}">By question</button>
+          <button type="button" data-mode="committee" aria-pressed="${state.mode === "committee"}">By committee</button>
+        </div>
+        <button class="btn" id="print" type="button">Print / save as PDF</button>
+      </div>
+    </div>
+    <div class="ev-body">${body}</div>`;
+  $("back").addEventListener("click", closeEvent);
+  $("print").addEventListener("click", () => window.print());
+  $("view-event").querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => { state.mode = b.dataset.mode; renderEvent(); }));
+}
+
+function openEvent(label, committee) {
+  state.open = label;
+  if (committee) state.mode = "committee";
+  renderEvent();
+  $("view-home").classList.add("hidden"); $("stats").classList.add("hidden");
+  $("view-event").classList.remove("hidden");
+  const target = committee && document.getElementById(`rep-${norm(committee).replace(/[^a-z0-9]+/g, "-")}`);
+  if (target) target.scrollIntoView({ block: "start" }); else window.scrollTo({ top: 0 });
+}
+function closeEvent() {
+  state.open = null;
+  $("view-event").classList.add("hidden");
+  $("view-home").classList.remove("hidden"); $("stats").classList.remove("hidden");
+}
+
+function render() { renderStats(); renderGrid(); if (state.open) renderEvent(); }
+
+let toastTimer;
+function toast(msg, ms = 2600) { const t = $("toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hidden"), ms); }
+
+async function remind(label, committee) {
+  const c = state.committees.find((x) => norm(x.committee) === norm(committee));
+  const names = (c?.directors || []).map((d) => d.name.split(" ")[0]).filter(Boolean);
+  const msg = `Hi ${names.length ? names.join(" & ") : committee + " team"}, please write ${committee}'s report for ${label} on the Event Reports portal (sign in with your AUC account): ${PORTAL_URL}\nWhat went well, what went wrong and why, and what next year should do differently. Thank you!`;
+  try { await navigator.clipboard.writeText(msg); toast(`Reminder for ${committee} copied. Paste it in WhatsApp or email.`, 3600); }
+  catch { toast(msg, 9000); }
+}
+
+$("grid").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.remind) remind(b.dataset.remind, b.dataset.committee);
+  else if (b.dataset.open) openEvent(b.dataset.open, b.dataset.committee);
+});
+$("year").addEventListener("change", () => { state.year = $("year").value; closeEvent(); render(); });
+
+function exportCsv() {
+  /* Same escaping as csvCell in event-reports.ts: a leading = + - @ is made
+     text so Excel never runs it as a formula. */
+  const cell = (v) => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const cols = [["academicYear", "Academic Year"], ["eventLabel", "Event"], ["committee", "Committee"], ["rating", "Rating"], ["occurrences", "Dates"],
+    ["responsibilities", "Responsibilities"], ["wentWell", "What Went Well"], ["problems", "Problems & Mistakes"], ["causes", "Why They Happened"],
+    ["handling", "How Handled"], ["roleQuestion", "Committee Question"], ["roleAnswer", "Committee Question Answer"], ["workedWith", "Worked With"],
+    ["collaboration", "How Working Together Went"], ["prepStart", "Preparation Started"], ["prepEnough", "Enough Time"], ["nextYear", "Next Year Should"],
+    ["numbers", "Key Numbers"], ["links", "Links"], ["createdBy", "Written By"], ["updatedBy", "Last Edited By"], ["updatedAt", "Last Edited At"]];
+  const rows = yearReports().sort((a, b) => a.eventLabel.localeCompare(b.eventLabel) || a.committee.localeCompare(b.committee));
+  const lines = [cols.map(([, h]) => cell(h)).join(","), ...rows.map((r) => cols.map(([k]) => cell(r[k])).join(","))];
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `resala-event-reports-${state.year}.csv`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+$("export").addEventListener("click", exportCsv);
+$("refresh").addEventListener("click", async () => {
+  const b = $("refresh"); b.disabled = true;
+  try { absorb(await api({ mode: "event-report-load" })); render(); toast("Up to date"); } catch (error) { toast(error.message); } finally { b.disabled = false; }
+});
+$("signout").addEventListener("click", () => { signOut(); location.reload(); });
+
+async function load() {
+  absorb(await api({ mode: "event-report-load" }));
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("bar-sub").textContent = state.viewer?.email ?? "";
+  render();
+}
+function showSignInError(error) { const el = $("login-error"); el.textContent = error.message; el.classList.remove("hidden"); }
+
+/* ?preview=1: stand-in reports, nothing read or saved. &open=<event> opens one. */
+function previewApi() {
+  const base = { academicYear: "2026-2027", eventOther: "", version: "1", createdBy: "director@aucegypt.edu", updatedBy: "director@aucegypt.edu", updatedAt: "2026-11-20T10:00:00Z", handling: "", numbers: "", links: "", occurrences: "", collaboration: "", workedWith: "", prepStart: "", prepEnough: "" };
+  const mk = (event, committee, rating, extra) => ({ ...base, event, eventLabel: event, committee, rating: String(rating), roleQuestion: "Committee-specific question for " + committee + "?", responsibilities: "Sample responsibilities.", wentWell: "Sample.", problems: "Sample problem.", causes: "Sample cause.", nextYear: "Sample advice.", roleAnswer: "Sample.", ...extra });
+  return {
+    ok: true,
+    viewer: { email: "Preview · nothing is saved" },
+    currentYear: "2026-2027",
+    events: ["Children's Day", "Weekly Tuesday Visit", "Mother's Day", "Back to School", "Blood Drive 1", "Blood Drive 2", "Winter Campaign", "Kheir Competition", "Opening", "Bonding Events", "Other"],
+    committees: ["Branding / Media", "HR", "Initiatives", "Operations", "PR / Fundraising", "Tech", "Visits", "Children Day"].map((c) => ({ committee: c, kind: "", directors: [{ name: "Sample Director", email: "d@aucegypt.edu", positionType: "Director" }] })),
+    reports: [
+      mk("Back to School", "Initiatives", 4, { prepStart: "2–4 weeks before", prepEnough: "Partly", workedWith: "Operations, Branding / Media", links: "https://drive.google.com/sample" }),
+      mk("Back to School", "Operations", 3),
+      mk("Back to School", "Branding / Media", 2, { problems: "Content arrived two days before the event." }),
+      mk("Bonding Events", "HR", 5, { occurrences: "3 Oct, 7 Nov" }),
+      mk("Blood Drive 1", "Operations", 4),
+      { ...mk("Other", "Tech", 3), eventOther: "Ramadan Iftar", eventLabel: "Ramadan Iftar" }
+    ]
+  };
+}
+
+if (isPreview) {
+  load().then(() => { const o = new URLSearchParams(location.search).get("open"); if (o) openEvent(o); });
+} else {
+  mountSignIn({ endpoint: ENDPOINT, container: $("google-signin"), onSignedIn: () => { $("login-error").classList.add("hidden"); return load(); }, onError: showSignInError });
+  if (currentSession()) load().catch((error) => { if (!isSignInError(error)) showSignInError(error); });
+}
+</script>
+</body>
+</html>

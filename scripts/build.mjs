@@ -35,6 +35,12 @@ await cp("heads-onboarding", "dist/heads-onboarding", { recursive: true });
 await cp("board-continuity", "dist/board-continuity", { recursive: true });
 // The Presidential Team's view of those answers, behind Google sign-in.
 await cp("board-continuity-dashboard", "dist/board-continuity-dashboard", { recursive: true });
+// Each committee's Directors write their event reports; the dashboard is the handover.
+await cp("event-reports", "dist/event-reports", { recursive: true });
+await cp("event-reports-dashboard", "dist/event-reports-dashboard", { recursive: true });
+// Styles shared by the forms above and by the two leadership dashboards.
+await cp("forms.css", "dist/forms.css");
+await cp("dashboard.css", "dist/dashboard.css");
 // Where applicants hand in a task their committee collects before the interview.
 await cp("tasks", "dist/tasks", { recursive: true });
 // The page used to live at /task/, and emails carrying that address are already

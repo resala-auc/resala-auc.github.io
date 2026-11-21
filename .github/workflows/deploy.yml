@@ -25,6 +25,12 @@ jobs:
           node-version: '24'
       - name: Install dependencies
         run: npm ci
+      - name: Set up Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Test event report rules
+        run: deno test --no-config supabase/functions/submit/event-reports.test.ts
       - name: Build
         run: npm run build
       - name: Configure GitHub Pages
