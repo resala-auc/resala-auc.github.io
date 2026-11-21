@@ -70,6 +70,8 @@
   .rep dt { margin-top: 12px; font-size: 13px; font-weight: 800; color: var(--navy); }
   .rep dd { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
   .back-link { display: inline-flex; }
+  .doc-note { margin: 4px 0 0; padding: 12px 14px; border-radius: 8px; background: #f3f7fd; border: 1px solid var(--line); font-size: 15px; }
+  .doc-note a, .ans .txt a { color: var(--navy); font-weight: 700; }
 
   @media (max-width: 860px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   @media (max-width: 560px) {
@@ -225,13 +227,16 @@ function renderGrid() {
 }
 
 function answerValue(q, r) { return q.value ? q.value(r) : r[q.key] || ""; }
+const DOC_KEYS = ["responsibilities", "wentWell", "problems", "causes", "roleAnswer", "nextYear"];
+const isDocReport = (r) => r.format === "document";
+const docLinkHtml = (r) => `<a href="${esc(r.docLink)}" target="_blank" rel="noopener">Open ${esc(r.committee)}'s document ↗</a>`;
 
 function renderEvent() {
   const label = state.open;
   const rs = reportsFor(label).sort((a, b) => a.committee.localeCompare(b.committee));
   const missing = state.committees.filter((c) => !rs.some((r) => norm(r.committee) === norm(c.committee))).map((c) => c.committee);
   const avg = rs.length ? (rs.reduce((s, r) => s + Number(r.rating || 0), 0) / rs.length).toFixed(1) : "–";
-  const tags = rs.map((r) => `<span class="tag ${Number(r.rating) >= 4 ? "green" : Number(r.rating) === 3 ? "amber" : "red"}">${esc(r.committee)} · ${esc(r.rating)}/5</span>`).join("");
+  const tags = rs.map((r) => `<span class="tag ${Number(r.rating) >= 4 ? "green" : Number(r.rating) === 3 ? "amber" : "red"}">${esc(r.committee)} · ${esc(r.rating)}/5${isDocReport(r) ? " · document" : ""}</span>`).join("");
 
   let body;
   if (!rs.length) {
@@ -239,6 +244,10 @@ function renderEvent() {
   } else if (state.mode === "question") {
     body = QUESTIONS.map((q) => {
       const rows = rs.map((r) => {
+        if (isDocReport(r)) {
+          if (!DOC_KEYS.includes(q.key)) return "";
+          return `<div class="ans"><div class="who">${esc(r.committee)}${q.showQuestion ? `<small>${esc(r.roleQuestion)}</small>` : ""}</div><div class="txt">Answered in their document. ${docLinkHtml(r)}</div></div>`;
+        }
         const v = answerValue(q, r); const extra = q.extra ? q.extra(r) : "";
         if (!v && !extra && q.key !== "problems") return "";
         const txt = [extra, v].filter(Boolean).join("\n");
@@ -250,6 +259,7 @@ function renderEvent() {
     body = rs.map((r) => `<article class="rep" id="rep-${esc(norm(r.committee).replace(/[^a-z0-9]+/g, "-"))}">
       <h3>${esc(r.committee)} <span class="tag ${Number(r.rating) >= 4 ? "green" : Number(r.rating) === 3 ? "amber" : "red"}">${esc(r.rating)}/5</span></h3>
       <div class="by">Written by ${esc(r.createdBy)}${r.updatedBy && r.updatedBy !== r.createdBy ? `, last edited by ${esc(r.updatedBy)}` : ""} · ${esc(fmt(r.updatedAt))}</div>
+      ${isDocReport(r) ? `<p class="doc-note">Submitted as a document, confirmed to answer every required question. ${docLinkHtml(r)}<span class="print-only">${esc(r.docLink)}</span></p>` : ""}
       <dl>${QUESTIONS.map((q) => { const v = [q.extra ? q.extra(r) : "", answerValue(q, r)].filter(Boolean).join("\n"); return v ? `<dt>${esc(q.showQuestion ? r.roleQuestion : q.title)}</dt><dd>${q.links ? linkify(v) : esc(v)}</dd>` : ""; }).join("")}</dl>
     </article>`).join("");
   }
@@ -319,7 +329,7 @@ function exportCsv() {
     ["responsibilities", "Responsibilities"], ["wentWell", "What Went Well"], ["problems", "Problems & Mistakes"], ["causes", "Why They Happened"],
     ["handling", "How Handled"], ["roleQuestion", "Committee Question"], ["roleAnswer", "Committee Question Answer"], ["workedWith", "Worked With"],
     ["collaboration", "How Working Together Went"], ["prepStart", "Preparation Started"], ["prepEnough", "Enough Time"], ["nextYear", "Next Year Should"],
-    ["numbers", "Key Numbers"], ["links", "Links"], ["createdBy", "Written By"], ["updatedBy", "Last Edited By"], ["updatedAt", "Last Edited At"]];
+    ["numbers", "Key Numbers"], ["links", "Links"], ["format", "Format"], ["docLink", "Document Link"], ["createdBy", "Written By"], ["updatedBy", "Last Edited By"], ["updatedAt", "Last Edited At"]];
   const rows = yearReports().sort((a, b) => a.eventLabel.localeCompare(b.eventLabel) || a.committee.localeCompare(b.committee));
   const lines = [cols.map(([, h]) => cell(h)).join(","), ...rows.map((r) => cols.map(([k]) => cell(r[k])).join(","))];
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -357,6 +367,7 @@ function previewApi() {
       mk("Back to School", "Branding / Media", 2, { problems: "Content arrived two days before the event." }),
       mk("Bonding Events", "HR", 5, { occurrences: "3 Oct, 7 Nov" }),
       mk("Blood Drive 1", "Operations", 4),
+      mk("Back to School", "HR", 4, { format: "document", docLink: "https://docs.google.com/document/d/sample/edit", responsibilities: "", wentWell: "", problems: "", causes: "", nextYear: "", roleAnswer: "" }),
       { ...mk("Other", "Tech", 3), eventOther: "Ramadan Iftar", eventLabel: "Ramadan Iftar" }
     ]
   };

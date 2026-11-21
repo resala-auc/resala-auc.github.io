@@ -51,6 +51,11 @@
       .check input:checked + label { border-color: var(--navy); background: #f3f7fd; color: var(--navy); }
       .check input:focus-visible + label { box-shadow: 0 0 0 4px rgba(12, 44, 128, 0.16); }
 
+      .covers { display: grid; gap: 8px; }
+      .cover { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1.5px solid #cfd6e2; border-radius: 8px; cursor: pointer; background: var(--white); font-size: 15.5px; line-height: 1.45; }
+      .cover input { flex: none; width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--navy); }
+      .cover:has(input:checked) { border-color: var(--navy); background: #f3f7fd; }
+      .field.invalid .cover:not(:has(input:checked)) { border-color: #e7b3ae; }
       .editor-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 16px; }
       .editor-head h2 { margin: 0; }
       .last-saved { font-size: 14px; color: var(--muted); margin: 6px 0 0; }
@@ -140,6 +145,35 @@
           </div>
 
           <div class="card">
+            <fieldset class="field" data-field="format" style="margin:0;">
+              <legend>How would you like to submit this report?</legend>
+              <div class="choices inline">
+                <div class="choice"><input type="radio" name="format" id="fmt-written" value="written" checked><label for="fmt-written">Write it here</label></div>
+                <div class="choice"><input type="radio" name="format" id="fmt-document" value="document"><label for="fmt-document">Attach a document</label></div>
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="card" id="doc-card" hidden>
+            <p class="section-head">Your document</p>
+            <h2>Attach your report</h2>
+            <p class="section-desc">Write the report in a Google Doc (or any document) and paste its link here. At minimum, it must answer every question below. Copy them into your document as headings, then answer each one from your committee's responsibilities.</p>
+            <button type="button" class="btn btn-ghost" id="copy-questions" style="margin-bottom:22px;">Copy the questions</button>
+
+            <div class="field" data-field="docLink">
+              <label class="field-label" for="docLink">Link to your document<span class="req" aria-hidden="true">*</span></label>
+              <p class="hint">Set sharing so the Resala account (resala@aucegypt.edu) can open it, or "Anyone at AUC with the link".</p>
+              <input type="url" id="docLink" inputmode="url" maxlength="1000" placeholder="https://docs.google.com/document/d/…">
+              <p class="error-msg">Paste a link that starts with https://</p>
+            </div>
+            <fieldset class="field" data-field="docCovers">
+              <legend>Confirm your document answers each of these<span class="req" aria-hidden="true">*</span></legend>
+              <div class="covers" id="doc-covers"></div>
+              <p class="error-msg">Your document must answer every question. Tick each one once it does.</p>
+            </fieldset>
+          </div>
+
+          <div class="card written-only">
             <div class="form-section-title"><span class="sec-num">Section 1</span></div>
             <h2>What happened</h2>
             <p class="section-desc">Questions marked <span class="req" aria-hidden="true">*</span> are required. Be specific: names of tasks, dates, numbers. The next team will read this without you there to explain.</p>
@@ -176,7 +210,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card written-only">
             <div class="form-section-title"><span class="sec-num">Section 2</span></div>
             <h2>Working together &amp; preparation</h2>
             <p class="section-desc">This helps next year plan the timeline and who to involve early.</p>
@@ -201,7 +235,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card written-only">
             <div class="form-section-title"><span class="sec-num">Section 3</span></div>
             <h2>For next year</h2>
             <p class="section-desc">The most important part of the report.</p>
@@ -221,8 +255,11 @@
               <p class="hint">Drive folders, designs, budget sheets, photos, timelines. Make sure the Resala account can open them.</p>
               <textarea id="links" maxlength="2000" style="min-height:90px;"></textarea>
             </div>
+          </div>
+
+          <div class="card">
             <fieldset class="field" data-field="rating">
-              <legend><span class="q-num">14.</span> Overall, how well did your committee's part of this event go?<span class="req" aria-hidden="true">*</span></legend>
+              <legend>Overall, how well did your committee's part of this event go?<span class="req" aria-hidden="true">*</span></legend>
               <div class="ratings">
                 <div class="rating"><input type="radio" name="rating" id="r1" value="1"><label for="r1">1</label></div>
                 <div class="rating"><input type="radio" name="rating" id="r2" value="2"><label for="r2">2</label></div>
@@ -307,7 +344,7 @@
         $("year-pill").textContent = `Academic year ${state.year}`;
         const tile = (event, other, r) => {
           const label = event === "Other" ? other : event;
-          const status = r ? `<span class="chip done">✓ Written</span><span class="sub">Last edited by ${esc(r.updatedBy)} · ${esc(fmt(r.updatedAt))}</span>` : `<span class="chip todo">Not written yet</span>`;
+          const status = r ? `<span class="chip done">✓ ${r.format === "document" ? "Document attached" : "Written"}</span><span class="sub">Last edited by ${esc(r.updatedBy)} · ${esc(fmt(r.updatedAt))}</span>` : `<span class="chip todo">Not written yet</span>`;
           return `<li><button type="button" class="event-tile" data-event="${esc(event)}" data-other="${esc(other)}"><span class="name">${esc(label)}</span>${state.repeated.includes(event) ? `<span class="sub">One report for the whole semester</span>` : ""}${status}</button></li>`;
         };
         const listed = state.events.filter((e) => e !== "Other").map((e) => tile(e, "", reportFor(e)));
@@ -319,6 +356,32 @@
       /* ---------- Editor ---------- */
       const FIELDS = ["occurrences", "responsibilities", "wentWell", "problems", "causes", "handling", "roleAnswer", "collaboration", "prepStart", "prepEnough", "nextYear", "numbers", "links"];
       const REQUIRED = ["responsibilities", "wentWell", "problems", "causes", "roleAnswer", "nextYear"];
+      const isDoc = () => document.querySelector('input[name="format"]:checked')?.value === "document";
+      /* The questions a document has to answer, worded as on the form. */
+      const docQuestions = () => [
+        ["responsibilities", "What was your committee responsible for in this event?"],
+        ["wentWell", "What went well?"],
+        ["problems", "What problems or mistakes happened?"],
+        ["causes", "Why did they happen?"],
+        ["roleAnswer", state.roleQuestion],
+        ["nextYear", "What should next year's team do differently?"]
+      ];
+      const OPTIONAL_DOC_QUESTIONS = ["How did you handle the problems at the time?", "Which committees did you work with, and how did it go?", "When did you start preparing, and was it enough time?", "Key numbers (attendance, volunteers, budget, reach…)", "Links to files"];
+      function syncFormat() {
+        document.querySelectorAll(".written-only").forEach((el) => { el.hidden = isDoc(); });
+        $("doc-card").hidden = !isDoc();
+      }
+      document.querySelectorAll('input[name="format"]').forEach((b) => b.addEventListener("change", syncFormat));
+      $("copy-questions").addEventListener("click", async () => {
+        const title = $("editor-title").textContent;
+        const text = [`${state.writer.committee} · ${title} · Event report ${state.year}`, "",
+          ...docQuestions().map(([, q], i) => `${i + 1}. ${q}`), "", "Optional:",
+          ...OPTIONAL_DOC_QUESTIONS.map((q) => `- ${q}`)].join("\n");
+        const btn = $("copy-questions");
+        try { await navigator.clipboard.writeText(text); btn.textContent = "Copied ✓"; }
+        catch { btn.textContent = "Couldn't copy, select the list below"; }
+        setTimeout(() => { btn.textContent = "Copy the questions"; }, 2500);
+      });
       const draftKey = () => `resala-event-report:${state.year}:${norm(state.writer?.committee)}:${norm(state.editing.event)}:${norm(state.editing.other)}`;
 
       function fillSelect(el, options) { el.length = 1; options.forEach((o) => el.add(new Option(o, o))); }
@@ -340,6 +403,7 @@
         $("responsibilities").placeholder = hints.responsibilities;
         $("problems").placeholder = hints.problems;
         $("role-question").textContent = state.roleQuestion;
+        $("doc-covers").innerHTML = docQuestions().map(([key, q]) => `<label class="cover"><input type="checkbox" value="${esc(key)}"><span>${esc(q)}</span></label>`).join("");
         fillSelect($("prepStart"), state.prepStart);
         fillSelect($("prepEnough"), state.prepEnough);
         $("worked-with").innerHTML = COMMITTEES.filter((c) => norm(c) !== norm(state.writer.committee))
@@ -353,6 +417,12 @@
         const ww = String(source.workedWith || "").split(",").map(norm);
         document.querySelectorAll("#worked-with input").forEach((b) => { b.checked = ww.includes(norm(b.value)); });
         document.querySelectorAll('input[name="rating"]').forEach((b) => { b.checked = b.value === String(source.rating || ""); });
+        const fmt0 = source.format === "document" ? "document" : "written";
+        document.querySelectorAll('input[name="format"]').forEach((b) => { b.checked = b.value === fmt0; });
+        $("docLink").value = source.docLink || "";
+        const covered = (Array.isArray(source.docCovers) ? source.docCovers : String(source.docCovers || "").split(",")).map((v) => String(v).trim());
+        document.querySelectorAll("#doc-covers input").forEach((b) => { b.checked = covered.includes(b.value); });
+        syncFormat();
         document.querySelectorAll(".field.invalid").forEach((f) => f.classList.remove("invalid"));
         $("form-alert").hidden = true;
         show("editor");
@@ -363,13 +433,17 @@
         FIELDS.forEach((f) => { values[f] = $(f).value.trim(); });
         values.workedWith = [...document.querySelectorAll("#worked-with input:checked")].map((b) => b.value);
         values.rating = document.querySelector('input[name="rating"]:checked')?.value || "";
+        values.format = isDoc() ? "document" : "written";
+        values.docLink = $("docLink").value.trim();
+        values.docCovers = [...document.querySelectorAll("#doc-covers input:checked")].map((b) => b.value);
         return values;
       }
 
       let draftTimer;
       $("report-form").addEventListener("input", (e) => {
         const wrap = e.target.closest("[data-field]");
-        if (wrap?.classList.contains("invalid") && (e.target.value || "").trim()) wrap.classList.remove("invalid");
+        if (wrap?.classList.contains("invalid") && (e.target.value || "").trim() && wrap.dataset.field !== "docCovers") wrap.classList.remove("invalid");
+        if (wrap?.dataset.field === "docCovers" && [...wrap.querySelectorAll("input")].every((b) => b.checked)) wrap.classList.remove("invalid");
         clearTimeout(draftTimer);
         draftTimer = setTimeout(() => {
           try { localStorage.setItem(draftKey(), JSON.stringify({ baseVersion: state.editing.version, values: collect() })); } catch {}
@@ -377,7 +451,14 @@
       });
 
       function validate(values) {
-        const bad = REQUIRED.filter((f) => !values[f]);
+        let bad;
+        if (values.format === "document") {
+          bad = [];
+          if (!/^https:\/\/\S+$/.test(values.docLink)) bad.push("docLink");
+          if (values.docCovers.length < docQuestions().length) bad.push("docCovers");
+        } else {
+          bad = REQUIRED.filter((f) => !values[f]);
+        }
         if (!values.rating) bad.push("rating");
         if (state.editing.isNewOther && !$("eventOther").value.trim()) bad.unshift("eventOther");
         document.querySelectorAll("[data-field]").forEach((w) => w.classList.toggle("invalid", bad.includes(w.dataset.field)));

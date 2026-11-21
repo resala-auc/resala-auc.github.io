@@ -126,10 +126,18 @@ export const ANSWER_FIELDS: FieldSpec[] = [
   { key: "rating", header: "Rating (1-5)", required: true, max: 10 }
 ];
 
+/* The questions a document must cover, at minimum, when a committee submits
+   its report as a document instead of typing it. Same set the form requires. */
+export const REQUIRED_QUESTION_KEYS = ["responsibilities", "wentWell", "problems", "causes", "roleAnswer", "nextYear"];
+export const REPORT_FORMATS = ["written", "document"];
+
+/* Format and document columns sit after Version so rows saved before they
+   existed keep every column where it was. */
 export const EVENT_REPORT_HEADERS = [
   "Key", "Academic Year", "Event", "Event Name", "Committee", "Committee Question",
   ...ANSWER_FIELDS.map((f) => f.header),
-  "Created By", "Created At", "Updated By", "Updated At", "Version"
+  "Created By", "Created At", "Updated By", "Updated At", "Version",
+  "Format", "Document Link", "Document Covers"
 ];
 const FIXED_BEFORE = 6;
 
@@ -146,12 +154,36 @@ export function validateReport(input: ReportInput): CleanReport {
   if (event === "Other" && !eventOther) throw new ReportError("Write the name of the event.");
   if (eventOther.length > 120) throw new ReportError("The event name is too long (120 characters at most).");
 
-  const out: Record<string, string> = { event, eventOther };
+  const format = String(input.format ?? "written").trim() || "written";
+  if (!REPORT_FORMATS.includes(format)) throw new ReportError("Choose whether to write the report here or attach a document.");
+  const isDoc = format === "document";
+
+  const out: Record<string, string> = { event, eventOther, format, docLink: "", docCovers: "" };
+  if (isDoc) {
+    const link = String(input.docLink ?? "").trim();
+    if (!link) throw new ReportError("Paste the link to your report document.");
+    let url: URL;
+    try { url = new URL(link); } catch { throw new ReportError("The document link doesn't look like a link. Copy it from the browser's address bar."); }
+    if (url.protocol !== "https:") throw new ReportError("The document link must start with https://.");
+    if (link.length > 1000) throw new ReportError("The document link is too long.");
+    const covers = new Set((Array.isArray(input.docCovers) ? input.docCovers : String(input.docCovers ?? "").split(","))
+      .map((v) => String(v).trim()).filter(Boolean));
+    const missing = REQUIRED_QUESTION_KEYS.filter((k) => !covers.has(k));
+    if (missing.length) {
+      const names = missing.map((k) => ANSWER_FIELDS.find((f) => f.key === k)!.header);
+      throw new ReportError(`Your document must answer every required question. Not confirmed yet: ${names.join(", ")}.`);
+    }
+    out.docLink = link;
+    out.docCovers = REQUIRED_QUESTION_KEYS.join(", ");
+  }
+
   for (const f of ANSWER_FIELDS) {
     let value = input[f.key];
     if (Array.isArray(value)) value = value.map((v) => String(v).trim()).filter(Boolean).join(", ");
     const text = String(value ?? "").trim();
-    if (f.required && !text) throw new ReportError(`Please answer: ${f.header}.`);
+    // A document carries the written answers; the rating is still asked here.
+    const required = f.required && (!isDoc || f.key === "rating");
+    if (required && !text) throw new ReportError(`Please answer: ${f.header}.`);
     if (text.length > f.max) throw new ReportError(`"${f.header}" is too long (${f.max} characters at most).`);
     out[f.key] = text;
   }
@@ -173,6 +205,7 @@ export function reportFromRow(row: string[]): StoredReport {
   const tail = FIXED_BEFORE + ANSWER_FIELDS.length;
   r.createdBy = cell(tail); r.createdAt = cell(tail + 1);
   r.updatedBy = cell(tail + 2); r.updatedAt = cell(tail + 3); r.version = cell(tail + 4) || "1";
+  r.format = cell(tail + 5) || "written"; r.docLink = cell(tail + 6); r.docCovers = cell(tail + 7);
   r.eventLabel = eventLabel(r.event, r.eventOther);
   return r;
 }
@@ -181,7 +214,8 @@ export function rowFromReport(r: StoredReport): string[] {
   return [
     r.key, r.academicYear, r.event, r.eventOther, r.committee, r.roleQuestion,
     ...ANSWER_FIELDS.map((f) => r[f.key] ?? ""),
-    r.createdBy, r.createdAt, r.updatedBy, r.updatedAt, r.version
+    r.createdBy, r.createdAt, r.updatedBy, r.updatedAt, r.version,
+    r.format || "written", r.docLink ?? "", r.docCovers ?? ""
   ];
 }
 

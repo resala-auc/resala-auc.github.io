@@ -144,3 +144,50 @@ Deno.test("csv cells are formula-safe and quoted", () => {
   assertEquals(csvCell("line1\nline2"), '"line1\nline2"');
   assertEquals(csvCell(null), "");
 });
+
+const docReport = () => ({
+  event: "Opening", format: "document", docLink: "https://docs.google.com/document/d/abc/edit",
+  docCovers: ["responsibilities", "wentWell", "problems", "causes", "roleAnswer", "nextYear"], rating: "3"
+});
+
+Deno.test("document report: link + all questions confirmed + rating is enough", () => {
+  const out = validateReport(docReport());
+  assertEquals(out.format, "document");
+  assertEquals(out.docLink, "https://docs.google.com/document/d/abc/edit");
+  assertEquals(out.problems, "");
+});
+
+Deno.test("document report: every required question must be confirmed, named in the error", () => {
+  const d = docReport(); d.docCovers = d.docCovers.filter((k) => k !== "causes" && k !== "nextYear");
+  assertThrows(() => validateReport(d), "Why They Happened, What Next Year Should Do Differently");
+});
+
+Deno.test("document report: needs an https link", () => {
+  assertThrows(() => validateReport({ ...docReport(), docLink: "" }), "Paste the link");
+  assertThrows(() => validateReport({ ...docReport(), docLink: "my report" }), "doesn't look like a link");
+  assertThrows(() => validateReport({ ...docReport(), docLink: "http://example.com/x" }), "https://");
+  assertThrows(() => validateReport({ ...docReport(), docLink: "javascript:alert(1)" }), "https://");
+});
+
+Deno.test("document report: rating is still required", () => {
+  assertThrows(() => validateReport({ ...docReport(), rating: "" }), "Please answer: Rating");
+});
+
+Deno.test("written report ignores a stray document link", () => {
+  const out = validateReport({ ...valid(), docLink: "https://x.y" });
+  assertEquals(out.format, "written");
+  assertEquals(out.docLink, "");
+});
+
+Deno.test("unknown format is rejected", () => {
+  assertThrows(() => validateReport({ ...valid(), format: "video" }), "attach a document");
+});
+
+Deno.test("document columns round-trip and old rows read as written", () => {
+  const stored = { ...validateReport(docReport()), key: "k", academicYear: "y", committee: "HR", roleQuestion: "q", createdBy: "a", createdAt: "t", updatedBy: "a", updatedAt: "t", version: "1" };
+  const back = reportFromRow(rowFromReport(stored));
+  assertEquals(back.format, "document");
+  assertEquals(back.docLink, "https://docs.google.com/document/d/abc/edit");
+  const oldRow = rowFromReport({ ...stored, format: "", docLink: "", docCovers: "" }).slice(0, -3);
+  assertEquals(reportFromRow(oldRow).format, "written");
+});
