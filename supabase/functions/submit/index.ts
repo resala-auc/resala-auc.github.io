@@ -2788,7 +2788,7 @@ Deno.serve((request) =>
     ) {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
-      const viewer = await requireBoardContinuityViewer(token);
+      const viewer = await requireBoardContinuityViewer();
       if ((payload as { mode?: string }).mode === "board-continuity-decide") {
         await saveBoardContinuityDecision(token, viewer, payload as unknown as BoardContinuityDecisionPayload);
       }
@@ -14822,12 +14822,15 @@ async function submitBoardContinuity(
 
 /*
  * The Board Continuity dashboard (/board-continuity-dashboard/). Reflections
- * are candid — shortcomings, what went wrong — so this is NOT the recruitment
- * admin list: only people named in "Board Continuity Viewers" can read them,
- * with RECRUITMENT_ADMIN_EMAILS as the bootstrap while that tab is empty.
+ * are candid — shortcomings, what went wrong — so only the Resala account and
+ * Youssef may read them. Not the recruitment admin list, and not a sheet tab anyone with
+ * edit access could add themselves to. BOARD_CONTINUITY_VIEWER_EMAILS can
+ * override the list without a code change.
  */
-const BOARD_CONTINUITY_VIEWERS_SHEET_NAME = "Board Continuity Viewers";
-const BOARD_CONTINUITY_VIEWERS_HEADERS = ["Name", "Email", "Added At"];
+const BOARD_CONTINUITY_VIEWER_EMAILS = (Deno.env.get("BOARD_CONTINUITY_VIEWER_EMAILS") ?? "resala@aucegypt.edu,youssefalaref@aucegypt.edu")
+  .split(/[,;\s]+/)
+  .map((value) => normalize(value))
+  .filter(Boolean);
 const BOARD_CONTINUITY_DECISIONS_SHEET_NAME = "Board Continuity Decisions";
 const BOARD_CONTINUITY_DECISIONS_HEADERS = ["AUC Email", "Status", "Proposed Role", "Notes", "Updated By", "Updated At"];
 const BOARD_CONTINUITY_STATUSES = ["Undecided", "Keep in role", "Move to new role", "Continue as member", "Not continuing"];
@@ -14840,17 +14843,10 @@ type BoardContinuityDecisionPayload = {
   notes?: string;
 };
 
-async function requireBoardContinuityViewer(token: string): Promise<{ name: string; email: string }> {
+async function requireBoardContinuityViewer(): Promise<{ name: string; email: string }> {
   const email = signedInEmail();
-  const wanted = normalize(email);
-  await ensureSheetTab(token, BOARD_CONTINUITY_VIEWERS_SHEET_NAME);
-  await ensureSheetHeaders(token, BOARD_CONTINUITY_VIEWERS_SHEET_NAME, BOARD_CONTINUITY_VIEWERS_HEADERS);
-  const response = await sheetsFetch(token, "GET", sheetRange(BOARD_CONTINUITY_VIEWERS_SHEET_NAME, "A2:B"));
-  const rows = ((await response.json()).values ?? []) as string[][];
-  const listed = rows.find((row) => normalize(row[1] ?? "") === wanted);
-  if (listed) return { name: String(listed[0] ?? "").trim(), email: email.trim() };
-  if (BOOTSTRAP_ADMIN_EMAILS.includes(wanted)) return { name: "Admin", email: email.trim() };
-  throw new Error("This account cannot open the Board Continuity dashboard. Ask the Presidential Team to add you.");
+  if (BOARD_CONTINUITY_VIEWER_EMAILS.includes(normalize(email))) return { name: "", email: email.trim() };
+  throw new Error("This account cannot open the Board Continuity dashboard. Sign in with the Resala account.");
 }
 
 async function loadBoardContinuity(token: string): Promise<{
