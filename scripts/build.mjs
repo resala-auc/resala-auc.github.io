@@ -33,6 +33,8 @@ await cp("onboarding", "dist/onboarding", { recursive: true });
 await cp("heads-onboarding", "dist/heads-onboarding", { recursive: true });
 // Every current Board member's end-of-semester reflection and continuity answer.
 await cp("board-continuity", "dist/board-continuity", { recursive: true });
+// The Presidential Team's view of those answers, behind Google sign-in.
+await cp("board-continuity-dashboard", "dist/board-continuity-dashboard", { recursive: true });
 // Where applicants hand in a task their committee collects before the interview.
 await cp("tasks", "dist/tasks", { recursive: true });
 // The page used to live at /task/, and emails carrying that address are already

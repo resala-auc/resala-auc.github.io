@@ -2782,6 +2782,19 @@ Deno.serve((request) =>
       return jsonResponse({ ok: true, ...(await loadHeadsOnboardingStatus(token, payload.applicantEmail)) });
     }
 
+    if (
+      (payload as { mode?: string }).mode === "board-continuity-load" ||
+      (payload as { mode?: string }).mode === "board-continuity-decide"
+    ) {
+      if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
+      const token = await getGoogleAccessToken();
+      const viewer = await requireBoardContinuityViewer(token);
+      if ((payload as { mode?: string }).mode === "board-continuity-decide") {
+        await saveBoardContinuityDecision(token, viewer, payload as unknown as BoardContinuityDecisionPayload);
+      }
+      return jsonResponse({ ok: true, viewer, ...(await loadBoardContinuity(token)) });
+    }
+
     if ((payload as { mode?: string }).mode === "board-continuity-submit") {
       if (!SHEET_ID) throw new Error("SHEET_ID is not configured.");
       const token = await getGoogleAccessToken();
@@ -14805,6 +14818,123 @@ async function submitBoardContinuity(
   );
 
   return { saved: true, submittedAt };
+}
+
+/*
+ * The Board Continuity dashboard (/board-continuity-dashboard/). Reflections
+ * are candid — shortcomings, what went wrong — so this is NOT the recruitment
+ * admin list: only people named in "Board Continuity Viewers" can read them,
+ * with RECRUITMENT_ADMIN_EMAILS as the bootstrap while that tab is empty.
+ */
+const BOARD_CONTINUITY_VIEWERS_SHEET_NAME = "Board Continuity Viewers";
+const BOARD_CONTINUITY_VIEWERS_HEADERS = ["Name", "Email", "Added At"];
+const BOARD_CONTINUITY_DECISIONS_SHEET_NAME = "Board Continuity Decisions";
+const BOARD_CONTINUITY_DECISIONS_HEADERS = ["AUC Email", "Status", "Proposed Role", "Notes", "Updated By", "Updated At"];
+const BOARD_CONTINUITY_STATUSES = ["Undecided", "Keep in role", "Move to new role", "Continue as member", "Not continuing"];
+
+type BoardContinuityDecisionPayload = {
+  mode: "board-continuity-decide";
+  aucEmail: string;
+  status: string;
+  proposedRole?: string;
+  notes?: string;
+};
+
+async function requireBoardContinuityViewer(token: string): Promise<{ name: string; email: string }> {
+  const email = signedInEmail();
+  const wanted = normalize(email);
+  await ensureSheetTab(token, BOARD_CONTINUITY_VIEWERS_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_CONTINUITY_VIEWERS_SHEET_NAME, BOARD_CONTINUITY_VIEWERS_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(BOARD_CONTINUITY_VIEWERS_SHEET_NAME, "A2:B"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const listed = rows.find((row) => normalize(row[1] ?? "") === wanted);
+  if (listed) return { name: String(listed[0] ?? "").trim(), email: email.trim() };
+  if (BOOTSTRAP_ADMIN_EMAILS.includes(wanted)) return { name: "Admin", email: email.trim() };
+  throw new Error("This account cannot open the Board Continuity dashboard. Ask the Presidential Team to add you.");
+}
+
+async function loadBoardContinuity(token: string): Promise<{
+  questions: Array<{ key: string; header: string }>;
+  responses: Array<Record<string, string>>;
+  decisions: Record<string, { status: string; proposedRole: string; notes: string; updatedBy: string; updatedAt: string }>;
+  statuses: string[];
+}> {
+  await ensureSheetTab(token, BOARD_CONTINUITY_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_CONTINUITY_SHEET_NAME, BOARD_CONTINUITY_HEADERS);
+  await ensureSheetTab(token, BOARD_CONTINUITY_DECISIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_CONTINUITY_DECISIONS_SHEET_NAME, BOARD_CONTINUITY_DECISIONS_HEADERS);
+
+  const width = columnLetter(BOARD_CONTINUITY_HEADERS.length);
+  const [responseRes, decisionRes] = await Promise.all([
+    sheetsFetch(token, "GET", sheetRange(BOARD_CONTINUITY_SHEET_NAME, `A2:${width}`)),
+    sheetsFetch(token, "GET", sheetRange(BOARD_CONTINUITY_DECISIONS_SHEET_NAME, "A2:F"))
+  ]);
+  const responseRows = ((await responseRes.json()).values ?? []) as string[][];
+  const decisionRows = ((await decisionRes.json()).values ?? []) as string[][];
+
+  const responses = responseRows
+    .filter((row) => row.some((cell) => String(cell ?? "").trim()))
+    .map((row, index) => {
+      const record: Record<string, string> = { row: String(index + 2), submittedAt: String(row[0] ?? "") };
+      BOARD_CONTINUITY_FIELDS.forEach((field, i) => { record[field.key] = String(row[i + 1] ?? ""); });
+      return record;
+    });
+
+  const decisions: Record<string, { status: string; proposedRole: string; notes: string; updatedBy: string; updatedAt: string }> = {};
+  for (const row of decisionRows) {
+    const key = normalize(row[0] ?? "");
+    if (!key) continue;
+    decisions[key] = {
+      status: String(row[1] ?? ""),
+      proposedRole: String(row[2] ?? ""),
+      notes: String(row[3] ?? ""),
+      updatedBy: String(row[4] ?? ""),
+      updatedAt: String(row[5] ?? "")
+    };
+  }
+
+  return {
+    questions: BOARD_CONTINUITY_FIELDS.map((field) => ({ key: field.key, header: field.header })),
+    responses,
+    decisions,
+    statuses: BOARD_CONTINUITY_STATUSES
+  };
+}
+
+async function saveBoardContinuityDecision(
+  token: string,
+  viewer: { name: string; email: string },
+  payload: BoardContinuityDecisionPayload
+): Promise<void> {
+  const aucEmail = normalize(payload.aucEmail);
+  if (!aucEmail) throw new Error("Missing the Board member's email.");
+  const status = String(payload.status ?? "").trim();
+  if (!BOARD_CONTINUITY_STATUSES.includes(status)) throw new Error("Choose a valid status.");
+  const proposedRole = String(payload.proposedRole ?? "").trim().slice(0, 200);
+  const notes = String(payload.notes ?? "").trim().slice(0, 5000);
+
+  await ensureSheetTab(token, BOARD_CONTINUITY_DECISIONS_SHEET_NAME);
+  await ensureSheetHeaders(token, BOARD_CONTINUITY_DECISIONS_SHEET_NAME, BOARD_CONTINUITY_DECISIONS_HEADERS);
+  const response = await sheetsFetch(token, "GET", sheetRange(BOARD_CONTINUITY_DECISIONS_SHEET_NAME, "A2:A"));
+  const rows = ((await response.json()).values ?? []) as string[][];
+  const index = rows.findIndex((row) => normalize(row[0] ?? "") === aucEmail);
+  const values = [[aucEmail, status, proposedRole, notes, viewer.email, new Date().toISOString()]];
+
+  if (index === -1) {
+    await sheetsFetch(
+      token,
+      "POST",
+      `${sheetRange(BOARD_CONTINUITY_DECISIONS_SHEET_NAME, "A:F")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+      { values }
+    );
+  } else {
+    await sheetsFetch(
+      token,
+      "PUT",
+      `${sheetRange(BOARD_CONTINUITY_DECISIONS_SHEET_NAME, `A${index + 2}:F${index + 2}`)}?valueInputOption=RAW`,
+      { values }
+    );
+  }
 }
 
 async function submitHeadsOnboarding(
